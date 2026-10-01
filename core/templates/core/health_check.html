@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Göz İzleme — Sunucu Durumu</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+            background: #f4f6f8;
+            color: #1a2733;
+            display: flex;
+            min-height: 100vh;
+            margin: 0;
+            align-items: center;
+            justify-content: center;
+        }
+        .kart {
+            background: #fff;
+            padding: 2.5rem 3rem;
+            border-radius: 12px;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
+            max-width: 480px;
+        }
+        h1 { font-size: 1.4rem; margin: 0 0 0.5rem; }
+        .rozet {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .guvenli { background: #e3f6e8; color: #1b6b36; }
+        .guvensiz { background: #fdecea; color: #a52318; }
+        p { line-height: 1.6; color: #44525f; }
+        code { background: #eef1f4; padding: 0.1rem 0.4rem; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="kart">
+        <h1>Göz İzleme Uygulaması</h1>
+        <p>
+            Bağlantı durumu:
+            {% if is_secure %}
+                <span class="rozet guvenli">HTTPS etkin ✓</span>
+            {% else %}
+                <span class="rozet guvensiz">HTTPS yok (HTTP)</span>
+            {% endif %}
+        </p>
+        <p>
+            Sunucu <code>{{ host }}</code> üzerinde çalışıyor.
+            Bu, <strong>Faz 0 (Kurulum)</strong> sağlık kontrolü sayfasıdır.
+            Kamera erişimi HTTPS gerektirdiği için güvenli bağlantı burada doğrulanır.
+        </p>
+    </div>
+</body>
+</html>
