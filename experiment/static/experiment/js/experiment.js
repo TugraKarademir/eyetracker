@@ -11,12 +11,31 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "0.1.0-faz1";
+  const APP_VERSION = "0.1.1-faz1";
   const MIN_W = 1280;
   const MIN_H = 720;
   const STIM_ID = "#jspsych-image-button-response-stimulus";
 
   const material = JSON.parse(document.getElementById("material-data").textContent);
+
+  // Materyal adiminda kendi topladigimiz veriler (uzantinin t ve target kutusu
+  // bu webgazer surumuyle guvenilir degil; bkz. [[webgazer-jspsych-surum]]).
+  let materialStart = null;      // performance.now() materyal yuklendiginde
+  let materialSamples = [];      // [{x, y, t}] viewport px + materyal basindan ms
+  let materialBox = null;        // {left, top, width, height} viewport px
+  let unsubscribeGaze = null;    // gaze dinleyiciyi birakma fonksiyonu
+
+  function measureMaterialBox() {
+    const el = document.querySelector(STIM_ID);
+    if (el) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        materialBox = { left: r.left, top: r.top, width: r.width, height: r.height };
+        return true;
+      }
+    }
+    return false;
+  }
 
   // --- Cihaz / tarayici kontrolu (spec §5.2, §11) ---------------------------
   function deviceIssue() {
@@ -165,29 +184,69 @@
       { type: jsPsychExtensionWebgazer, params: { targets: [STIM_ID] } },
     ],
     data: { task: "material", material_name: material.name },
+    on_load: function () {
+      materialStart = performance.now();
+      materialSamples = [];
+      materialBox = null;
+
+      // Kendi gaze dinleyicimiz: her ornegi performance.now() ile zaman damgala
+      try {
+        unsubscribeGaze = jsPsych.extensions.webgazer.onGazeUpdate(function (g) {
+          if (g && typeof g.x === "number" && typeof g.y === "number") {
+            materialSamples.push({
+              x: g.x,
+              y: g.y,
+              t: Math.round(performance.now() - materialStart),
+            });
+          }
+        });
+      } catch (e) {
+        console.error("Gaze dinleyici kurulamadi:", e);
+      }
+
+      // Materyal kutusunu goruntu YUKLENDIKTEN sonra olc (0x0 sorununu onler)
+      const img = document.querySelector(STIM_ID);
+      if (img && img.complete && img.naturalWidth > 0) {
+        measureMaterialBox();
+      } else if (img) {
+        img.addEventListener("load", measureMaterialBox, { once: true });
+      }
+      // Yedek: layout gecikmesine karsi kisa aralikla birkac kez dene
+      let tries = 0;
+      const retry = setInterval(function () {
+        if (measureMaterialBox() || ++tries > 10) clearInterval(retry);
+      }, 150);
+    },
+    on_finish: function () {
+      // Son bir olcum sansi (materyal DOM'dan kalkmadan once)
+      if (!materialBox) measureMaterialBox();
+      if (unsubscribeGaze) {
+        try { unsubscribeGaze(); } catch (e) { /* yok say */ }
+        unsubscribeGaze = null;
+      }
+    },
   });
 
   jsPsych.run(timeline);
 
   // --- Bitiste: veriyi derle, normalize et, JSON indir ----------------------
   function buildAndDownload() {
-    const matTrial = jsPsych.data.get().filter({ task: "material" }).values()[0] || {};
     const valTrial = jsPsych.data.get().filter({ task: "validate" }).values()[0] || {};
 
-    const gaze = matTrial.webgazer_data || []; // [{x, y, t}] viewport px
-    const targets = matTrial.webgazer_targets || {};
-    const box = targets[STIM_ID] || null; // {left, top, width, height, ...}
+    // Kendi topladigimiz zaman damgali ornekler ve olculen materyal kutusu
+    const gaze = materialSamples; // [{x, y, t}] viewport px, t = materyal basindan ms
+    const box = materialBox;      // {left, top, width, height} viewport px veya null
 
     // Koordinatlari materyale gore normalize et (spec §6)
     const samples = gaze.map(function (s) {
       let x_norm = null, y_norm = null, in_material = false;
       if (box && box.width > 0 && box.height > 0) {
-        x_norm = (s.x - box.left) / box.width;
-        y_norm = (s.y - box.top) / box.height;
+        x_norm = +((s.x - box.left) / box.width).toFixed(4);
+        y_norm = +((s.y - box.top) / box.height).toFixed(4);
         in_material = x_norm >= 0 && x_norm <= 1 && y_norm >= 0 && y_norm <= 1;
       }
       return {
-        t: Math.round(s.t),            // materyal baslangicindan ms
+        t: s.t,                        // materyal baslangicindan ms
         x_px: Math.round(s.x),         // goruntu alanina gore px
         y_px: Math.round(s.y),
         x_norm: x_norm,                // materyale gore 0–1
@@ -202,7 +261,8 @@
       duration_ms = gaze[gaze.length - 1].t - gaze[0].t;
       if (duration_ms > 0) actual_hz = +(gaze.length / (duration_ms / 1000)).toFixed(1);
     }
-    const n_missing = samples.filter(function (s) { return !s.in_material; }).length;
+    // "materyal disi" = normalize kutu disinda kalan ornekler (spec §6 kayip/disinda)
+    const n_outside = samples.filter(function (s) { return !s.in_material; }).length;
 
     const payload = {
       meta: {
@@ -229,7 +289,7 @@
         n_samples: gaze.length,
         duration_ms: duration_ms,
         actual_hz: actual_hz,
-        n_outside_material: n_missing,
+        n_outside_material: n_outside,
       },
       samples: samples,
     };
