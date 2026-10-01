@@ -280,3 +280,34 @@ class ReportViewTests(TestCase):
         url = reverse("studies:study_report", args=[self.study.id])
         r = self.client.get(url)
         self.assertEqual(r.status_code, 302)  # panele yonlendirir
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class QualityExclusionTests(TestCase):
+    def setUp(self):
+        self.teacher = User.objects.create_user("ogretmen", password="x", is_superuser=True, is_staff=True)
+        self.study = Study.objects.create(name="Kalite", teacher=self.teacher, status=Study.Status.ACTIVE)
+        self.material = Material.objects.create(study=self.study, order=1, image=_upload(w=1200, h=800))
+        self.aoi = AOI.objects.create(material=self.material, name="Kutu", shape="rect",
+                                      coords={"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2})
+        self.session = Session.objects.create(study=self.study, participant_code="k1",
+                                              status=Session.Status.COMPLETED)
+        # 5 materyal-ici + 5 materyal-disi -> kayip orani %50 > %30 -> materyal dislanir
+        for t in (0, 100, 200, 300, 400):
+            GazeSample.objects.create(session=self.session, material=self.material, t=t,
+                                      x_px=240, y_px=160, x_norm=0.2, y_norm=0.2, in_material=True)
+        for t in (500, 600, 700, 800, 900):
+            GazeSample.objects.create(session=self.session, material=self.material, t=t,
+                                      x_px=0, y_px=0, x_norm=-0.1, y_norm=-0.1, in_material=False)
+
+    def test_dusuk_kalite_oturum_dislanir_ama_ham_veri_durur(self):
+        from studies.analysis import run_study_analysis
+        result = run_study_analysis(self.study)
+        sess = result["sessions"][0]
+        self.assertTrue(sess["excluded"])
+        self.assertTrue(sess["exclusion_reason"])
+        # Ham veri silinmez (10 satir)
+        self.assertEqual(len(result["raw_samples"]), 10)
+        # Grup ozetine girmez -> isabet orani 0
+        self.assertEqual(result["aoi_summary"][0]["hit_rate"], 0.0)
+        self.assertEqual(result["aoi_summary"][0]["n_participants"], 0)

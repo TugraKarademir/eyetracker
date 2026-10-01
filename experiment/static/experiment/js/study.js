@@ -11,7 +11,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "0.2.0-faz2";
+  const APP_VERSION = "0.6.0-faz6";
   const MIN_W = 1280;
   const MIN_H = 720;
   const STIM_ID = "#jspsych-image-button-response-stimulus";
@@ -128,6 +128,7 @@
   // Toplanan veriler
   const allSamples = []; // {material_id, t, x_px, y_px, x_norm, y_norm, in_material}
   let validationResult = null;
+  const midChecks = [];  // ara kontroller (spec §5.8)
 
   // Materyal adiminda gecici toplayici
   let matStart = null, matSamples = [], matBox = null, unsubscribeGaze = null;
@@ -211,7 +212,7 @@
   });
 
   // 6) Her materyal: odak artisi + materyal
-  materials.forEach(function (mat) {
+  materials.forEach(function (mat, idx) {
     timeline.push({
       type: jsPsychHtmlKeyboardResponse,
       stimulus: '<div style="font-size:64px">+</div>',
@@ -270,6 +271,41 @@
         });
       },
     });
+
+    // Ara kontrol (spec §5.8): her 3 materyalde bir tek noktali hizli dogrulama
+    if ((idx + 1) % 3 === 0 && idx + 1 < materials.length) {
+      timeline.push({
+        type: jsPsychWebgazerValidate,
+        validation_points: [[50, 50]],
+        validation_point_coordinates: "percent",
+        roi_radius: 200,
+        time_to_saccade: 800,
+        validation_duration: 1500,
+        data: { task: "midcheck" },
+        on_finish: function (data) {
+          const v = summarizeValidation(data);
+          v.attempt_no = 2 + midChecks.length;
+          midChecks.push(v);
+          if (v.avg_error_px != null && !v.passed) {
+            console.warn("Ara kontrol: dogruluk dustu, yeniden kalibrasyon onerilebilir.");
+          }
+        },
+      });
+      // Yalnizca hata buyudiyse nazik bir hatirlatma goster (yeniden kalibrasyon onerisi)
+      timeline.push({
+        timeline: [{
+          type: jsPsychHtmlButtonResponse,
+          stimulus: "<div style='max-width:620px;margin:0 auto;line-height:1.6'>" +
+            "<h3>Kisa hatirlatma</h3><p>Takip dogrulugu bir miktar dustu. Lutfen " +
+            "basinizi ekrana gore <strong>ortalayin</strong> ve sabit tutun; " +
+            "isigin yuzunuze onden geldiginden emin olun.</p></div>",
+          choices: ["Devam"],
+        }],
+        conditional_function: function () {
+          return midChecks.length && !midChecks[midChecks.length - 1].passed;
+        },
+      });
+    }
   });
 
   jsPsych.run(timeline);
@@ -282,7 +318,7 @@
       "<p style='color:#777'>Lutfen pencereyi kapatmayin.</p></div>";
 
     const payload = {
-      calibrations: validationResult ? [validationResult] : [],
+      calibrations: (validationResult ? [validationResult] : []).concat(midChecks),
       samples: allSamples,
     };
 

@@ -14,6 +14,7 @@ from gaze_analysis.config import ANALYSIS_VERSION, AnalysisConfig
 from gaze_analysis.fixation import detect_fixations
 from gaze_analysis.geometry import aoi_contains
 from gaze_analysis.preprocessing import actual_sampling_hz, preprocess
+from gaze_analysis.quality import material_quality, session_quality
 
 from .models import GazeSample, Session
 
@@ -69,7 +70,6 @@ def run_study_analysis(study, config=None):
             .values("material_id", "t", "x_px", "y_px", "x_norm", "y_norm", "in_material")
             .order_by("material_id", "t")
         )
-        # materyale gore grupla
         by_mat = {}
         for s in all_samples:
             by_mat.setdefault(s["material_id"], []).append(s)
@@ -78,12 +78,49 @@ def run_study_analysis(study, config=None):
         total_out = sum(1 for s in all_samples if not s["in_material"])
         missing_ratio = round(total_out / total_n, 3) if total_n else None
 
-        # Kalibrasyon/dogrulama (son deneme)
         calib = sess.calibrations.order_by("-attempt_no").first()
-
-        # ornekleme hizi (tum ornekler t'ye gore)
         hz_list = [{"t": s["t"]} for s in sorted(all_samples, key=lambda s: s["t"])]
         hz = actual_sampling_hz(hz_list)
+
+        # 1) Materyal bazli isleme + kalite (spec §7)
+        material_results = []
+        material_flags = []  # her denenen materyal gecerli mi (dislanmadi mi)
+        for mid, samples in by_mat.items():
+            if mid not in mat_info:
+                continue
+            info = mat_info[mid]
+            aois = info["aois"]
+
+            for s in samples:  # ham veri her zaman saklanir (silinmez)
+                result["raw_samples"].append({
+                    "session_id": sess.id, "participant_code": sess.participant_code,
+                    "material_order": info["order"], "material_id": mid,
+                    "t": s["t"], "x_px": s["x_px"], "y_px": s["y_px"],
+                    "x_norm": s["x_norm"], "y_norm": s["y_norm"], "in_material": s["in_material"],
+                })
+
+            out_c = sum(1 for s in samples if not s["in_material"])
+            mq = material_quality(len(samples), out_c, config)
+            material_flags.append(not mq["excluded"])
+
+            pre = preprocess(
+                [{"t": s["t"], "x": s["x_norm"], "y": s["y_norm"], "in_material": s["in_material"]}
+                 for s in samples],
+                config,
+            )
+            fixations = detect_fixations(pre, config, aspect=info["aspect"])
+            sm = None
+            if aois:
+                sm, _ = session_aoi_metrics(fixations, aois, buffer=config.aoi_buffer)
+            material_results.append(
+                {"mid": mid, "info": info, "aois": aois, "fixations": fixations, "sm": sm, "mq": mq}
+            )
+
+        # 2) Oturum kalitesi (spec §7)
+        sq = session_quality(
+            calib.avg_error_px if calib else None, sess.viewport_width, material_flags, config
+        )
+        sess_excluded = sq["excluded"]
 
         result["sessions"].append({
             "id": sess.id,
@@ -96,33 +133,16 @@ def run_study_analysis(study, config=None):
             "sampling_hz": hz,
             "sample_count": total_n,
             "missing_ratio": missing_ratio,
-            "exclusion_reason": "",  # Faz 6'da kalite kurallari
+            "valid_material_ratio": sq["valid_material_ratio"],
+            "excluded": sess_excluded,
+            "exclusion_reason": "; ".join(sq["reasons"]),
         })
 
-        for mid, samples in by_mat.items():
-            if mid not in mat_info:
-                continue
-            info = mat_info[mid]
-            aois = info["aois"]
-
-            # Ham veri satirlari
-            for s in samples:
-                result["raw_samples"].append({
-                    "session_id": sess.id, "participant_code": sess.participant_code,
-                    "material_order": info["order"], "material_id": mid,
-                    "t": s["t"], "x_px": s["x_px"], "y_px": s["y_px"],
-                    "x_norm": s["x_norm"], "y_norm": s["y_norm"], "in_material": s["in_material"],
-                })
-
-            # On isleme + fiksasyon
-            pre = preprocess(
-                [{"t": s["t"], "x": s["x_norm"], "y": s["y_norm"], "in_material": s["in_material"]}
-                 for s in samples],
-                config,
-            )
-            fixations = detect_fixations(pre, config, aspect=info["aspect"])
-
-            for f in fixations:
+        # 3) Fiksasyon + metrik satirlari; grup yalnizca dislanmayan veriyle
+        for mr in material_results:
+            info, mid, aois = mr["info"], mr["mid"], mr["aois"]
+            excl = sess_excluded or mr["mq"]["excluded"]
+            for f in mr["fixations"]:
                 hit_names = [a["name"] for a in aois
                              if aoi_contains(f["x"], f["y"], a, buffer=config.aoi_buffer)]
                 result["fixations"].append({
@@ -130,20 +150,18 @@ def run_study_analysis(study, config=None):
                     "material_order": info["order"], "material_id": mid,
                     "start_t": f["start_t"], "end_t": f["end_t"], "duration": f["duration"],
                     "x": f["x"], "y": f["y"], "n_samples": f["n_samples"],
-                    "aoi_names": hit_names,
+                    "aoi_names": hit_names, "excluded": excl,
                 })
-
-            # AOI metrikleri (katilimci x AOI)
-            if aois:
-                sm, _total = session_aoi_metrics(fixations, aois, buffer=config.aoi_buffer)
-                per_material_session_metrics[mid].append(sm)
+            if aois and mr["sm"] is not None:
                 aoi_name = {a["id"]: a["name"] for a in aois}
-                for aid, mrow in sm.items():
+                for aid, mrow in mr["sm"].items():
                     result["aoi_metrics"].append({
                         "session_id": sess.id, "participant_code": sess.participant_code,
                         "material_order": info["order"], "aoi_id": aid,
-                        "aoi_name": aoi_name[aid], **mrow,
+                        "aoi_name": aoi_name[aid], "excluded": excl, **mrow,
                     })
+                if not excl:  # grup ozetine yalnizca dislanmayan veri girer
+                    per_material_session_metrics[mid].append(mr["sm"])
 
     # Grup ozeti (materyal x AOI)
     for m in materials:
@@ -205,9 +223,11 @@ def build_study_report(study, config=None):
     config = config or AnalysisConfig.from_dict(study.settings)
     result = run_study_analysis(study, config)
 
-    # fiksasyonlari materyale gore grupla
+    # fiksasyonlari materyale gore grupla (dislanan oturum/materyal haric; spec §7)
     fix_by_mat = {}
     for f in result["fixations"]:
+        if f.get("excluded"):
+            continue
         fix_by_mat.setdefault(f["material_id"], []).append(f)
 
     summary_by_order = {}
@@ -254,4 +274,5 @@ def build_study_report(study, config=None):
         "limitation_note": report_mod.LIMITATION_NOTE,
         "materials": materials_ctx,
         "n_sessions": len(result["sessions"]),
+        "sessions": result["sessions"],  # kalite raporu (spec §7)
     }

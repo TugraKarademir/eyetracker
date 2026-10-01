@@ -34,6 +34,28 @@
     <main>
         <div class="not"><strong>Sınırlılık:</strong> {{ limitation_note }}</div>
 
+        <div class="mat">
+            <h2>Veri Kalitesi</h2>
+            <div class="meta">Her katılımcı için doğrulama hatası, kayıp veri oranı, örnekleme hızı ve dışlanma durumu (spec §7).</div>
+            <table>
+                <tr><th>Katılımcı</th><th>Durum</th><th>Doğrulama hata (px)</th><th>Örnekleme (Hz)</th><th>Materyal dışı</th><th>Geçerli mat.</th><th>Analize dahil</th><th>Dışlanma nedeni</th></tr>
+                {% for s in sessions %}
+                <tr>
+                    <td>{{ s.participant_code }}</td>
+                    <td>{{ s.status }}</td>
+                    <td>{{ s.validation_error_px|default:"—" }}</td>
+                    <td>{{ s.sampling_hz|default:"—" }}</td>
+                    <td>{% if s.missing_ratio != None %}{{ s.missing_ratio }}{% else %}—{% endif %}</td>
+                    <td>{{ s.valid_material_ratio|default:"—" }}</td>
+                    <td>{% if s.excluded %}<span style="color:#b3261e">Hayır</span>{% else %}<span style="color:#1b6b36">Evet</span>{% endif %}</td>
+                    <td style="font-size:.82rem;color:#a52318">{{ s.exclusion_reason }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="8" class="bos">Henüz oturum yok.</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+
         {% for m in materials %}
         <div class="mat">
             <h2>Materyal #{{ m.order }}</h2>

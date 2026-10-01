@@ -30,7 +30,7 @@ def build_workbook(result):
     ws = _sheet(wb, "Katilimcilar", [
         "oturum_id", "katilimci_kodu", "durum", "baslangic", "bitis",
         "dogrulama_hata_px", "dogrulama_gecti", "ornekleme_hz", "ornek_sayisi",
-        "materyal_disi_orani", "dislanma_nedeni",
+        "materyal_disi_orani", "gecerli_materyal_orani", "analize_dahil", "dislanma_nedeni",
     ], first=True)
     for s in result.get("sessions", []):
         ws.append([
@@ -38,7 +38,9 @@ def build_workbook(result):
             s.get("started_at"), s.get("finished_at"),
             s.get("validation_error_px"), s.get("validation_passed"),
             s.get("sampling_hz"), s.get("sample_count"),
-            s.get("missing_ratio"), s.get("exclusion_reason") or "",
+            s.get("missing_ratio"), s.get("valid_material_ratio"),
+            (not s.get("excluded")) if "excluded" in s else True,
+            s.get("exclusion_reason") or "",
         ])
 
     # --- Ham_Veri ---
