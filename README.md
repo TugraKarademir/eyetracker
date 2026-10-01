@@ -7,7 +7,19 @@ Tüm kapsam, algoritmalar ve kararlar için bkz. [`GOZ_IZLEME_SPEC.md`](GOZ_IZLE
 
 - **Faz 0 — Kurulum:** ✓ Tamamlandı (Django + yerel HTTPS çalışıyor)
 - **Faz 1 — Katılımcı prototipi:** ✓ Tamamlandı (jsPsych + WebGazer; tek materyal, kalibrasyon, doğrulama; veri JSON olarak iner)
-- Sonraki: Faz 2 — Sunucu modelleri ve veri kaydı
+- **Faz 2 — Sunucu ve veri kaydı:** ✓ Tamamlandı (Study/Material/Session/GazeSample modelleri, JSON API, çok materyalli çalışma, Django admin öğretmen paneli)
+- Sonraki: Faz 3 — AOI çizim aracı
+
+### Hızlı başlangıç (Faz 2)
+
+```powershell
+.venv\Scripts\python.exe manage.py migrate
+.venv\Scripts\python.exe manage.py seed_demo      # ogretmen hesabi + aktif demo calisma
+.venv\Scripts\python.exe manage.py runserver --noreload localhost:8000
+```
+- **Öğretmen paneli (admin):** <http://localhost:8000/admin/> — `ogretmen` / `ogretmen1234` (yerel geliştirme; değiştirin). Çalışma oluştur, materyal yükle, katılım linkini ve oturumları gör.
+- **Katılım linki:** admin'de çalışmanın "Katilim baglantisi" alanında (`/dene/<kod>/`). Bu sayfa çok materyalli çalışmayı çalıştırır ve veriyi **sunucuya** kaydeder.
+- Faz 1 tek-materyal demo (`/dene/`, sunucuya kayıt yok) geriye uyumlu durur.
 
 ### Netleşen kararlar (spec §14)
 - Materyal ilerleme: öğrenci **"Devam"** düğmesiyle geçer
@@ -67,6 +79,7 @@ yeniden-yükleyicisi arka planda sürüp eski sürümü sunan bir alt süreç b�
 |---|---|
 | `gaze_tracker/` | Django proje ayarları ve URL'ler |
 | `core/` | Ortak sayfalar (şu an: sağlık kontrolü) |
-| `experiment/` | Katılımcı deneyi (jsPsych + WebGazer); `/dene/` sayfası ve örnek materyal |
+| `experiment/` | Katılımcı deneyi (jsPsych + WebGazer); `/dene/` demo ve `/dene/<kod>/` çalışma |
+| `studies/` | Veri modelleri (Study/Material/Session/GazeSample), kayıt API'si, admin paneli |
 | `gaze_analysis/` | Django'dan bağımsız analiz paketi (Faz 4'te dolacak) |
 | `GOZ_IZLEME_SPEC.md` | Proje şartnamesi (ana kaynak) |
