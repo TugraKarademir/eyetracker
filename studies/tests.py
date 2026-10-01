@@ -7,7 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from .models import CalibrationResult, GazeSample, Material, Session, Study
+from .models import AOI, CalibrationResult, GazeSample, Material, Session, Study
 
 User = get_user_model()
 
@@ -138,3 +138,59 @@ class RunStudyViewTests(TestCase):
         url = reverse("experiment:run_study", args=["bilinmeyen"])
         r = self.client.get(url, SERVER_NAME="localhost")
         self.assertEqual(r.status_code, 404)
+
+
+class AOITests(TestCase):
+    def setUp(self):
+        self.teacher = User.objects.create_user("ogretmen", password="x", is_superuser=True, is_staff=True)
+        self.other = User.objects.create_user("baska", password="x")
+        self.study = Study.objects.create(name="A", teacher=self.teacher, status=Study.Status.ACTIVE)
+        with override_settings(MEDIA_ROOT=MEDIA):
+            self.material = Material.objects.create(study=self.study, order=1, image=_upload())
+
+    def _post(self, url, body):
+        return self.client.post(url, data=json.dumps(body), content_type="application/json")
+
+    def test_editor_login_gerektirir(self):
+        url = reverse("studies:aoi_editor", args=[self.material.id])
+        r = self.client.get(url)
+        self.assertEqual(r.status_code, 302)  # admin/login'e yonlendirir
+
+    def test_editor_sahip_200(self):
+        self.client.force_login(self.teacher)
+        url = reverse("studies:aoi_editor", args=[self.material.id])
+        r = self.client.get(url, SERVER_NAME="localhost")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("aoi_editor.js", r.content.decode())
+
+    def test_aoi_kaydet_ve_cakisma_uyarisi(self):
+        self.client.force_login(self.teacher)
+        url = reverse("studies:aoi_save", args=[self.material.id])
+        body = {"aois": [
+            {"name": "Baslik", "shape": "rect", "color": "#e53935",
+             "coords": {"x": 0.0, "y": 0.0, "w": 0.5, "h": 0.5}},
+            {"name": "Grafik", "shape": "rect", "color": "#1e88e5",
+             "coords": {"x": 0.3, "y": 0.3, "w": 0.5, "h": 0.5}},  # cakisir
+        ]}
+        r = self._post(url, body)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["saved"], 2)
+        self.assertEqual(len(r.json()["warnings"]), 1)
+        self.assertEqual(AOI.objects.filter(material=self.material).count(), 2)
+
+    def test_aoi_kaydet_replace_eder(self):
+        self.client.force_login(self.teacher)
+        AOI.objects.create(material=self.material, name="eski", shape="rect",
+                           coords={"x": 0, "y": 0, "w": 0.1, "h": 0.1})
+        url = reverse("studies:aoi_save", args=[self.material.id])
+        r = self._post(url, {"aois": [
+            {"name": "yeni", "shape": "rect", "coords": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}}]})
+        self.assertEqual(r.status_code, 200)
+        names = list(AOI.objects.filter(material=self.material).values_list("name", flat=True))
+        self.assertEqual(names, ["yeni"])
+
+    def test_aoi_yetkisiz_kullanici_403(self):
+        self.client.force_login(self.other)
+        url = reverse("studies:aoi_save", args=[self.material.id])
+        r = self._post(url, {"aois": []})
+        self.assertEqual(r.status_code, 403)

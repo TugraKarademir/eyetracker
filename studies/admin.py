@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from .models import CalibrationResult, GazeSample, Material, Session, Study
+from .models import AOI, CalibrationResult, GazeSample, Material, Session, Study
 
 
 class MaterialInline(admin.TabularInline):
@@ -65,10 +65,33 @@ class SessionAdmin(admin.ModelAdmin):
         return obj.samples.count()
 
 
+class AOIInline(admin.TabularInline):
+    model = AOI
+    extra = 0
+    fields = ("name", "shape", "color")
+
+
 @admin.register(Material)
 class MaterialAdmin(admin.ModelAdmin):
-    list_display = ("study", "order", "natural_width", "natural_height")
+    list_display = ("study", "order", "natural_width", "natural_height", "aoi_count", "aoi_editor_link")
     list_filter = ("study",)
+    inlines = [AOIInline]
+
+    @admin.display(description="AOI")
+    def aoi_count(self, obj):
+        return obj.aois.count()
+
+    @admin.display(description="AOI araci")
+    def aoi_editor_link(self, obj):
+        from django.urls import reverse
+        url = reverse("studies:aoi_editor", args=[obj.id])
+        return format_html('<a href="{}" target="_blank">AOI ciz</a>', url)
+
+
+@admin.register(AOI)
+class AOIAdmin(admin.ModelAdmin):
+    list_display = ("name", "material", "shape", "color")
+    list_filter = ("shape", "material__study")
 
 
 # GazeSample cok sayida satir uretir; admin'de yalnizca okunur ozet.

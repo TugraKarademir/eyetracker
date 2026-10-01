@@ -8,7 +8,8 @@ Tüm kapsam, algoritmalar ve kararlar için bkz. [`GOZ_IZLEME_SPEC.md`](GOZ_IZLE
 - **Faz 0 — Kurulum:** ✓ Tamamlandı (Django + yerel HTTPS çalışıyor)
 - **Faz 1 — Katılımcı prototipi:** ✓ Tamamlandı (jsPsych + WebGazer; tek materyal, kalibrasyon, doğrulama; veri JSON olarak iner)
 - **Faz 2 — Sunucu ve veri kaydı:** ✓ Tamamlandı (Study/Material/Session/GazeSample modelleri, JSON API, çok materyalli çalışma, Django admin öğretmen paneli)
-- Sonraki: Faz 3 — AOI çizim aracı
+- **Faz 3 — AOI çizim aracı:** ✓ Tamamlandı (Canvas ile dikdörtgen/çokgen çizimi, 0–1 normalize koordinatlar, çakışma uyarısı). Panel: `/panel/`
+- Sonraki: Faz 4 — Analiz motoru + Excel
 
 ### Hızlı başlangıç (Faz 2)
 

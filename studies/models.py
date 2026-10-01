@@ -164,3 +164,48 @@ class GazeSample(models.Model):
         indexes = [
             models.Index(fields=["session", "material"]),
         ]
+
+
+class AOI(models.Model):
+    """Bir materyal uzerindeki ilgi alani (spec §4 AOI).
+
+    Koordinatlar materyale gore 0-1 normalize saklanir; boylece farkli
+    ekran boyutlarinda tutarli kalir.
+      - rect  : coords = {"x": .., "y": .., "w": .., "h": ..}
+      - polygon: coords = {"points": [[x, y], ...]}
+    """
+
+    class Shape(models.TextChoices):
+        RECT = "rect", "Dikdortgen"
+        POLYGON = "polygon", "Cokgen"
+
+    material = models.ForeignKey(
+        Material, on_delete=models.CASCADE, related_name="aois", verbose_name="Materyal"
+    )
+    name = models.CharField("Ad", max_length=100)
+    shape = models.CharField("Sekil", max_length=10, choices=Shape.choices, default=Shape.RECT)
+    coords = models.JSONField("Koordinatlar (normalize 0-1)", default=dict)
+    color = models.CharField("Renk", max_length=9, default="#e53935")
+    created_at = models.DateTimeField("Olusturulma", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Ilgi alani (AOI)"
+        verbose_name_plural = "Ilgi alanlari (AOI)"
+        ordering = ["material", "id"]
+
+    def __str__(self):
+        return f"{self.name} ({self.material})"
+
+    def bounding_box(self):
+        """AOI'nin normalize sinirlayici kutusunu (x0, y0, x1, y1) dondurur."""
+        if self.shape == self.Shape.RECT:
+            c = self.coords or {}
+            x, y = float(c.get("x", 0)), float(c.get("y", 0))
+            w, h = float(c.get("w", 0)), float(c.get("h", 0))
+            return (x, y, x + w, y + h)
+        pts = (self.coords or {}).get("points") or []
+        if not pts:
+            return (0.0, 0.0, 0.0, 0.0)
+        xs = [float(p[0]) for p in pts]
+        ys = [float(p[1]) for p in pts]
+        return (min(xs), min(ys), max(xs), max(ys))

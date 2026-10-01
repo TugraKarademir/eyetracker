@@ -1,11 +1,17 @@
 from django.urls import path
 
-from . import api
+from . import api, views
 
 app_name = "studies"
 
 urlpatterns = [
+    # Ogretmen paneli (Faz 3)
+    path("panel/", views.dashboard, name="dashboard"),
+    path("panel/materyal/<int:material_id>/aoi/", views.aoi_editor, name="aoi_editor"),
+    # Veri kayit API'si (Faz 2)
     path("api/session/baslat/", api.session_start, name="session_start"),
     path("api/session/<int:session_id>/veri/", api.session_data, name="session_data"),
     path("api/session/<int:session_id>/bitir/", api.session_finish, name="session_finish"),
+    # AOI API (Faz 3)
+    path("api/materyal/<int:material_id>/aoi/", api.aoi_save, name="aoi_save"),
 ]

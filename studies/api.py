@@ -160,3 +160,71 @@ def _as_float(v):
 def _anon_code():
     import secrets
     return "k-" + secrets.token_hex(4)
+
+
+# --- AOI (Faz 3) -----------------------------------------------------------
+from django.contrib.auth.decorators import login_required  # noqa: E402
+
+from gaze_analysis.geometry import find_overlaps  # noqa: E402
+
+from .models import AOI  # noqa: E402
+
+VALID_SHAPES = {"rect", "polygon"}
+
+
+def _aoi_to_dict(a):
+    return {"id": a.id, "name": a.name, "shape": a.shape, "coords": a.coords, "color": a.color}
+
+
+def _overlap_warnings(aoi_dicts):
+    pairs = find_overlaps(aoi_dicts)
+    warnings = []
+    for i, j in pairs:
+        warnings.append(
+            f"'{aoi_dicts[i].get('name') or i}' ve '{aoi_dicts[j].get('name') or j}' AOI'leri cakisiyor."
+        )
+    return warnings
+
+
+def _owns_material(user, material):
+    return material.study.teacher_id == user.id or user.is_superuser
+
+
+@login_required
+@require_POST
+def aoi_save(request, material_id):
+    """Bir materyalin TUM AOI'lerini gelen listeyle degistirir (login gerekli)."""
+    try:
+        material = Material.objects.select_related("study").get(pk=material_id)
+    except Material.DoesNotExist:
+        return JsonResponse({"error": "Materyal bulunamadi"}, status=404)
+    if not _owns_material(request.user, material):
+        return JsonResponse({"error": "Yetki yok"}, status=403)
+
+    data = _json_body(request)
+    if data is None:
+        return JsonResponse({"error": "Gecersiz JSON"}, status=400)
+
+    incoming = data.get("aois") or []
+    cleaned = []
+    for a in incoming:
+        shape = a.get("shape")
+        if shape not in VALID_SHAPES:
+            continue
+        cleaned.append({
+            "name": (a.get("name") or "AOI").strip()[:100],
+            "shape": shape,
+            "coords": a.get("coords") or {},
+            "color": (a.get("color") or "#e53935")[:9],
+        })
+
+    with transaction.atomic():
+        material.aois.all().delete()
+        AOI.objects.bulk_create([
+            AOI(material=material, name=c["name"], shape=c["shape"],
+                coords=c["coords"], color=c["color"])
+            for c in cleaned
+        ])
+
+    warnings = _overlap_warnings(cleaned)
+    return JsonResponse({"saved": len(cleaned), "warnings": warnings})
