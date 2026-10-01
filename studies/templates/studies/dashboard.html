@@ -42,6 +42,7 @@
             <div class="meta">
                 {{ study.sessions.count }} oturum &middot;
                 Katılım: <a class="link" href="/dene/{{ study.participation_code }}/" target="_blank">/dene/{{ study.participation_code }}/</a>
+                &middot; <a href="{% url 'studies:study_report' study.id %}">Rapor</a>
                 &middot; <a href="{% url 'studies:study_excel' study.id %}">Excel indir</a>
                 &middot; <a href="{% url 'studies:study_csv' study.id %}">CSV indir</a>
             </div>

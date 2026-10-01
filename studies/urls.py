@@ -11,6 +11,8 @@ urlpatterns = [
     # Analiz ciktilari (Faz 4)
     path("panel/calisma/<int:study_id>/excel/", views.study_excel, name="study_excel"),
     path("panel/calisma/<int:study_id>/csv/", views.study_csv, name="study_csv"),
+    # Rapor ekrani (Faz 5)
+    path("panel/calisma/<int:study_id>/rapor/", views.study_report, name="study_report"),
     # Veri kayit API'si (Faz 2)
     path("api/session/baslat/", api.session_start, name="session_start"),
     path("api/session/<int:session_id>/veri/", api.session_data, name="session_data"),

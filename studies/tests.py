@@ -248,3 +248,35 @@ class AnalysisIntegrationTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn("text/csv", r["Content-Type"])
         self.assertIn("Kutu", r.content.decode("utf-8"))
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class ReportViewTests(TestCase):
+    def setUp(self):
+        self.teacher = User.objects.create_user("ogretmen", password="x", is_superuser=True, is_staff=True)
+        self.study = Study.objects.create(name="Rapor", teacher=self.teacher, status=Study.Status.ACTIVE)
+        self.material = Material.objects.create(study=self.study, order=1, image=_upload(w=1200, h=800))
+        self.aoi = AOI.objects.create(material=self.material, name="Kutu", shape="rect",
+                                      coords={"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2})
+        self.session = Session.objects.create(study=self.study, participant_code="k1",
+                                              status=Session.Status.COMPLETED)
+        for t in (0, 100, 200, 300):
+            GazeSample.objects.create(session=self.session, material=self.material, t=t,
+                                      x_px=240, y_px=160, x_norm=0.2, y_norm=0.2, in_material=True)
+
+    def test_rapor_200_ve_sinirlilik_notu(self):
+        self.client.force_login(self.teacher)
+        url = reverse("studies:study_report", args=[self.study.id])
+        r = self.client.get(url, SERVER_NAME="localhost")
+        self.assertEqual(r.status_code, 200)
+        html = r.content.decode()
+        self.assertIn("BOLGE DUZEYINDE", html)   # sinirlilik notu
+        self.assertIn("Kutu", html)              # AOI siralamasi
+        self.assertIn("data:image/png;base64", html)  # gomulu isi haritasi
+
+    def test_rapor_yetki(self):
+        other = User.objects.create_user("baska", password="x")
+        self.client.force_login(other)
+        url = reverse("studies:study_report", args=[self.study.id])
+        r = self.client.get(url)
+        self.assertEqual(r.status_code, 302)  # panele yonlendirir

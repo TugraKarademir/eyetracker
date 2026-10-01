@@ -10,7 +10,8 @@ Tüm kapsam, algoritmalar ve kararlar için bkz. [`GOZ_IZLEME_SPEC.md`](GOZ_IZLE
 - **Faz 2 — Sunucu ve veri kaydı:** ✓ Tamamlandı (Study/Material/Session/GazeSample modelleri, JSON API, çok materyalli çalışma, Django admin öğretmen paneli)
 - **Faz 3 — AOI çizim aracı:** ✓ Tamamlandı (Canvas ile dikdörtgen/çokgen çizimi, 0–1 normalize koordinatlar, çakışma uyarısı). Panel: `/panel/`
 - **Faz 4 — Analiz motoru + Excel:** ✓ Tamamlandı (I-DT fiksasyon, AOI metrikleri, 6 sayfalı Excel + uzun-format CSV). Panelden "Excel/CSV indir".
-- Sonraki: Faz 5 — Isı haritaları, sıcak bölge, rapor ekranı
+- **Faz 5 — Isı haritaları, sıcak bölge, rapor:** ✓ Tamamlandı (süre-ağırlıklı Gauss ısı haritası, katılımcı ağırlık eşitleme, AOI dışı sıcak bölge önerisi, AOI sıralaması, sınırlılık notu). Panelden "Rapor".
+- Sonraki: Faz 6 — Kalite raporları, ara kontroller, pilot
 
 ### Hızlı başlangıç (Faz 2)
 

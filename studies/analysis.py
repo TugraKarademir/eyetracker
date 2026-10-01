@@ -188,3 +188,70 @@ def build_aoi_metrics_csv(result):
 
 def _fmt(dt):
     return dt.strftime("%Y-%m-%d %H:%M") if dt else None
+
+
+# --- Faz 5: rapor (isi haritasi + sicak bolge + siralama) -------------------
+def build_study_report(study, config=None):
+    """Rapor ekrani icin isi haritasi, sicak bolge ve AOI siralamasi derler.
+
+    Her materyal icin grup isi haritasi PNG'si base64 data-URI olarak gomulur.
+    """
+    import base64
+
+    from gaze_analysis import report as report_mod
+    from gaze_analysis.heatmap import compute_density, render_overlay_png
+    from gaze_analysis.hotspots import find_hotspots
+
+    config = config or AnalysisConfig.from_dict(study.settings)
+    result = run_study_analysis(study, config)
+
+    # fiksasyonlari materyale gore grupla
+    fix_by_mat = {}
+    for f in result["fixations"]:
+        fix_by_mat.setdefault(f["material_id"], []).append(f)
+
+    summary_by_order = {}
+    for g in result["aoi_summary"]:
+        summary_by_order.setdefault(g["material_order"], []).append(g)
+
+    materials_ctx = []
+    for m in study.materials.all():
+        w = m.natural_width or 1
+        h = m.natural_height or 1
+        aspect = (h / w) if w else 1.0
+        aois = _material_aois(m)
+
+        fixations = [
+            {"x": f["x"], "y": f["y"], "duration": f["duration"], "participant": f["session_id"]}
+            for f in fix_by_mat.get(m.id, [])
+        ]
+        n_sessions = len({f["session_id"] for f in fix_by_mat.get(m.id, [])})
+
+        heatmap_uri = None
+        hotspots = []
+        if fixations:
+            density = compute_density(
+                fixations, sigma=config.heatmap_sigma, aspect=aspect, equalize=True
+            )
+            try:
+                png = render_overlay_png(density, m.image.path)
+                heatmap_uri = "data:image/png;base64," + base64.b64encode(png).decode()
+            except Exception as e:  # gorsel okunamazsa harita atlanir
+                heatmap_uri = None
+            hotspots = find_hotspots(density, aois, top_percent=10, buffer=config.aoi_buffer)
+
+        ranking = report_mod.rank_aois(summary_by_order.get(m.order, []))
+
+        materials_ctx.append({
+            "id": m.id, "order": m.order, "src": m.image.url,
+            "n_sessions": n_sessions, "n_fixations": len(fixations),
+            "heatmap_uri": heatmap_uri, "hotspots": hotspots,
+            "ranking": ranking, "aois": aois,
+        })
+
+    return {
+        "study": result["study"],
+        "limitation_note": report_mod.LIMITATION_NOTE,
+        "materials": materials_ctx,
+        "n_sessions": len(result["sessions"]),
+    }

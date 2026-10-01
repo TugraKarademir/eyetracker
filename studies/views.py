@@ -79,3 +79,16 @@ def study_csv(request, study_id):
     fname = f"aoi_metrikleri_{slugify(study.name) or study.id}.csv"
     resp["Content-Disposition"] = f'attachment; filename="{fname}"'
     return resp
+
+
+@login_required
+def study_report(request, study_id):
+    """Faz 5 rapor ekrani: grup isi haritasi, sicak bolgeler, AOI siralamasi."""
+    from .analysis import build_study_report
+    study = get_object_or_404(Study, pk=study_id)
+    if not _require_owner(request, study):
+        return redirect("studies:dashboard")
+    ctx = build_study_report(study)
+    ctx["study_obj"] = study
+    ctx["dashboard_url"] = reverse("studies:dashboard")
+    return render(request, "studies/report.html", ctx)
