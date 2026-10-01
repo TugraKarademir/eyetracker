@@ -11,7 +11,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "0.1.2-faz1";
+  const APP_VERSION = "0.1.3-faz1";
   const MIN_W = 1280;
   const MIN_H = 720;
   const STIM_ID = "#jspsych-image-button-response-stimulus";
@@ -205,6 +205,15 @@
       materialSamples = [];
       materialBox = null;
 
+      // KRITIK: webgazer-validate eklentisi bitiste webgazer'i pause() eder;
+      // tahmin dongusu durdugu icin getCurrentPrediction sabit (donuk) deger
+      // dondurur. Materyal boyunca takibin calismasi icin resume() sart.
+      try {
+        jsPsych.extensions.webgazer.resume();
+      } catch (e) {
+        console.error("webgazer resume edilemedi:", e);
+      }
+
       // Kendi gaze dinleyicimiz: her ornegi performance.now() ile zaman damgala
       try {
         unsubscribeGaze = jsPsych.extensions.webgazer.onGazeUpdate(function (g) {
@@ -240,6 +249,8 @@
         try { unsubscribeGaze(); } catch (e) { /* yok say */ }
         unsubscribeGaze = null;
       }
+      // Takibi tekrar duraklat (varsayilan durum)
+      try { jsPsych.extensions.webgazer.pause(); } catch (e) { /* yok say */ }
     },
   });
 
