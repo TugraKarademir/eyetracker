@@ -11,7 +11,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "0.1.3-faz1";
+  const APP_VERSION = "0.1.4-faz1";
   const MIN_W = 1280;
   const MIN_H = 720;
   const STIM_ID = "#jspsych-image-button-response-stimulus";
@@ -24,6 +24,22 @@
   let materialSamples = [];      // [{x, y, t}] viewport px + materyal basindan ms
   let materialBox = null;        // {left, top, width, height} viewport px
   let unsubscribeGaze = null;    // gaze dinleyiciyi birakma fonksiyonu
+
+  // Calisan JS surumunu kosede goster (hangi surumun yuklendigini JSON
+  // indirmeden dogrulamak icin). Konsola da yaz.
+  console.log("Deney JS surumu:", APP_VERSION);
+  try {
+    const badge = document.createElement("div");
+    badge.textContent = "v" + APP_VERSION;
+    badge.style.cssText =
+      "position:fixed;right:6px;bottom:6px;z-index:99999;font:11px system-ui," +
+      "sans-serif;color:#999;background:rgba(255,255,255,.7);padding:2px 6px;" +
+      "border-radius:4px;pointer-events:none";
+    document.addEventListener("DOMContentLoaded", function () {
+      document.body.appendChild(badge);
+    });
+    if (document.body) document.body.appendChild(badge);
+  } catch (e) { /* yok say */ }
 
   function measureMaterialBox() {
     const el = document.querySelector(STIM_ID);

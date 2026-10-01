@@ -2,6 +2,7 @@ from pathlib import Path
 
 from django.shortcuts import render
 from django.templatetags.static import static
+from django.views.decorators.cache import never_cache
 
 
 def _asset_version():
@@ -17,6 +18,7 @@ def _asset_version():
         return "0"
 
 
+@never_cache
 def run_experiment(request):
     """Faz 1 katilimci prototipi: jsPsych + WebGazer deney sayfasini sunar.
 
