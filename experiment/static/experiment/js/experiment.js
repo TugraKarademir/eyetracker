@@ -11,7 +11,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "0.1.1-faz1";
+  const APP_VERSION = "0.1.2-faz1";
   const MIN_W = 1280;
   const MIN_H = 720;
   const STIM_ID = "#jspsych-image-button-response-stimulus";
@@ -68,6 +68,22 @@
     showBlock(issue);
     return; // jsPsych hic baslatilmaz
   }
+
+  // Her oturum TEMIZ kalibrasyonla baslasin: WebGazer varsayilan olarak
+  // kalibrasyonu localStorage/IndexedDB'de saklar ve sonraki oturumda yukler
+  // ("loaded stored data into regression model"). Bayat/bozuk model sabit
+  // tahmine yol acabilir; bu yuzden saklamayi kapatip eski veriyi temizliyoruz.
+  try {
+    if (typeof webgazer !== "undefined" && webgazer.saveDataAcrossSessions) {
+      webgazer.saveDataAcrossSessions(false);
+    }
+  } catch (e) {
+    console.warn("saveDataAcrossSessions ayarlanamadi:", e);
+  }
+  try {
+    localStorage.removeItem("webgazerGlobalData");
+    localStorage.removeItem("webgazerGlobalSettings");
+  } catch (e) { /* localStorage yoksa yok say */ }
 
   // --- jsPsych ---------------------------------------------------------------
   const jsPsych = initJsPsych({
