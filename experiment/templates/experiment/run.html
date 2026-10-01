@@ -1,0 +1,55 @@
+{% load static %}<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Göz İzleme Çalışması</title>
+
+    <!-- jsPsych çekirdek stil -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jspsych@8/css/jspsych.css">
+
+    <!-- WebGazer (jsPsych eklentisinden ÖNCE yüklenmeli) -->
+    <script src="https://cdn.jsdelivr.net/npm/webgazer@3/dist/webgazer.js"></script>
+
+    <!-- jsPsych çekirdek (tarayıcı build'i) -->
+    <script src="https://cdn.jsdelivr.net/npm/jspsych@8/dist/index.browser.min.js"></script>
+
+    <!-- Eklentiler (jsPsych 8 -> plugin v2, tarayıcı build'i) -->
+    <script src="https://cdn.jsdelivr.net/npm/@jspsych/plugin-html-button-response@2/dist/index.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@jspsych/plugin-html-keyboard-response@2/dist/index.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@jspsych/plugin-fullscreen@2/dist/index.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@jspsych/plugin-image-button-response@2/dist/index.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@jspsych/plugin-webgazer-init-camera@2/dist/index.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@jspsych/plugin-webgazer-calibrate@2/dist/index.browser.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@jspsych/plugin-webgazer-validate@2/dist/index.browser.min.js"></script>
+
+    <!-- WebGazer uzantısı (jsPsych 8 -> extension v1, tarayıcı build'i) -->
+    <script src="https://cdn.jsdelivr.net/npm/@jspsych/extension-webgazer@1/dist/index.browser.min.js"></script>
+
+    <style>
+        html, body { height: 100%; margin: 0; background: #ffffff; }
+        /* Uyarı/hata ekranı (jsPsych dışı) */
+        #engel {
+            display: none;
+            font-family: system-ui, "Segoe UI", sans-serif;
+            max-width: 560px;
+            margin: 12vh auto;
+            padding: 2rem 2.5rem;
+            border: 1px solid #e3d08a;
+            background: #fdf6e3;
+            border-radius: 12px;
+            color: #4a3f1a;
+            line-height: 1.6;
+        }
+        #engel h1 { font-size: 1.3rem; margin-top: 0; }
+    </style>
+</head>
+<body>
+    <div id="engel"></div>
+
+    <!-- Sunucudan gelen materyal verisi (Faz 1: tek materyal) -->
+    {{ material|json_script:"material-data" }}
+
+    <script src="{% static 'experiment/js/experiment.js' %}"></script>
+</body>
+</html>

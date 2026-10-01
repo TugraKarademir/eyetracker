@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'django_extensions',
     # Proje uygulamalari
     'core',
+    'experiment',
 ]
 
 MIDDLEWARE = [
