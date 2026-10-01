@@ -25,29 +25,41 @@ py -m venv .venv
 # Veritabanı migrasyonları
 .venv\Scripts\python.exe manage.py migrate
 
-# Yerel sunucuyu HTTPS ile başlat (kamera erişimi HTTPS gerektirir)
-.venv\Scripts\python.exe manage.py runserver_plus --cert-file cert.crt 127.0.0.1:8000
+# Yerel sunucuyu başlat (kamera testi için; bkz. aşağıdaki not)
+.venv\Scripts\python.exe manage.py runserver --noreload localhost:8000
 ```
 
-Ardından tarayıcıda <https://localhost:8000> açılır. Kendinden imzalı
-sertifika kullanıldığı için tarayıcı bir güvenlik uyarısı gösterir; geliştirmede
-"devam et" denilerek geçilebilir.
+Ardından tarayıcıda <http://localhost:8000> açılır.
 
 ### Katılımcı deneyini çalıştırma (Faz 1)
 
-Göz izleme prototipi: <https://localhost:8000/dene/>
+Göz izleme prototipi: **<http://localhost:8000/dene/>**
 
-Gerçek bir **webcam** gerekir. Akış: onam → cihaz kontrolü → tam ekran →
-kamera başlatma → 9 noktalı kalibrasyon → 5 noktalı doğrulama → materyal
-("Devam" ile geçilir). Bitişte bakış verisi **JSON olarak bilgisayara iner**
-(bu fazda sunucuya kayıt yoktur). Kamera görüntüsü hiçbir yere gönderilmez;
-yalnızca bakış koordinatları toplanır.
+Gerçek bir **webcam** gerekir ve **Chrome veya Edge** kullanılmalıdır. Akış:
+onam → cihaz kontrolü → tam ekran → kamera başlatma → 9 noktalı kalibrasyon →
+5 noktalı doğrulama → materyal ("Devam" ile geçilir). Bitişte bakış verisi
+**JSON olarak bilgisayara iner** (bu fazda sunucuya kayıt yoktur). Kamera
+görüntüsü hiçbir yere gönderilmez; yalnızca bakış koordinatları toplanır.
 
-> **Not (geliştirme):** `runserver_plus` varsayılan yeniden-yükleyicisi,
-> yeniden başlatıldığında arka planda sürecek bir alt süreç bırakabilir ve
-> eski sürümü sunmaya devam edebilir. Tek seferlik test için sunucuyu durdurup
-> yeniden başlatırken 8000 portunda dinleyen eski `python.exe` süreçlerinin
-> kapandığından emin olun.
+> **Neden HTTP ve neden `localhost`?** Kamera erişimi (getUserMedia) yalnızca
+> "güvenli bağlam"da çalışır. Tarayıcılar **`http://localhost`**'u güvenli bağlam
+> sayar (spec §11), bu yüzden yerel testte sertifikaya gerek yoktur. Kendinden
+> imzalı HTTPS sertifikası (`runserver_plus`) tam tersine tarayıcıda sertifika
+> hatası doğurur ve kamerayı engeller — bu yüzden **yerel testte düz HTTP +
+> `localhost` kullanın**. (Not: `127.0.0.1` de güvenli bağlamdır, ama alışkanlık
+> olması için `localhost` tercih edilir.)
+>
+> **Uzaktan katılım (ileride):** İnternet üzerinden gerçek katılımcılar için
+> **gerçek, güvenilir bir HTTPS sertifikası** gerekir (ör. Let's Encrypt).
+> Bu, Faz 2'de barındırma kararıyla birlikte ele alınacaktır.
+
+#### `runserver` vs `runserver_plus`
+
+Yerel kamera testi için yukarıdaki **düz `runserver`** yeterli ve en sorunsuzudur.
+Yalnızca HTTPS'i yerelde denemek isterseniz `runserver_plus --cert-file cert.crt`
+kullanılabilir; ancak kendinden imzalı sertifika kamerayı engelleyebilir ve
+yeniden-yükleyicisi arka planda sürüp eski sürümü sunan bir alt süreç bırakabilir.
+`--noreload` bu sorunu önler.
 
 ## Proje yapısı
 
