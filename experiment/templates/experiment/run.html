@@ -53,6 +53,6 @@
     <!-- Sunucudan gelen materyal verisi (Faz 1: tek materyal) -->
     {{ material|json_script:"material-data" }}
 
-    <script src="{% static 'experiment/js/experiment.js' %}"></script>
+    <script src="{% static 'experiment/js/experiment.js' %}?v={{ asset_version }}"></script>
 </body>
 </html>
