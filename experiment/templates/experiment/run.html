@@ -8,8 +8,11 @@
     <!-- jsPsych çekirdek stil -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jspsych@8/css/jspsych.css">
 
-    <!-- WebGazer (jsPsych eklentisinden ÖNCE yüklenmeli) -->
-    <script src="https://cdn.jsdelivr.net/npm/webgazer@3/dist/webgazer.js"></script>
+    <!-- WebGazer (jsPsych eklentisinden ÖNCE yüklenmeli).
+         Surum 2.1.0'a SABITLENDI: v3.x yuz tespiti icin MediaPipe FaceMesh kullanir
+         ve .binarypb/.wasm dosyalarini sayfaya goreli yoldan arar (404 -> baslayamaz).
+         v2.1.0 TFJS FaceMesh kullanir, modelini HTTPS ile ceker; jsPsych bu surumle test edilir. -->
+    <script src="https://cdn.jsdelivr.net/npm/webgazer@2.1.0/dist/webgazer.js"></script>
 
     <!-- jsPsych çekirdek (tarayıcı build'i) -->
     <script src="https://cdn.jsdelivr.net/npm/jspsych@8/dist/index.browser.min.js"></script>

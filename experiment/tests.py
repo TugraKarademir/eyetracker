@@ -17,10 +17,11 @@ class RunExperimentPageTests(TestCase):
         # jsPsych cekirdek + eklentiler tarayici build'i olmali (CJS degil)
         self.assertIn("jspsych@8/dist/index.browser.min.js", html)
         self.assertIn("extension-webgazer@1/dist/index.browser.min.js", html)
-        # WebGazer, jsPsych eklentisinden once yuklenmeli
-        pos_webgazer = html.find("webgazer@3/dist/webgazer.js")
+        # WebGazer surumu 2.1.0'a sabit (v3 MediaPipe asset 404 sorunu) ve
+        # jsPsych eklentisinden ONCE yuklenmeli
+        pos_webgazer = html.find("webgazer@2.1.0/dist/webgazer.js")
         pos_ext = html.find("extension-webgazer@1")
-        self.assertNotEqual(pos_webgazer, -1)
+        self.assertNotEqual(pos_webgazer, -1, "webgazer 2.1.0 sabit surumu bulunmali")
         self.assertLess(pos_webgazer, pos_ext)
 
     def test_materyal_ve_deney_scripti_bagli(self):
