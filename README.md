@@ -9,7 +9,8 @@ Tüm kapsam, algoritmalar ve kararlar için bkz. [`GOZ_IZLEME_SPEC.md`](GOZ_IZLE
 - **Faz 1 — Katılımcı prototipi:** ✓ Tamamlandı (jsPsych + WebGazer; tek materyal, kalibrasyon, doğrulama; veri JSON olarak iner)
 - **Faz 2 — Sunucu ve veri kaydı:** ✓ Tamamlandı (Study/Material/Session/GazeSample modelleri, JSON API, çok materyalli çalışma, Django admin öğretmen paneli)
 - **Faz 3 — AOI çizim aracı:** ✓ Tamamlandı (Canvas ile dikdörtgen/çokgen çizimi, 0–1 normalize koordinatlar, çakışma uyarısı). Panel: `/panel/`
-- Sonraki: Faz 4 — Analiz motoru + Excel
+- **Faz 4 — Analiz motoru + Excel:** ✓ Tamamlandı (I-DT fiksasyon, AOI metrikleri, 6 sayfalı Excel + uzun-format CSV). Panelden "Excel/CSV indir".
+- Sonraki: Faz 5 — Isı haritaları, sıcak bölge, rapor ekranı
 
 ### Hızlı başlangıç (Faz 2)
 
@@ -82,5 +83,5 @@ yeniden-yükleyicisi arka planda sürüp eski sürümü sunan bir alt süreç b�
 | `core/` | Ortak sayfalar (şu an: sağlık kontrolü) |
 | `experiment/` | Katılımcı deneyi (jsPsych + WebGazer); `/dene/` demo ve `/dene/<kod>/` çalışma |
 | `studies/` | Veri modelleri (Study/Material/Session/GazeSample), kayıt API'si, admin paneli |
-| `gaze_analysis/` | Django'dan bağımsız analiz paketi (Faz 4'te dolacak) |
+| `gaze_analysis/` | Django'dan bağımsız analiz paketi: geometry, preprocessing, fixation (I-DT), aoi_metrics, excel, config |
 | `GOZ_IZLEME_SPEC.md` | Proje şartnamesi (ana kaynak) |

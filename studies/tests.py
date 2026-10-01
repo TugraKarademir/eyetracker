@@ -194,3 +194,57 @@ class AOITests(TestCase):
         url = reverse("studies:aoi_save", args=[self.material.id])
         r = self._post(url, {"aois": []})
         self.assertEqual(r.status_code, 403)
+
+
+class AnalysisIntegrationTests(TestCase):
+    def setUp(self):
+        self.teacher = User.objects.create_user("ogretmen", password="x", is_superuser=True, is_staff=True)
+        self.study = Study.objects.create(name="Analiz", teacher=self.teacher, status=Study.Status.ACTIVE)
+        with override_settings(MEDIA_ROOT=MEDIA):
+            self.material = Material.objects.create(
+                study=self.study, order=1, image=_upload(w=1200, h=800)
+            )
+        self.aoi = AOI.objects.create(
+            material=self.material, name="Kutu", shape="rect",
+            coords={"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},  # 0.1..0.3
+        )
+        self.session = Session.objects.create(
+            study=self.study, participant_code="k1", status=Session.Status.COMPLETED
+        )
+        # AOI icinde 4 ornek (0.2,0.2), 100ms arayla -> tek fiksasyon
+        for i, t in enumerate((0, 100, 200, 300)):
+            GazeSample.objects.create(
+                session=self.session, material=self.material, t=t,
+                x_px=240, y_px=160, x_norm=0.2, y_norm=0.2, in_material=True,
+            )
+
+    def test_run_study_analysis_fiksasyon_ve_aoi(self):
+        from studies.analysis import run_study_analysis
+        result = run_study_analysis(self.study)
+        self.assertEqual(len(result["fixations"]), 1)
+        f = result["fixations"][0]
+        self.assertAlmostEqual(f["x"], 0.2, places=3)
+        self.assertEqual(f["aoi_names"], ["Kutu"])
+        # AOI metrikleri
+        self.assertEqual(len(result["aoi_metrics"]), 1)
+        m = result["aoi_metrics"][0]
+        self.assertEqual(m["fixation_count"], 1)
+        self.assertEqual(m["hit"], True)
+        # Grup ozeti: tek katilimci baktigi icin isabet orani %100
+        self.assertEqual(result["aoi_summary"][0]["hit_rate"], 100.0)
+
+    def test_excel_indirme_200(self):
+        self.client.force_login(self.teacher)
+        url = reverse("studies:study_excel", args=[self.study.id])
+        r = self.client.get(url)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("spreadsheetml", r["Content-Type"])
+        self.assertGreater(len(r.content), 2000)  # gercek bir xlsx
+
+    def test_csv_indirme_200(self):
+        self.client.force_login(self.teacher)
+        url = reverse("studies:study_csv", args=[self.study.id])
+        r = self.client.get(url)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("text/csv", r["Content-Type"])
+        self.assertIn("Kutu", r.content.decode("utf-8"))
