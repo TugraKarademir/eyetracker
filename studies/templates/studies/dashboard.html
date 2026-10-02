@@ -45,6 +45,7 @@
                 &middot; <a href="{% url 'studies:study_report' study.id %}">Rapor</a>
                 &middot; <a href="{% url 'studies:study_excel' study.id %}">Excel indir</a>
                 &middot; <a href="{% url 'studies:study_csv' study.id %}">CSV indir</a>
+                &middot; <a href="{% url 'studies:study_rq2_csv' study.id %}">RQ2 CSV</a>
             </div>
             {% if study.materials.all %}
             <table>

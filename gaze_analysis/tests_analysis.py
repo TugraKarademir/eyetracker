@@ -117,6 +117,41 @@ class AOIMetricTests(unittest.TestCase):
         self.assertEqual(g[1]["mean_dwell_ms"], 150.0)
 
 
+class RQ2Tests(unittest.TestCase):
+    def setUp(self):
+        from gaze_analysis.aoi_metrics import rq2_attention_metrics
+        self.fn = rq2_attention_metrics
+        self.aois = [
+            {"id": 1, "name": "Ilgili", "shape": "rect", "is_relevant": True,
+             "coords": {"x": 0.0, "y": 0.0, "w": 0.4, "h": 1.0}},   # sol
+            {"id": 2, "name": "Ilgisiz", "shape": "rect", "is_relevant": False,
+             "coords": {"x": 0.6, "y": 0.0, "w": 0.4, "h": 1.0}},   # sag
+        ]
+
+    def test_dwell_ttf_gecis(self):
+        fx = [
+            {"start_t": 0, "end_t": 100, "duration": 100, "x": 0.2, "y": 0.5},   # R
+            {"start_t": 100, "end_t": 200, "duration": 100, "x": 0.8, "y": 0.5},  # I
+            {"start_t": 200, "end_t": 300, "duration": 100, "x": 0.2, "y": 0.5},  # R
+        ]
+        m = self.fn(fx, self.aois)
+        self.assertEqual(m["relevant_dwell_ms"], 200)
+        self.assertEqual(m["irrelevant_dwell_ms"], 100)
+        self.assertEqual(m["time_to_first_relevant_ms"], 0)
+        self.assertEqual(m["transition_ratio"], 1.0)   # R,I,R -> 2/2 gecis
+        self.assertAlmostEqual(m["relevant_dwell_ratio"], 66.7, places=1)
+
+    def test_gecis_yok(self):
+        fx = [
+            {"start_t": 0, "end_t": 100, "duration": 100, "x": 0.2, "y": 0.5},   # R
+            {"start_t": 100, "end_t": 200, "duration": 100, "x": 0.2, "y": 0.5},  # R
+        ]
+        m = self.fn(fx, self.aois)
+        self.assertEqual(m["transition_ratio"], 0.0)
+        self.assertEqual(m["time_to_first_relevant_ms"], 0)
+        self.assertEqual(m["irrelevant_dwell_ms"], 0)
+
+
 class ExcelTests(unittest.TestCase):
     def test_sayfalar_ve_basliklar(self):
         from gaze_analysis.excel import build_workbook

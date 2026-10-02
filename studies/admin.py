@@ -8,7 +8,7 @@ from .models import AOI, CalibrationResult, GazeSample, Material, Session, Study
 class MaterialInline(admin.TabularInline):
     model = Material
     extra = 1
-    fields = ("order", "image", "natural_width", "natural_height")
+    fields = ("order", "kind", "source", "image", "video", "natural_width", "natural_height")
     readonly_fields = ("natural_width", "natural_height")
 
 
@@ -69,13 +69,13 @@ class SessionAdmin(admin.ModelAdmin):
 class AOIInline(admin.TabularInline):
     model = AOI
     extra = 0
-    fields = ("name", "shape", "color")
+    fields = ("name", "shape", "is_relevant", "color")
 
 
 @admin.register(Material)
 class MaterialAdmin(admin.ModelAdmin):
-    list_display = ("study", "order", "natural_width", "natural_height", "aoi_count", "aoi_editor_link")
-    list_filter = ("study",)
+    list_display = ("study", "order", "kind", "source", "natural_width", "natural_height", "aoi_count", "aoi_editor_link")
+    list_filter = ("study", "kind", "source")
     inlines = [AOIInline]
 
     @admin.display(description="AOI")
@@ -91,8 +91,8 @@ class MaterialAdmin(admin.ModelAdmin):
 
 @admin.register(AOI)
 class AOIAdmin(admin.ModelAdmin):
-    list_display = ("name", "material", "shape", "color")
-    list_filter = ("shape", "material__study")
+    list_display = ("name", "material", "shape", "is_relevant", "color")
+    list_filter = ("shape", "is_relevant", "material__study")
 
 
 # GazeSample cok sayida satir uretir; admin'de yalnizca okunur ozet.

@@ -92,3 +92,17 @@ def study_report(request, study_id):
     ctx["study_obj"] = study
     ctx["dashboard_url"] = reverse("studies:dashboard")
     return render(request, "studies/report.html", ctx)
+
+
+@login_required
+def study_rq2_csv(request, study_id):
+    """RQ2 dikkat dagilimi gostergeleri (uzun format CSV, istatistik icin)."""
+    from .analysis import build_rq2_csv, run_study_analysis
+    study = get_object_or_404(Study, pk=study_id)
+    if not _require_owner(request, study):
+        return redirect("studies:dashboard")
+    result = run_study_analysis(study)
+    resp = HttpResponse(build_rq2_csv(result), content_type="text/csv; charset=utf-8")
+    fname = f"rq2_dikkat_{slugify(study.name) or study.id}.csv"
+    resp["Content-Disposition"] = f'attachment; filename="{fname}"'
+    return resp

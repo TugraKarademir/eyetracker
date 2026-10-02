@@ -84,3 +84,55 @@ def _empty_group_row(n):
         "mean_dwell_proportion": 0.0, "mean_time_to_first_fixation_ms": None,
         "mean_fixation_count": 0.0, "mean_visit_count": 0.0,
     }
+
+
+def rq2_attention_metrics(fixations, aois):
+    """RQ2 dikkat dagilimi gostergeleri (ilgili/ilgisiz AOI).
+
+    aois: [{"id","name","shape","coords","is_relevant"}]
+    Her fiksasyon etiketlenir: 'R' (herhangi ILGILI AOI icinde), yoksa 'I'
+    (herhangi ILGISIZ AOI icinde), yoksa 'O' (hicbiri). Cakismada ILGILI oncelikli.
+
+    Donus (spec RQ2 DV'leri):
+      relevant_dwell_ms, irrelevant_dwell_ms,
+      relevant_dwell_ratio (%), irrelevant_dwell_ratio (%),
+      time_to_first_relevant_ms, transition_ratio, n_fixations
+    """
+    rel = [a for a in aois if a.get("is_relevant")]
+    irr = [a for a in aois if not a.get("is_relevant")]
+
+    labels = []
+    for f in fixations:
+        if any(aoi_contains(f["x"], f["y"], a) for a in rel):
+            labels.append("R")
+        elif any(aoi_contains(f["x"], f["y"], a) for a in irr):
+            labels.append("I")
+        else:
+            labels.append("O")
+
+    total_ms = sum(f["duration"] for f in fixations)
+    rel_ms = sum(f["duration"] for f, l in zip(fixations, labels) if l == "R")
+    irr_ms = sum(f["duration"] for f, l in zip(fixations, labels) if l == "I")
+
+    ttf_rel = None
+    for f, l in zip(fixations, labels):
+        if l == "R":
+            ttf_rel = f["start_t"]
+            break
+
+    # Gecis orani: yalniz R/I etiketli fiksasyon dizisinde, ardisik ciftlerin
+    # relevans degistirme (R<->I) orani.
+    seq = [l for l in labels if l in ("R", "I")]
+    pairs = len(seq) - 1
+    switches = sum(1 for i in range(pairs) if seq[i] != seq[i + 1]) if pairs > 0 else 0
+    transition_ratio = round(switches / pairs, 3) if pairs > 0 else None
+
+    return {
+        "n_fixations": len(fixations),
+        "relevant_dwell_ms": rel_ms,
+        "irrelevant_dwell_ms": irr_ms,
+        "relevant_dwell_ratio": round(rel_ms / total_ms * 100, 1) if total_ms else 0.0,
+        "irrelevant_dwell_ratio": round(irr_ms / total_ms * 100, 1) if total_ms else 0.0,
+        "time_to_first_relevant_ms": ttf_rel,
+        "transition_ratio": transition_ratio,
+    }

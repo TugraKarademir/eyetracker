@@ -9,7 +9,7 @@ import io
 from django.utils import timezone
 
 from gaze_analysis import excel
-from gaze_analysis.aoi_metrics import group_aoi_metrics, session_aoi_metrics
+from gaze_analysis.aoi_metrics import group_aoi_metrics, rq2_attention_metrics, session_aoi_metrics
 from gaze_analysis.config import ANALYSIS_VERSION, AnalysisConfig
 from gaze_analysis.fixation import detect_fixations
 from gaze_analysis.geometry import aoi_contains
@@ -21,7 +21,8 @@ from .models import GazeSample, Session
 
 def _material_aois(material):
     return [
-        {"id": a.id, "name": a.name, "shape": a.shape, "coords": a.coords}
+        {"id": a.id, "name": a.name, "shape": a.shape, "coords": a.coords,
+         "is_relevant": a.is_relevant}
         for a in material.aois.all()
     ]
 
@@ -41,6 +42,8 @@ def run_study_analysis(study, config=None):
             "height": h,
             "aspect": (h / w) if w else 1.0,
             "aois": _material_aois(m),
+            "kind": m.kind,
+            "source": m.source,
         }
 
     sessions = list(study.sessions.all())
@@ -59,6 +62,7 @@ def run_study_analysis(study, config=None):
         "fixations": [],
         "aoi_metrics": [],
         "aoi_summary": [],
+        "rq2": [],   # RQ2: katilimci x materyal dikkat dagilimi (uzun format)
     }
 
     # material_id -> [session_aoi_metrics dict] (grup icin)
@@ -162,6 +166,16 @@ def run_study_analysis(study, config=None):
                     })
                 if not excl:  # grup ozetine yalnizca dislanmayan veri girer
                     per_material_session_metrics[mid].append(mr["sm"])
+
+            # RQ2: katilimci x materyal dikkat dagilimi (ilgili/ilgisiz, gecis)
+            if aois:
+                rq2 = rq2_attention_metrics(mr["fixations"], aois)
+                result["rq2"].append({
+                    "session_id": sess.id, "participant_code": sess.participant_code,
+                    "material_order": info["order"], "material_id": mid,
+                    "kind": info.get("kind"), "source": info.get("source"),
+                    "excluded": excl, **rq2,
+                })
 
     # Grup ozeti (materyal x AOI)
     for m in materials:
@@ -276,3 +290,29 @@ def build_study_report(study, config=None):
         "n_sessions": len(result["sessions"]),
         "sessions": result["sessions"],  # kalite raporu (spec §7)
     }
+
+
+def build_rq2_csv(result):
+    """RQ2 dikkat dagilimi gostergelerini uzun formatli CSV olarak dondurur.
+
+    Bir satir = katilimci x materyal. Istatistik (ANOVA/korelasyon) icin hazir:
+    faktorler (kind, source) + DV'ler (ilgili/ilgisiz dwell, ilk ilgili, gecis).
+    """
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow([
+        "oturum_id", "katilimci_kodu", "materyal_sira", "materyal_id",
+        "tur", "kaynak", "analize_dahil",
+        "ilgili_dwell_ms", "ilgisiz_dwell_ms",
+        "ilgili_dwell_orani", "ilgisiz_dwell_orani",
+        "ilk_ilgili_fiksasyon_ms", "gecis_orani", "fiksasyon_sayisi",
+    ])
+    for r in result.get("rq2", []):
+        w.writerow([
+            r["session_id"], r["participant_code"], r["material_order"], r["material_id"],
+            r.get("kind"), r.get("source"), int(not r.get("excluded")),
+            r["relevant_dwell_ms"], r["irrelevant_dwell_ms"],
+            r["relevant_dwell_ratio"], r["irrelevant_dwell_ratio"],
+            r["time_to_first_relevant_ms"], r["transition_ratio"], r["n_fixations"],
+        ])
+    return buf.getvalue()

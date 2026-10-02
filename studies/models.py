@@ -58,11 +58,27 @@ class Study(models.Model):
 class Material(models.Model):
     """Bir calismada gosterilen tek bir materyal gorseli (spec §4 Material)."""
 
+    class Kind(models.TextChoices):
+        INFOGRAPHIC = "infographic", "Infografik"
+        MINDMAP = "mindmap", "Zihin haritasi"
+        VIDEO = "video", "Video"
+        OTHER = "other", "Diger"
+
+    class Source(models.TextChoices):
+        HUMAN = "human", "Insan tasarimi"
+        AI = "ai", "Yapay zeka tasarimi"
+        UNSPECIFIED = "unspecified", "Belirtilmemis"
+
     study = models.ForeignKey(
         Study, on_delete=models.CASCADE, related_name="materials", verbose_name="Calisma"
     )
     order = models.PositiveIntegerField("Sira", default=0)
-    image = models.ImageField("Gorsel", upload_to="materials/")
+    # Statik materyaller icin gorsel; video materyaller icin video (RQ2 materyal turu)
+    image = models.ImageField("Gorsel", upload_to="materials/", blank=True, null=True)
+    video = models.FileField("Video", upload_to="materials/video/", blank=True, null=True)
+    # RQ2 faktorleri: materyal turu ve kaynagi
+    kind = models.CharField("Tur", max_length=12, choices=Kind.choices, default=Kind.INFOGRAPHIC)
+    source = models.CharField("Kaynak", max_length=12, choices=Source.choices, default=Source.UNSPECIFIED)
     # Gorselin ozgun pikselleri; kayit sirasinda otomatik doldurulur.
     natural_width = models.PositiveIntegerField("Ozgun genislik", default=0)
     natural_height = models.PositiveIntegerField("Ozgun yukseklik", default=0)
@@ -188,6 +204,8 @@ class AOI(models.Model):
     shape = models.CharField("Sekil", max_length=10, choices=Shape.choices, default=Shape.RECT)
     coords = models.JSONField("Koordinatlar (normalize 0-1)", default=dict)
     color = models.CharField("Renk", max_length=9, default="#e53935")
+    # RQ2: bu AOI materyalin "ilgili" (hedef icerik) bolgesi mi, yoksa ilgisiz mi?
+    is_relevant = models.BooleanField("Ilgili AOI", default=True)
     created_at = models.DateTimeField("Olusturulma", auto_now_add=True)
 
     class Meta:

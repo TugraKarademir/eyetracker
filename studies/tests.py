@@ -340,3 +340,40 @@ class ClientMetaTests(TestCase):
         self.session.refresh_from_db()
         self.assertEqual(self.session.client_meta["gaze_engine"], "ensemble")
         self.assertEqual(self.session.client_meta["view_weights"], [0.8, 0.15, 0.05])
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class RQ2CsvTests(TestCase):
+    def setUp(self):
+        self.teacher = User.objects.create_user("ogretmen", password="x", is_superuser=True, is_staff=True)
+        self.study = Study.objects.create(name="RQ2", teacher=self.teacher, status=Study.Status.ACTIVE)
+        self.material = Material.objects.create(
+            study=self.study, order=1, image=_upload(w=1200, h=800),
+            kind=Material.Kind.INFOGRAPHIC, source=Material.Source.AI,
+        )
+        AOI.objects.create(material=self.material, name="Ilgili", shape="rect",
+                           is_relevant=True, coords={"x": 0.0, "y": 0.0, "w": 0.4, "h": 1.0})
+        AOI.objects.create(material=self.material, name="Ilgisiz", shape="rect",
+                           is_relevant=False, coords={"x": 0.6, "y": 0.0, "w": 0.4, "h": 1.0})
+        self.session = Session.objects.create(study=self.study, participant_code="k1",
+                                              status=Session.Status.COMPLETED)
+        for t in (0, 100, 200, 300):   # ilgili bolgede fiksasyon olusturacak
+            GazeSample.objects.create(session=self.session, material=self.material, t=t,
+                                      x_px=240, y_px=400, x_norm=0.2, y_norm=0.5, in_material=True)
+
+    def test_rq2_satir_ve_faktorler(self):
+        from studies.analysis import run_study_analysis
+        r = run_study_analysis(self.study)
+        self.assertEqual(len(r["rq2"]), 1)
+        row = r["rq2"][0]
+        self.assertEqual(row["kind"], "infographic")
+        self.assertEqual(row["source"], "ai")
+        self.assertGreater(row["relevant_dwell_ms"], 0)
+
+    def test_rq2_csv_indirme(self):
+        self.client.force_login(self.teacher)
+        url = reverse("studies:study_rq2_csv", args=[self.study.id])
+        r = self.client.get(url)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("text/csv", r["Content-Type"])
+        self.assertIn("gecis_orani", r.content.decode("utf-8"))
