@@ -11,7 +11,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "0.6.0-faz6";
+  const APP_VERSION = "0.6.1-faz6";
   const MIN_W = 1280;
   const MIN_H = 720;
   const STIM_ID = "#jspsych-image-button-response-stimulus";
@@ -183,16 +183,18 @@
       "Yuz noktalari yesile dondugunde hazirsiniz.</p></div>",
   });
 
-  // 4) Kalibrasyon (9 nokta, tiklama)
+  // 4) Kalibrasyon: 13 nokta x 2 tekrar (daha iyi regresyon, ozellikle yatay)
   timeline.push({
     type: jsPsychWebgazerCalibrate,
     calibration_points: [
       [10, 10], [50, 10], [90, 10],
+      [30, 30], [70, 30],
       [10, 50], [50, 50], [90, 50],
+      [30, 70], [70, 70],
       [10, 90], [50, 90], [90, 90],
     ],
     calibration_mode: "click",
-    repetitions_per_point: 1,
+    repetitions_per_point: 2,
     randomize_calibration_order: true,
   });
 
