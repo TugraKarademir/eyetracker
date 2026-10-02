@@ -117,6 +117,7 @@ export function stop() { running = false; }
 export function faceOk() { return latestFeat != null; }
 export function latestFeatures() { return latestFeat; }
 export function latestLandmarks() { return latestLM; }
+export function lastWeights() { return null; } // arayuz paritesi (ensemble ile)
 export function stableFeatures() {
   if (!featBuf.length) return latestFeat;
   const D = featBuf[0].length;

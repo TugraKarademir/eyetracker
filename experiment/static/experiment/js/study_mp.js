@@ -8,14 +8,21 @@
  * KURAL (spec §6/§15): kamera goruntusu tarayicidan cikmaz; yalniz bakis
  * koordinatlari sunucuya gider.
  */
-import { start as startEngine, latestFeatures, faceOk, fit, predict, lastWeights } from "./gaze/ensemble_engine.js";
+import * as singleEngine from "./gaze/mediapipe_engine.js";   // tek iris gorunumu (bu donanimda en iyi: ~107px)
+import * as ensembleEngine from "./gaze/ensemble_engine.js";  // cok gorunum + fuzyon (opsiyonel)
 
-const APP_VERSION = "0.8.1-faz7-ensemble";
+const APP_VERSION = "0.8.2-faz7";
 const MIN_W = 1280, MIN_H = 720;
 
 const study = JSON.parse(document.getElementById("study-data").textContent);
 const materials = JSON.parse(document.getElementById("materials-data").textContent);
 const api = JSON.parse(document.getElementById("api-data").textContent);
+
+// Motor secimi: varsayilan TEK iris (kanitlanmis en iyi); calisma ayarlarindan
+// ensemble acilabilir (cok kisi/donanimda robustluk denemek icin).
+const USE_ENSEMBLE = !!study.ensemble;
+const ENGINE = USE_ENSEMBLE ? ensembleEngine : singleEngine;
+const { start: startEngine, latestFeatures, faceOk, fit, predict, lastWeights } = ENGINE;
 
 const app = document.getElementById("app");
 const video = document.getElementById("cam-mp");
@@ -284,8 +291,8 @@ function finishAndUpload() {
     samples: allSamples,
     meta: {
       app_version: APP_VERSION,
-      gaze_engine: "ensemble",
-      view_weights: W ? lastWeights(W) : null,   // [A, B, C] LOO agirliklari
+      gaze_engine: USE_ENSEMBLE ? "ensemble" : "mediapipe",
+      view_weights: W ? lastWeights(W) : null,   // ensemble'da [A,B,C], tekte null
       validation_px: validationResult ? validationResult.avg_error_px : null,
       calib_attempts: calibAttempt,
     },

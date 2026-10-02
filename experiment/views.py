@@ -86,6 +86,8 @@ def run_study(request, code):
             # toplanmaz. Esikler calisma ayarlarindan degistirilebilir.
             "max_validation_error_ratio": cfg.max_validation_error_ratio,
             "max_calibration_attempts": int(settings.get("max_calibration_attempts", 3)),
+            # Varsayilan tek iris motoru; ayarlarda {"ensemble": true} ile acilir
+            "ensemble": bool(settings.get("ensemble", False)),
         },
         "materials_json": materials,
         "api": {
