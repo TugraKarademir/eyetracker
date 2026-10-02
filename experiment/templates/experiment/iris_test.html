@@ -1,0 +1,40 @@
+{% load static %}<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MediaPipe Iris — Gaze Prototip (deneysel)</title>
+    <style>
+        html, body { margin: 0; height: 100%; background: #0f1720; color: #e8eef5; font-family: system-ui, "Segoe UI", sans-serif; overflow: hidden; }
+        #bar { position: fixed; top: 0; left: 0; right: 0; z-index: 20; display: flex; gap: .6rem; align-items: center; padding: .6rem .9rem; background: rgba(15,23,32,.85); flex-wrap: wrap; }
+        button { cursor: pointer; border: 0; border-radius: 7px; padding: .5rem .9rem; font-size: .92rem; background: #2b6cb0; color: #fff; }
+        button.alt { background: #38a169; }
+        #durum { font-size: .9rem; opacity: .9; }
+        #metrik { font-size: .9rem; color: #ffd98a; margin-left: auto; }
+        #cam { position: fixed; right: 8px; bottom: 8px; width: 160px; border-radius: 8px; opacity: .55; transform: scaleX(-1); z-index: 20; }
+        #gaze { position: fixed; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: rgba(229,57,53,.85); box-shadow: 0 0 14px 4px rgba(229,57,53,.5); display: none; z-index: 15; pointer-events: none; }
+        #calib .target { position: fixed; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: #fff; color: #0f1720; font-weight: 700; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 18; box-shadow: 0 0 0 4px rgba(43,108,176,.6); }
+        .note { position: fixed; left: 12px; bottom: 10px; max-width: 420px; font-size: .82rem; opacity: .75; z-index: 20; line-height: 1.5; }
+    </style>
+</head>
+<body>
+    <div id="bar">
+        <button id="btn-calib">1) Kalibre et (9 nokta)</button>
+        <button id="btn-acc" class="alt">2) Doğruluk testi</button>
+        <span id="durum">Yükleniyor…</span>
+        <span id="metrik"></span>
+    </div>
+
+    <div id="calib"></div>
+    <div id="gaze"></div>
+    <video id="cam" playsinline muted></video>
+    <div class="note">
+        <strong>Deneysel prototip (Faz 7).</strong> Kamera görüntüsü tarayıcıdan çıkmaz;
+        her şey yerelde işlenir. Kalibrasyonda her beliren noktaya <strong>bakıp tıklayın</strong>.
+        Sonra kırmızı noktanın bakışınızı izleyip izlemediğine ve <em>yatay</em> hatanın
+        WebGazer'a göre düşüp düşmediğine bakın.
+    </div>
+
+    <script type="module" src="{% static 'experiment/js/iris_test.js' %}?v={{ asset_version }}"></script>
+</body>
+</html>

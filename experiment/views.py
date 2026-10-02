@@ -39,6 +39,16 @@ def run_experiment(request):
 
 
 @never_cache
+def iris_test(request):
+    """Faz 7 arastirma: MediaPipe Iris tabanli gaze prototipi (tani sayfasi).
+
+    Calisan akisa dokunmaz; WebGazer'a alternatif iris kestirimini olcmek icin.
+    """
+    return render(request, "experiment/iris_test.html",
+                  {"asset_version": _asset_version("iris_test.js")})
+
+
+@never_cache
 @ensure_csrf_cookie
 def run_study(request, code):
     """Faz 2: katilim koduyla cok-materyalli calisma; veri sunucuya kaydedilir."""
