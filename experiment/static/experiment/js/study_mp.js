@@ -11,7 +11,7 @@
 import * as singleEngine from "./gaze/mediapipe_engine.js";   // tek iris gorunumu (bu donanimda en iyi: ~107px)
 import * as ensembleEngine from "./gaze/ensemble_engine.js";  // cok gorunum + fuzyon (opsiyonel)
 
-const APP_VERSION = "0.8.3-faz7";
+const APP_VERSION = "0.9.0-faz7-drift";
 const MIN_W = 1280, MIN_H = 720;
 
 const study = JSON.parse(document.getElementById("study-data").textContent);
@@ -41,6 +41,8 @@ let validationResult = null;
 const midChecks = [];
 const allSamples = [];
 let sessionPromise = null;
+let gazeOffset = [0, 0];   // sistematik kayma (viewport orani); drift olcumunden
+let driftInfo = null;      // {raw_px, corr_px, offset}
 
 // Kalite kapisi (spec §5.6, §7): dogrulama esigini gecmeden veri toplanmaz
 const MAX_VAL_RATIO = study.max_validation_error_ratio || 0.10;
@@ -174,11 +176,20 @@ async function calibrationCycle() {
   const accThr = (100 - MAX_VAL_RATIO * 100).toFixed(0);
   if (avgPx != null && avgPx <= thrPx) {
     screen("<h2>Doğruluk yeterli ✓</h2>" +
-      "<p style='font-size:1.4rem'>Doğruluk: <b>~%" + acc + "</b></p>" +
-      "<p>Ortalama hata " + avgPx + "px (ekran genişliğinin %" + pct + "'si; hedef: doğruluk ≥ %" + accThr + ").</p>" +
-      "<p>Çalışma başlıyor…</p>");
+      "<p style='font-size:1.4rem'>Kalibrasyon doğruluğu: <b>~%" + acc + "</b></p>" +
+      "<p>Şimdi kısa bir <strong>gerçek doğruluk ölçümü</strong> yapacağız.</p>");
     sessionPromise = startSession();   // yalniz GECINCE oturum olusur
-    await sleep(1500);
+    await sleep(1600);
+    driftInfo = await driftCheck();    // serbest-izleme hatasi + ofset duzeltmesi
+    if (driftInfo && driftInfo.raw_px != null) {
+      const rawA = (100 - driftInfo.raw_px / vw * 100).toFixed(0);
+      const corrA = (100 - driftInfo.corr_px / vw * 100).toFixed(0);
+      screen("<h2>Gerçek doğruluk ölçüldü</h2>" +
+        "<p>Serbest-izleme hatası: <b>" + driftInfo.raw_px + "px</b> (~%" + rawA + ")</p>" +
+        "<p>Sistematik kayma düzeltmesi sonrası: <b>" + driftInfo.corr_px + "px</b> (~%" + corrA + ")</p>" +
+        "<p style='color:#9fb'>Bu düzeltme tüm bakış verisine uygulanacak. Materyaller başlıyor…</p>");
+      await sleep(3000);
+    }
     runMaterials(0);
   } else if (calibAttempt < MAX_ATTEMPTS) {
     screen("<h2>Doğruluk yetersiz</h2>" +
@@ -230,6 +241,54 @@ async function doValidate() {
   return avgPx;
 }
 
+// Pasif hedef: noktaya BAK (tiklama yok), sure boyunca tahmin topla
+function passiveTarget(cx, cy, ms) {
+  return new Promise((resolve) => {
+    app.innerHTML = "";
+    const t = document.createElement("div");
+    t.className = "target"; t.style.cursor = "default";
+    t.style.left = (cx * 100) + "vw"; t.style.top = (cy * 100) + "vh";
+    t.textContent = "●";
+    app.appendChild(t);
+    const preds = [];
+    const iv = setInterval(() => { const f = latestFeatures(); if (f && W) preds.push(predict(W, f)); }, 40);
+    setTimeout(() => { clearInterval(iv); resolve(preds); }, ms);
+  });
+}
+
+// Drift/ofset olcumu (spec §12 bilinen hedef): gercek serbest-izleme hatasi +
+// sistematik kayma. Kayma sabitse tum ornekten cikarilir.
+async function driftCheck() {
+  screen("<h2>Hızlı doğruluk ölçümü</h2>" +
+    "<p>Birazdan beliren noktalara sırayla <strong>bakın</strong> (tıklamaya gerek yok).</p>");
+  await sleep(1600);
+  const grid = [0.2, 0.5, 0.8];
+  const pts = [];
+  for (const y of grid) for (const x of grid) pts.push([x, y]);
+
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const diffs = [];
+  for (const [cx, cy] of pts) {
+    const preds = await passiveTarget(cx, cy, 1300);
+    if (preds.length >= 3) {
+      // ilk saccade'i ele: son %60'in medyani
+      const tail = preds.slice(Math.floor(preds.length * 0.4));
+      diffs.push([median(tail.map((p) => p[0])) - cx, median(tail.map((p) => p[1])) - cy]);
+    }
+  }
+  app.innerHTML = "";
+  if (!diffs.length) { gazeOffset = [0, 0]; return null; }
+
+  const ox = diffs.reduce((a, d) => a + d[0], 0) / diffs.length;
+  const oy = diffs.reduce((a, d) => a + d[1], 0) / diffs.length;
+  gazeOffset = [ox, oy];
+  const rawPx = Math.sqrt(diffs.reduce((a, d) => a + (d[0] * vw) ** 2 + (d[1] * vh) ** 2, 0) / diffs.length);
+  const corrPx = Math.sqrt(diffs.reduce((a, d) => a + ((d[0] - ox) * vw) ** 2 + ((d[1] - oy) * vh) ** 2, 0) / diffs.length);
+  const info = { raw_px: +rawPx.toFixed(1), corr_px: +corrPx.toFixed(1), offset: [+ox.toFixed(4), +oy.toFixed(4)] };
+  console.log("Drift/ofset:", info);
+  return info;
+}
+
 async function runMaterials(idx) {
   if (idx >= materials.length) { finishAndUpload(); return; }
   const mat = materials[idx];
@@ -267,7 +326,9 @@ function showMaterial(mat) {
       const f = latestFeatures();
       if (!f || !W) return;
       if (!box) measure();
-      const [gx, gy] = predict(W, f);
+      const [gx0, gy0] = predict(W, f);
+      // Sistematik kaymayi cikar (drift olcumunden)
+      const gx = gx0 - gazeOffset[0], gy = gy0 - gazeOffset[1];
       const xpx = gx * window.innerWidth, ypx = gy * window.innerHeight;
       let xn = null, yn = null, inm = false;
       if (box && box.width > 0) {
@@ -300,6 +361,10 @@ function finishAndUpload() {
       view_weights: W ? lastWeights(W) : null,   // ensemble'da [A,B,C], tekte null
       validation_px: validationResult ? validationResult.avg_error_px : null,
       calib_attempts: calibAttempt,
+      // Gercek serbest-izleme hatasi (drift olcumu) + uygulanan ofset
+      drift_raw_px: driftInfo ? driftInfo.raw_px : null,
+      drift_corr_px: driftInfo ? driftInfo.corr_px : null,
+      drift_offset: driftInfo ? driftInfo.offset : null,
     },
   };
   sessionPromise.then((sid) => {
