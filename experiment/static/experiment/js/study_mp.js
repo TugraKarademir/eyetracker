@@ -11,7 +11,7 @@
 import * as singleEngine from "./gaze/mediapipe_engine.js";   // tek iris gorunumu (bu donanimda en iyi: ~107px)
 import * as ensembleEngine from "./gaze/ensemble_engine.js";  // cok gorunum + fuzyon (opsiyonel)
 
-const APP_VERSION = "0.8.2-faz7";
+const APP_VERSION = "0.8.3-faz7";
 const MIN_W = 1280, MIN_H = 720;
 
 const study = JSON.parse(document.getElementById("study-data").textContent);
@@ -170,15 +170,20 @@ async function calibrationCycle() {
   const pct = avgPx != null ? (avgPx / vw * 100).toFixed(1) : "?";
   const thrPct = (MAX_VAL_RATIO * 100).toFixed(0);
 
+  const acc = avgPx != null ? (100 - avgPx / vw * 100).toFixed(0) : "?";
+  const accThr = (100 - MAX_VAL_RATIO * 100).toFixed(0);
   if (avgPx != null && avgPx <= thrPx) {
-    screen("<h2>Doğruluk yeterli ✓</h2><p>Ortalama hata <b>" + avgPx + "px</b> " +
-      "(ekran genişliğinin %" + pct + "'si; hedef %" + thrPct + " altı).</p><p>Çalışma başlıyor…</p>");
+    screen("<h2>Doğruluk yeterli ✓</h2>" +
+      "<p style='font-size:1.4rem'>Doğruluk: <b>~%" + acc + "</b></p>" +
+      "<p>Ortalama hata " + avgPx + "px (ekran genişliğinin %" + pct + "'si; hedef: doğruluk ≥ %" + accThr + ").</p>" +
+      "<p>Çalışma başlıyor…</p>");
     sessionPromise = startSession();   // yalniz GECINCE oturum olusur
-    await sleep(1300);
+    await sleep(1500);
     runMaterials(0);
   } else if (calibAttempt < MAX_ATTEMPTS) {
     screen("<h2>Doğruluk yetersiz</h2>" +
-      "<p>Ortalama hata <b>" + avgPx + "px</b> (%" + pct + ") — hedef %" + thrPct + " altı değil.</p>" +
+      "<p style='font-size:1.4rem'>Doğruluk: <b>~%" + acc + "</b> — hedef ≥ %" + accThr + "</p>" +
+      "<p>Ortalama hata " + avgPx + "px (%" + pct + ").</p>" +
       "<p>Kameraya <strong>yaklaşın (~50cm)</strong>, yüzünüze önden ışık olsun, başınızı sabit tutun; " +
       "her noktaya bakarak tıklayın.</p>" +
       "<p>Deneme " + calibAttempt + "/" + MAX_ATTEMPTS + "</p><button id='rk'>Tekrar kalibre et</button>");
