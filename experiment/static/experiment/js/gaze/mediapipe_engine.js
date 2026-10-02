@@ -21,6 +21,7 @@ const RIDGE_LAMBDA = 1e-3;
 let landmarker = null;
 let video = null;
 let latestFeat = null;
+let latestLM = null;   // ham landmark dizisi (ensemble icin)
 let running = false;
 const featBuf = [];
 
@@ -100,11 +101,13 @@ function loop() {
   if (video && video.readyState >= 2) {
     const res = landmarker.detectForVideo(video, performance.now());
     if (res && res.faceLandmarks && res.faceLandmarks.length) {
-      latestFeat = features(res.faceLandmarks[0]);
+      latestLM = res.faceLandmarks[0];
+      latestFeat = features(latestLM);
       featBuf.push(latestFeat);
       if (featBuf.length > 10) featBuf.shift();
     } else {
       latestFeat = null;
+      latestLM = null;
     }
   }
   requestAnimationFrame(loop);
@@ -113,6 +116,7 @@ function loop() {
 export function stop() { running = false; }
 export function faceOk() { return latestFeat != null; }
 export function latestFeatures() { return latestFeat; }
+export function latestLandmarks() { return latestLM; }
 export function stableFeatures() {
   if (!featBuf.length) return latestFeat;
   const D = featBuf[0].length;

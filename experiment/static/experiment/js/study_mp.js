@@ -8,9 +8,9 @@
  * KURAL (spec §6/§15): kamera goruntusu tarayicidan cikmaz; yalniz bakis
  * koordinatlari sunucuya gider.
  */
-import { start as startEngine, latestFeatures, faceOk, fit, predict } from "./gaze/mediapipe_engine.js";
+import { start as startEngine, latestFeatures, faceOk, fit, predict, lastWeights } from "./gaze/ensemble_engine.js";
 
-const APP_VERSION = "0.7.1-faz7-mediapipe";
+const APP_VERSION = "0.8.0-faz7-ensemble";
 const MIN_W = 1280, MIN_H = 720;
 
 const study = JSON.parse(document.getElementById("study-data").textContent);
@@ -193,6 +193,7 @@ async function doCalibrate() {
   }
   if (rows.length < 6) return false;
   W = fit(rows);
+  console.log("Ensemble gorunum agirliklari (A/B/C):", lastWeights(W));
   return true;
 }
 
