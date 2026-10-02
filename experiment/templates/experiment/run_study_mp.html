@@ -1,0 +1,33 @@
+{% load static %}<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ study.name }} — Göz İzleme (MediaPipe)</title>
+    <style>
+        html, body { height: 100%; margin: 0; background: #0f1720; color: #e8eef5; font-family: system-ui, "Segoe UI", sans-serif; }
+        #app { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .kart { max-width: 720px; margin: 0 auto; padding: 2rem 2.4rem; background: #17222e; border-radius: 12px; line-height: 1.6; text-align: center; }
+        .kart h2 { margin-top: 0; }
+        button { cursor: pointer; border: 0; border-radius: 8px; padding: .6rem 1.2rem; font-size: 1rem; background: #2b6cb0; color: #fff; margin: .3rem; }
+        button.sec { background: #4a5568; }
+        button:disabled { opacity: .5; cursor: default; }
+        .target { position: fixed; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%; background: #fff; color: #0f1720; font-weight: 700; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 30; box-shadow: 0 0 0 4px rgba(43,108,176,.6); }
+        .fix { font-size: 64px; color: #e8eef5; }
+        .matwrap { width: 100vw; height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff; }
+        .matwrap img { max-width: 100vw; max-height: 88vh; object-fit: contain; }
+        .matwrap .alt { position: fixed; bottom: 14px; }
+        #cam-mp { position: fixed; right: 8px; bottom: 8px; width: 140px; border-radius: 8px; opacity: .45; transform: scaleX(-1); z-index: 5; }
+    </style>
+</head>
+<body>
+    <video id="cam-mp" playsinline muted></video>
+    <div id="app"></div>
+
+    {{ study|json_script:"study-data" }}
+    {{ materials_json|json_script:"materials-data" }}
+    {{ api|json_script:"api-data" }}
+
+    <script type="module" src="{% static 'experiment/js/study_mp.js' %}?v={{ asset_version }}"></script>
+</body>
+</html>

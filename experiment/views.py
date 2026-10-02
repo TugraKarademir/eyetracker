@@ -63,8 +63,17 @@ def run_study(request, code):
         }
         for m in study.materials.all()
     ]
+    # Gaze motoru: varsayilan MediaPipe (iris, daha iyi yatay); calisma
+    # ayarlarindan "webgazer"a dusurulebilir. İkisi de ayni API/veri formatini
+    # kullanir; analiz/sunucu/AOI zinciri degismez.
+    engine = (study.settings or {}).get("gaze_engine", "mediapipe")
+    if engine == "webgazer":
+        template, js = "experiment/run_study.html", "study.js"
+    else:
+        template, js = "experiment/run_study_mp.html", "study_mp.js"
+
     context = {
-        "asset_version": _asset_version("study.js"),
+        "asset_version": _asset_version(js),
         "study": {
             "code": study.participation_code,
             "name": study.name,
@@ -78,4 +87,4 @@ def run_study(request, code):
             "finish_tmpl": reverse("studies:session_finish", args=[0]).replace("/0/", "/__ID__/"),
         },
     }
-    return render(request, "experiment/run_study.html", context)
+    return render(request, template, context)

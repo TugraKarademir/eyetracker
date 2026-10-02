@@ -125,14 +125,22 @@ class RunStudyViewTests(TestCase):
         with override_settings(MEDIA_ROOT=MEDIA):
             Material.objects.create(study=self.study, order=1, image=_upload())
 
-    def test_bilinen_kod_200(self):
+    def test_varsayilan_mediapipe_motoru(self):
         url = reverse("experiment:run_study", args=[self.study.participation_code])
         r = self.client.get(url, SERVER_NAME="localhost")
         self.assertEqual(r.status_code, 200)
         html = r.content.decode()
         self.assertIn("study-data", html)
         self.assertIn("materials-data", html)
-        self.assertIn("study.js", html)
+        self.assertIn("study_mp.js", html)  # varsayilan: MediaPipe iris
+
+    def test_webgazer_motoru_secilebilir(self):
+        self.study.settings = {"gaze_engine": "webgazer"}
+        self.study.save()
+        url = reverse("experiment:run_study", args=[self.study.participation_code])
+        html = self.client.get(url, SERVER_NAME="localhost").content.decode()
+        self.assertIn('js/study.js', html)
+        self.assertNotIn("study_mp.js", html)
 
     def test_bilinmeyen_kod_404(self):
         url = reverse("experiment:run_study", args=["bilinmeyen"])
