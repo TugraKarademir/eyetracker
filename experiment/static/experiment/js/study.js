@@ -11,14 +11,17 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "0.6.1-faz6";
+  const APP_VERSION = "0.3.0-faz9-rq";
   const MIN_W = 1280;
   const MIN_H = 720;
-  const STIM_ID = "#jspsych-image-button-response-stimulus";
+  const IMG_STIM_ID = "#jspsych-image-button-response-stimulus";
+  const VID_STIM_ID = "#jspsych-video-button-response-stimulus";
 
   const study = JSON.parse(document.getElementById("study-data").textContent);
   const materials = JSON.parse(document.getElementById("materials-data").textContent);
   const api = JSON.parse(document.getElementById("api-data").textContent);
+  const leppinkItems = JSON.parse(document.getElementById("leppink-data").textContent);
+  const cogLoad = [];  // {material_id, scores:[10]} — RQ3 Leppink
 
   console.log("Calisma JS surumu:", APP_VERSION, "| materyal:", materials.length);
 
@@ -63,8 +66,8 @@
     });
   }
 
-  function measureBox() {
-    const el = document.querySelector(STIM_ID);
+  function measureBox(stimId) {
+    const el = document.querySelector(stimId);
     if (el) {
       const r = el.getBoundingClientRect();
       if (r.width > 0 && r.height > 0) {
@@ -222,57 +225,95 @@
       trial_duration: 1000,
     });
 
-    timeline.push({
-      type: jsPsychImageButtonResponse,
-      stimulus: mat.src,
-      maintain_aspect_ratio: true,
-      stimulus_height: Math.min(mat.natural_height, Math.round(window.innerHeight * 0.9)),
-      render_on_canvas: false,
-      choices: ["Devam"],
-      prompt: "<p style='color:#777'>Materyali inceledikten sonra <strong>Devam</strong> deyin.</p>",
-      extensions: [{ type: jsPsychExtensionWebgazer, params: { targets: [STIM_ID] } }],
-      data: { task: "material", material_id: mat.id },
-      on_load: function () {
-        matStart = performance.now();
-        matSamples = [];
-        matBox = null;
-        // KRITIK: dogrulama sonrasi webgazer pause halde; resume sart
-        try { jsPsych.extensions.webgazer.resume(); } catch (e) { console.error("resume:", e); }
-        try {
-          unsubscribeGaze = jsPsych.extensions.webgazer.onGazeUpdate(function (g) {
-            if (g && typeof g.x === "number" && typeof g.y === "number") {
-              matSamples.push({ x: g.x, y: g.y, t: Math.round(performance.now() - matStart) });
-            }
-          });
-        } catch (e) { console.error("gaze dinleyici:", e); }
-        const img = document.querySelector(STIM_ID);
-        const grab = function () { const b = measureBox(); if (b) matBox = b; };
-        if (img && img.complete && img.naturalWidth > 0) grab();
-        else if (img) img.addEventListener("load", grab, { once: true });
-        let tries = 0;
-        const retry = setInterval(function () { if ((grab(), matBox) || ++tries > 10) clearInterval(retry); }, 150);
-      },
-      on_finish: function () {
-        if (!matBox) matBox = measureBox();
-        if (unsubscribeGaze) { try { unsubscribeGaze(); } catch (e) {} unsubscribeGaze = null; }
-        try { jsPsych.extensions.webgazer.pause(); } catch (e) {}
-        // Bu materyalin orneklerini normalize edip biriktir
-        const box = matBox;
-        matSamples.forEach(function (s) {
-          let xn = null, yn = null, inm = false;
-          if (box && box.width > 0 && box.height > 0) {
-            xn = +((s.x - box.left) / box.width).toFixed(4);
-            yn = +((s.y - box.top) / box.height).toFixed(4);
-            inm = xn >= 0 && xn <= 1 && yn >= 0 && yn <= 1;
+    const isVideo = mat.kind === "video" && mat.video;
+    const stimId = isVideo ? VID_STIM_ID : IMG_STIM_ID;
+
+    // Gaze yakalama (gorsel/video ortak)
+    const onLoad = function () {
+      matStart = performance.now();
+      matSamples = [];
+      matBox = null;
+      try { jsPsych.extensions.webgazer.resume(); } catch (e) { console.error("resume:", e); }
+      try {
+        unsubscribeGaze = jsPsych.extensions.webgazer.onGazeUpdate(function (g) {
+          if (g && typeof g.x === "number" && typeof g.y === "number") {
+            matSamples.push({ x: g.x, y: g.y, t: Math.round(performance.now() - matStart) });
           }
-          allSamples.push({
-            material_id: mat.id, t: s.t,
-            x_px: Math.round(s.x), y_px: Math.round(s.y),
-            x_norm: xn, y_norm: yn, in_material: inm,
-          });
         });
-      },
-    });
+      } catch (e) { console.error("gaze dinleyici:", e); }
+      const grab = function () { const b = measureBox(stimId); if (b) matBox = b; };
+      let tries = 0;
+      const retry = setInterval(function () { if ((grab(), matBox) || ++tries > 20) clearInterval(retry); }, 150);
+    };
+    const onFinish = function () {
+      if (!matBox) matBox = measureBox(stimId);
+      if (unsubscribeGaze) { try { unsubscribeGaze(); } catch (e) {} unsubscribeGaze = null; }
+      try { jsPsych.extensions.webgazer.pause(); } catch (e) {}
+      const box = matBox;
+      matSamples.forEach(function (s) {
+        let xn = null, yn = null, inm = false;
+        if (box && box.width > 0 && box.height > 0) {
+          xn = +((s.x - box.left) / box.width).toFixed(4);
+          yn = +((s.y - box.top) / box.height).toFixed(4);
+          inm = xn >= 0 && xn <= 1 && yn >= 0 && yn <= 1;
+        }
+        allSamples.push({
+          material_id: mat.id, t: s.t,
+          x_px: Math.round(s.x), y_px: Math.round(s.y),
+          x_norm: xn, y_norm: yn, in_material: inm,
+        });
+      });
+    };
+
+    if (isVideo) {
+      timeline.push({
+        type: jsPsychVideoButtonResponse,
+        stimulus: [mat.video],
+        width: Math.round(window.innerWidth * 0.8),
+        choices: ["Devam"],
+        response_allowed_while_playing: false,  // video bitince "Devam"
+        trial_ends_after_video: false,
+        prompt: "<p style='color:#777'>Videoyu izledikten sonra <strong>Devam</strong> deyin.</p>",
+        extensions: [{ type: jsPsychExtensionWebgazer, params: { targets: [stimId] } }],
+        data: { task: "material", material_id: mat.id },
+        on_load: onLoad, on_finish: onFinish,
+      });
+    } else {
+      timeline.push({
+        type: jsPsychImageButtonResponse,
+        stimulus: mat.src,
+        maintain_aspect_ratio: true,
+        stimulus_height: Math.min(mat.natural_height, Math.round(window.innerHeight * 0.9)),
+        render_on_canvas: false,
+        choices: ["Devam"],
+        prompt: "<p style='color:#777'>Materyali inceledikten sonra <strong>Devam</strong> deyin.</p>",
+        extensions: [{ type: jsPsychExtensionWebgazer, params: { targets: [stimId] } }],
+        data: { task: "material", material_id: mat.id },
+        on_load: onLoad, on_finish: onFinish,
+      });
+    }
+
+    // RQ3: her materyalden sonra Leppink bilissel yuk anketi (0-10)
+    if (leppinkItems && leppinkItems.length) {
+      timeline.push({
+        type: jsPsychSurveyLikert,
+        preamble: "<p>Az önceki materyali düşünerek aşağıdaki ifadelere katılım düzeyinizi işaretleyin.</p>",
+        questions: leppinkItems.map(function (text) {
+          return { prompt: text, labels: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"], required: true };
+        }),
+        button_label: "Devam",
+        data: { task: "leppink", material_id: mat.id },
+        on_finish: function (data) {
+          // survey-likert yanitlari {Q0:idx,...}; idx 0-10 = puan
+          const r = data.response || {};
+          const scores = leppinkItems.map(function (_, i) {
+            const v = r["Q" + i];
+            return typeof v === "number" ? v : null;
+          });
+          cogLoad.push({ material_id: mat.id, scores: scores });
+        },
+      });
+    }
 
     // Ara kontrol (spec §5.8): her 3 materyalde bir tek noktali hizli dogrulama
     if ((idx + 1) % 3 === 0 && idx + 1 < materials.length) {
@@ -312,6 +353,16 @@
 
   jsPsych.run(timeline);
 
+  // RQ3: Leppink yanitlarini (oturum x materyal) sunucuya gonderir
+  function uploadCogLoad(sessionId) {
+    if (!api.load_tmpl || !cogLoad.length) return Promise.resolve();
+    const url = api.load_tmpl.replace("__ID__", sessionId);
+    return Promise.all(cogLoad.map(function (c) {
+      return postWithRetry(url, { material_id: c.material_id, scores: c.scores }, 2)
+        .catch(function (e) { console.error("Leppink gonderimi:", e); });
+    }));
+  }
+
   // --- bitiste: sunucuya gonder ----------------------------------------------
   function finishAndUpload() {
     document.body.innerHTML =
@@ -329,7 +380,10 @@
       const dataUrl = api.data_tmpl.replace("__ID__", sessionId);
       const finishUrl = api.finish_tmpl.replace("__ID__", sessionId);
       return postWithRetry(dataUrl, payload, 3).then(function (res) {
-        return postWithRetry(finishUrl, { status: "completed" }, 3).then(function () { return res; });
+        // RQ3: Leppink yanitlarini gonder (varsa)
+        return uploadCogLoad(sessionId).then(function () {
+          return postWithRetry(finishUrl, { status: "completed" }, 3).then(function () { return res; });
+        });
       });
     }).then(function (res) {
       setSon("<h2>Tesekkurler!</h2><p>Veriniz kaydedildi.</p>" +

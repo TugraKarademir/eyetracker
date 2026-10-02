@@ -6,6 +6,7 @@ from django.urls import reverse
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import ensure_csrf_cookie
 
+from studies import api as api_mod
 from studies.models import Study
 
 _JS_DIR = Path(__file__).resolve().parent / "static" / "experiment" / "js"
@@ -57,7 +58,9 @@ def run_study(request, code):
         {
             "id": m.id,
             "order": m.order,
-            "src": m.image.url,
+            "kind": m.kind,
+            "src": m.image.url if m.image else None,
+            "video": m.video.url if m.video else None,
             "natural_width": m.natural_width,
             "natural_height": m.natural_height,
         }
@@ -96,6 +99,9 @@ def run_study(request, code):
             # <id> yer tutucusu JS'te gercek oturum id'siyle degistirilir
             "data_tmpl": reverse("studies:session_data", args=[0]).replace("/0/", "/__ID__/"),
             "finish_tmpl": reverse("studies:session_finish", args=[0]).replace("/0/", "/__ID__/"),
+            "load_tmpl": reverse("studies:cognitive_load", args=[0]).replace("/0/", "/__ID__/"),
         },
+        # RQ3 Leppink maddeleri (her materyalden sonra; ayarla kapatilabilir)
+        "leppink_items": api_mod.LEPPINK_ITEMS if settings.get("leppink", True) else [],
     }
     return render(request, template, context)
