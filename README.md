@@ -12,6 +12,7 @@ Tüm kapsam, algoritmalar ve kararlar için bkz. [`GOZ_IZLEME_SPEC.md`](GOZ_IZLE
 - **Faz 4 — Analiz motoru + Excel:** ✓ Tamamlandı (I-DT fiksasyon, AOI metrikleri, 6 sayfalı Excel + uzun-format CSV). Panelden "Excel/CSV indir".
 - **Faz 5 — Isı haritaları, sıcak bölge, rapor:** ✓ Tamamlandı (süre-ağırlıklı Gauss ısı haritası, katılımcı ağırlık eşitleme, AOI dışı sıcak bölge önerisi, AOI sıralaması, sınırlılık notu). Panelden "Rapor".
 - **Faz 6 — Kalite ve ara kontroller:** ✓ Yazılım tamamlandı (dışlama kuralları: doğrulama hatası / kayıp veri / geçerli materyal oranı; kalite raporu; her 3 materyalde ara kontrol). **Pilot (5–10 kişi) manuel adımdır** — bkz. [`PILOT.md`](PILOT.md).
+- **Faz 7 — MediaPipe iris motoru:** ✓ (pilotta WebGazer'ın zayıf yatay takibi nedeniyle eklendi). Tarayıcı-içi FaceLandmarker (478 landmark + iris) + ridge kalibrasyon; pilotta yatay hata ~139px. **Varsayılan gaze motoru artık MediaPipe**; `Study.settings` içinde `"gaze_engine": "webgazer"` ile eskiye dönülebilir. Tanı sayfası: `/iris-test/`. Aynı API/veri formatı → analiz/AOI/rapor değişmez.
 
 ### Hızlı başlangıç (Faz 2)
 
