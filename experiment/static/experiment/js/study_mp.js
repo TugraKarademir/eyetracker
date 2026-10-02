@@ -10,7 +10,7 @@
  */
 import { start as startEngine, latestFeatures, faceOk, fit, predict } from "./gaze/mediapipe_engine.js";
 
-const APP_VERSION = "0.7.0-faz7-mediapipe";
+const APP_VERSION = "0.7.1-faz7-mediapipe";
 const MIN_W = 1280, MIN_H = 720;
 
 const study = JSON.parse(document.getElementById("study-data").textContent);
@@ -34,6 +34,11 @@ let validationResult = null;
 const midChecks = [];
 const allSamples = [];
 let sessionPromise = null;
+
+// Kalite kapisi (spec §5.6, §7): dogrulama esigini gecmeden veri toplanmaz
+const MAX_VAL_RATIO = study.max_validation_error_ratio || 0.10;
+const MAX_ATTEMPTS = study.max_calibration_attempts || 3;
+let calibAttempt = 0;
 
 console.log("MediaPipe runner surumu:", APP_VERSION, "| materyal:", materials.length);
 badge();
@@ -119,8 +124,13 @@ async function loadEngine() {
     screen("<h2>Kamera/model hatasi</h2><p>" + esc(e.message) + "</p>");
     return;
   }
-  // Oturumu baslat (asenkron)
-  sessionPromise = postWithRetry(api.start, {
+  // NOT: Oturum, veri toplamaya hak kazanilinca (dogrulama gecince) baslatilir;
+  // boylece basarisiz kalibrasyonlardan bos oturum olusmaz.
+  facePositioning();
+}
+
+function startSession() {
+  return postWithRetry(api.start, {
     study_code: study.code,
     device: {
       user_agent: navigator.userAgent, screen_width: screen_w(), screen_height: screen_h(),
@@ -128,7 +138,6 @@ async function loadEngine() {
       device_pixel_ratio: window.devicePixelRatio || 1,
     },
   }, 2).then((r) => r.session_id).catch((e) => { console.error("baslat:", e); return null; });
-  facePositioning();
 }
 
 function facePositioning() {
@@ -139,22 +148,55 @@ function facePositioning() {
     if (faceOk()) { btn.disabled = false; btn.textContent = "Yuz bulundu — Kalibrasyona gec"; }
     else { btn.disabled = true; btn.textContent = "Yuz araniyor…"; }
   }, 200);
-  btn.onclick = () => { clearInterval(iv); calibrate(); };
+  btn.onclick = () => { clearInterval(iv); calibrationCycle(); };
 }
 
-async function calibrate() {
+// Kalite kapisi: kalibre -> dogrula -> gecerse veri topla, gecmezse tekrar/dur
+async function calibrationCycle() {
+  calibAttempt++;
+  const ok = await doCalibrate();
+  if (!ok) { screen("<h2>Kalibrasyon yetersiz</h2><p>Yuz bulunamadi. Sayfayi yenileyip tekrar deneyin.</p>"); return; }
+
+  const avgPx = await doValidate();
+  const vw = window.innerWidth;
+  const thrPx = MAX_VAL_RATIO * vw;
+  const pct = avgPx != null ? (avgPx / vw * 100).toFixed(1) : "?";
+  const thrPct = (MAX_VAL_RATIO * 100).toFixed(0);
+
+  if (avgPx != null && avgPx <= thrPx) {
+    screen("<h2>Doğruluk yeterli ✓</h2><p>Ortalama hata <b>" + avgPx + "px</b> " +
+      "(ekran genişliğinin %" + pct + "'si; hedef %" + thrPct + " altı).</p><p>Çalışma başlıyor…</p>");
+    sessionPromise = startSession();   // yalniz GECINCE oturum olusur
+    await sleep(1300);
+    runMaterials(0);
+  } else if (calibAttempt < MAX_ATTEMPTS) {
+    screen("<h2>Doğruluk yetersiz</h2>" +
+      "<p>Ortalama hata <b>" + avgPx + "px</b> (%" + pct + ") — hedef %" + thrPct + " altı değil.</p>" +
+      "<p>Kameraya <strong>yaklaşın (~50cm)</strong>, yüzünüze önden ışık olsun, başınızı sabit tutun; " +
+      "her noktaya bakarak tıklayın.</p>" +
+      "<p>Deneme " + calibAttempt + "/" + MAX_ATTEMPTS + "</p><button id='rk'>Tekrar kalibre et</button>");
+    document.getElementById("rk").onclick = calibrationCycle;
+  } else {
+    screen("<h2>Yeterli doğruluğa ulaşılamadı</h2>" +
+      "<p>" + MAX_ATTEMPTS + " denemede doğrulama hedefin (%" + thrPct + ") altına inmedi (son: %" + pct + ").</p>" +
+      "<p><strong>Veri kaydedilmedi.</strong> Kötü/uzak kamera ya da ışık kaynaklı olabilir. " +
+      "Kameraya yaklaşıp ışığı düzeltip sayfayı yenileyerek tekrar deneyebilirsiniz.</p>");
+  }
+}
+
+async function doCalibrate() {
   const rows = [];
   for (let i = 0; i < CALIB_POINTS.length; i++) {
     const [cx, cy] = CALIB_POINTS[i];
     const buf = await collectAt(cx, cy, String(i + 1), 500);
     if (buf.length) { const D = buf[0].length; rows.push({ f: Array.from({ length: D }, (_, k) => median(buf.map((v) => v[k]))), x: cx, y: cy }); }
   }
-  if (rows.length < 6) { screen("<h2>Kalibrasyon yetersiz</h2><p>Lutfen sayfayi yenileyip tekrar deneyin.</p>"); return; }
+  if (rows.length < 6) return false;
   W = fit(rows);
-  validate();
+  return true;
 }
 
-async function validate() {
+async function doValidate() {
   const vw = window.innerWidth, vh = window.innerHeight;
   let sx = 0, sy = 0, n = 0;
   for (const [cx, cy] of VALID_POINTS) {
@@ -167,12 +209,12 @@ async function validate() {
   }
   const avgPx = n ? +(((sx + sy) / 2) / n).toFixed(1) : null;
   validationResult = {
-    attempt_no: 1, avg_error_px: avgPx,
+    attempt_no: calibAttempt, avg_error_px: avgPx,
     avg_error_norm: avgPx != null ? +(avgPx / vw).toFixed(4) : null,
-    precision: null, passed: avgPx != null ? avgPx <= 0.10 * vw : false,
+    precision: null, passed: avgPx != null ? avgPx <= MAX_VAL_RATIO * vw : false,
   };
-  console.log("MediaPipe dogrulama:", validationResult);
-  runMaterials(0);
+  console.log("Dogrulama (deneme " + calibAttempt + "):", validationResult);
+  return avgPx;
 }
 
 async function runMaterials(idx) {

@@ -72,12 +72,20 @@ def run_study(request, code):
     else:
         template, js = "experiment/run_study_mp.html", "study_mp.js"
 
+    from gaze_analysis.config import AnalysisConfig
+    cfg = AnalysisConfig.from_dict(study.settings)
+    settings = study.settings or {}
+
     context = {
         "asset_version": _asset_version(js),
         "study": {
             "code": study.participation_code,
             "name": study.name,
             "is_open": study.is_open,
+            # Kalite kapisi (spec §5.6, §7): dogrulama esigini gecmeden veri
+            # toplanmaz. Esikler calisma ayarlarindan degistirilebilir.
+            "max_validation_error_ratio": cfg.max_validation_error_ratio,
+            "max_calibration_attempts": int(settings.get("max_calibration_attempts", 3)),
         },
         "materials_json": materials,
         "api": {
