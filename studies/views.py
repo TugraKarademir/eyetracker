@@ -106,3 +106,17 @@ def study_rq2_csv(request, study_id):
     fname = f"rq2_dikkat_{slugify(study.name) or study.id}.csv"
     resp["Content-Disposition"] = f'attachment; filename="{fname}"'
     return resp
+
+
+@login_required
+def study_rq3_csv(request, study_id):
+    """RQ3: dikkat gostergeleri + Leppink alt olcekleri (uzun format CSV)."""
+    from .analysis import build_rq3_csv, run_study_analysis
+    study = get_object_or_404(Study, pk=study_id)
+    if not _require_owner(request, study):
+        return redirect("studies:dashboard")
+    result = run_study_analysis(study)
+    resp = HttpResponse(build_rq3_csv(study, result), content_type="text/csv; charset=utf-8")
+    fname = f"rq3_yuk_{slugify(study.name) or study.id}.csv"
+    resp["Content-Disposition"] = f'attachment; filename="{fname}"'
+    return resp

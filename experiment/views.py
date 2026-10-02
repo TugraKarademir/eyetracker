@@ -63,10 +63,11 @@ def run_study(request, code):
         }
         for m in study.materials.all()
     ]
-    # Gaze motoru: varsayilan MediaPipe (iris, daha iyi yatay); calisma
-    # ayarlarindan "webgazer"a dusurulebilir. İkisi de ayni API/veri formatini
-    # kullanir; analiz/sunucu/AOI zinciri degismez.
-    engine = (study.settings or {}).get("gaze_engine", "mediapipe")
+    # Gaze motoru: VARSAYILAN jsPsych + WebGazer (RQ1 bu sistemi olcuyor).
+    # MediaPipe, calisma ayarlarindan {"gaze_engine":"mediapipe"} ile acilir
+    # ("sonradan eklenen" daha dogru alternatif; jsPsych disi). Ikisi de ayni
+    # API/veri formatini kullanir -> analiz/AOI/rapor degismez.
+    engine = (study.settings or {}).get("gaze_engine", "webgazer")
     if engine == "webgazer":
         template, js = "experiment/run_study.html", "study.js"
     else:

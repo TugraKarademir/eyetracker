@@ -235,3 +235,50 @@ def aoi_save(request, material_id):
 
     warnings = _overlap_warnings(cleaned)
     return JsonResponse({"saved": len(cleaned), "warnings": warnings})
+
+
+# --- Bilissel yuk (Leppink, RQ3) -------------------------------------------
+from .models import CognitiveLoadResponse  # noqa: E402
+
+# Leppink olcegi maddeleri (TR) — 1-3 icsel, 4-6 dissal, 7-10 germane
+LEPPINK_ITEMS = [
+    "Etkinlikte islenen konu/konular cok karmasikti",
+    "Etkinlik, cok karmasik olarak algiladigim formulleri kapsiyordu",
+    "Etkinlik, cok karmasik olarak algiladigim kavram ve tanimlari kapsiyordu",
+    "Etkinlik sirasinda verilen talimatlar ve/veya aciklamalar cok net degildi",
+    "Talimatlar ve/veya aciklamalar ogrenme acisindan cok etkisizdi",
+    "Talimatlar ve/veya aciklamalar belirsiz bir dille doluydu",
+    "Etkinlik, islenen konu(lar) hakkindaki anlayisimi gercekten gelistirdi",
+    "Etkinlik, istatistik bilgimi ve anlayisimi gercekten gelistirdi",
+    "Etkinlik, kapsanan formulleri anlamami gercekten gelistirdi",
+    "Etkinlik, kavramlari ve tanimlari anlamami gercekten gelistirdi",
+]
+
+
+@require_POST
+def cognitive_load(request, session_id):
+    """Bir oturum x materyal icin Leppink yanitini kaydeder (10 madde, 0-10)."""
+    data = _json_body(request)
+    if data is None:
+        return JsonResponse({"error": "Gecersiz JSON"}, status=400)
+    try:
+        session = Session.objects.select_related("study").get(pk=session_id)
+    except Session.DoesNotExist:
+        return JsonResponse({"error": "Oturum bulunamadi"}, status=404)
+
+    mid = _as_int(data.get("material_id"))
+    if not Material.objects.filter(pk=mid, study=session.study).exists():
+        return JsonResponse({"error": "Materyal bu calismada degil"}, status=400)
+
+    scores = data.get("scores")
+    if not isinstance(scores, list) or len(scores) != 10:
+        return JsonResponse({"error": "10 madde puani gerekli"}, status=400)
+    clean = []
+    for v in scores:
+        iv = _as_int(v)
+        clean.append(min(10, max(0, iv)) if iv is not None else None)
+
+    CognitiveLoadResponse.objects.update_or_create(
+        session=session, material_id=mid, defaults={"scores": clean}
+    )
+    return JsonResponse({"ok": True})

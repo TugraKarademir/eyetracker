@@ -229,3 +229,40 @@ class AOI(models.Model):
         xs = [float(p[0]) for p in pts]
         ys = [float(p[1]) for p in pts]
         return (min(xs), min(ys), max(xs), max(ys))
+
+
+class CognitiveLoadResponse(models.Model):
+    """Leppink bilissel yuk olcegi yaniti (RQ3) — oturum x materyal.
+
+    scores: 10 maddelik Likert (0-10) listesi. Alt olcekler (Leppink 2013):
+      icsel (intrinsic)   = madde 1-3   (idx 0-2)
+      dissal (extraneous) = madde 4-6   (idx 3-5)   <- RQ3 bunu kullanir
+      germane             = madde 7-10  (idx 6-9)
+    """
+    session = models.ForeignKey(
+        Session, on_delete=models.CASCADE, related_name="cog_load", verbose_name="Oturum"
+    )
+    material = models.ForeignKey(
+        Material, on_delete=models.CASCADE, related_name="cog_load", verbose_name="Materyal"
+    )
+    scores = models.JSONField("Madde puanlari (0-10)", default=list)
+    created_at = models.DateTimeField("Olusturulma", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Bilissel yuk yaniti"
+        verbose_name_plural = "Bilissel yuk yanitlari"
+        unique_together = [("session", "material")]
+
+    @staticmethod
+    def _mean(vals):
+        vals = [v for v in vals if isinstance(v, (int, float))]
+        return round(sum(vals) / len(vals), 2) if vals else None
+
+    def subscales(self):
+        s = self.scores or []
+        s = (s + [None] * 10)[:10]
+        return {
+            "intrinsic": self._mean(s[0:3]),
+            "extraneous": self._mean(s[3:6]),
+            "germane": self._mean(s[6:10]),
+        }

@@ -2,7 +2,9 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from .models import AOI, CalibrationResult, GazeSample, Material, Session, Study
+from .models import (
+    AOI, CalibrationResult, CognitiveLoadResponse, GazeSample, Material, Session, Study,
+)
 
 
 class MaterialInline(admin.TabularInline):
@@ -101,3 +103,21 @@ class GazeSampleAdmin(admin.ModelAdmin):
     list_display = ("session", "material", "t", "x_norm", "y_norm", "in_material")
     list_filter = ("in_material", "material")
     list_select_related = ("session", "material")
+
+
+@admin.register(CognitiveLoadResponse)
+class CognitiveLoadAdmin(admin.ModelAdmin):
+    list_display = ("session", "material", "extraneous", "intrinsic", "germane")
+    list_filter = ("material__study",)
+
+    @admin.display(description="Dissal")
+    def extraneous(self, obj):
+        return obj.subscales()["extraneous"]
+
+    @admin.display(description="Icsel")
+    def intrinsic(self, obj):
+        return obj.subscales()["intrinsic"]
+
+    @admin.display(description="Germane")
+    def germane(self, obj):
+        return obj.subscales()["germane"]

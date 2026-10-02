@@ -316,3 +316,34 @@ def build_rq2_csv(result):
             r["time_to_first_relevant_ms"], r["transition_ratio"], r["n_fixations"],
         ])
     return buf.getvalue()
+
+
+def build_rq3_csv(study, result):
+    """RQ3: dikkat gostergeleri + Leppink alt olcekleri (oturum x materyal).
+
+    Dikkat DV'leri (RQ2) ile bilissel yuk alt olcekleri tek satirda birlestirilir;
+    dissal yuk (extraneous) ile korelasyon dogrudan yapilabilir.
+    """
+    from .models import CognitiveLoadResponse
+    load = {}
+    for c in CognitiveLoadResponse.objects.filter(session__study=study):
+        load[(c.session_id, c.material_id)] = c.subscales()
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow([
+        "oturum_id", "katilimci_kodu", "materyal_sira", "materyal_id", "tur", "kaynak",
+        "ilgili_dwell_ms", "ilgisiz_dwell_ms", "ilgili_dwell_orani",
+        "ilk_ilgili_fiksasyon_ms", "gecis_orani",
+        "yuk_dissal", "yuk_icsel", "yuk_germane",
+    ])
+    for r in result.get("rq2", []):
+        sub = load.get((r["session_id"], r["material_id"]), {})
+        w.writerow([
+            r["session_id"], r["participant_code"], r["material_order"], r["material_id"],
+            r.get("kind"), r.get("source"),
+            r["relevant_dwell_ms"], r["irrelevant_dwell_ms"], r["relevant_dwell_ratio"],
+            r["time_to_first_relevant_ms"], r["transition_ratio"],
+            sub.get("extraneous"), sub.get("intrinsic"), sub.get("germane"),
+        ])
+    return buf.getvalue()

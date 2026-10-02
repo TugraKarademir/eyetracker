@@ -125,22 +125,22 @@ class RunStudyViewTests(TestCase):
         with override_settings(MEDIA_ROOT=MEDIA):
             Material.objects.create(study=self.study, order=1, image=_upload())
 
-    def test_varsayilan_mediapipe_motoru(self):
+    def test_varsayilan_jspsych_webgazer(self):
         url = reverse("experiment:run_study", args=[self.study.participation_code])
         r = self.client.get(url, SERVER_NAME="localhost")
         self.assertEqual(r.status_code, 200)
         html = r.content.decode()
         self.assertIn("study-data", html)
         self.assertIn("materials-data", html)
-        self.assertIn("study_mp.js", html)  # varsayilan: MediaPipe iris
+        self.assertIn("js/study.js", html)      # varsayilan: jsPsych + WebGazer
+        self.assertNotIn("study_mp.js", html)
 
-    def test_webgazer_motoru_secilebilir(self):
-        self.study.settings = {"gaze_engine": "webgazer"}
+    def test_mediapipe_secilebilir(self):
+        self.study.settings = {"gaze_engine": "mediapipe"}
         self.study.save()
         url = reverse("experiment:run_study", args=[self.study.participation_code])
         html = self.client.get(url, SERVER_NAME="localhost").content.decode()
-        self.assertIn('js/study.js', html)
-        self.assertNotIn("study_mp.js", html)
+        self.assertIn("study_mp.js", html)
 
     def test_bilinmeyen_kod_404(self):
         url = reverse("experiment:run_study", args=["bilinmeyen"])
@@ -377,3 +377,44 @@ class RQ2CsvTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn("text/csv", r["Content-Type"])
         self.assertIn("gecis_orani", r.content.decode("utf-8"))
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class CognitiveLoadTests(TestCase):
+    def setUp(self):
+        self.teacher = User.objects.create_user("ogretmen", password="x", is_superuser=True, is_staff=True)
+        self.study = Study.objects.create(name="Yuk", teacher=self.teacher, status=Study.Status.ACTIVE)
+        self.material = Material.objects.create(study=self.study, order=1, image=_upload(),
+                                                kind=Material.Kind.VIDEO, source=Material.Source.HUMAN)
+        self.session = Session.objects.create(study=self.study, participant_code="k1",
+                                              status=Session.Status.IN_PROGRESS)
+
+    def test_yuk_kaydi_ve_alt_olcekler(self):
+        url = reverse("studies:cognitive_load", args=[self.session.id])
+        body = {"material_id": self.material.id, "scores": [2, 4, 6, 8, 8, 8, 1, 1, 1, 1]}
+        r = self.client.post(url, data=json.dumps(body), content_type="application/json")
+        self.assertEqual(r.status_code, 200)
+        from studies.models import CognitiveLoadResponse
+        c = CognitiveLoadResponse.objects.get(session=self.session, material=self.material)
+        self.assertEqual(c.subscales()["extraneous"], 8.0)   # madde 4-6 = 8,8,8
+        self.assertEqual(c.subscales()["intrinsic"], 4.0)    # madde 1-3 = 2,4,6
+
+    def test_yuk_eksik_madde_400(self):
+        url = reverse("studies:cognitive_load", args=[self.session.id])
+        r = self.client.post(url, data=json.dumps({"material_id": self.material.id, "scores": [1, 2, 3]}),
+                             content_type="application/json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_rq3_csv_dissal_sutunu(self):
+        from studies.models import CognitiveLoadResponse
+        CognitiveLoadResponse.objects.create(session=self.session, material=self.material,
+                                             scores=[0, 0, 0, 5, 5, 5, 0, 0, 0, 0])
+        AOI.objects.create(material=self.material, name="R", shape="rect", is_relevant=True,
+                           coords={"x": 0, "y": 0, "w": 0.5, "h": 1})
+        for t in (0, 100, 200, 300):
+            GazeSample.objects.create(session=self.session, material=self.material, t=t,
+                                      x_px=120, y_px=400, x_norm=0.2, y_norm=0.5, in_material=True)
+        self.client.force_login(self.teacher)
+        r = self.client.get(reverse("studies:study_rq3_csv", args=[self.study.id]))
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("yuk_dissal", r.content.decode("utf-8"))
