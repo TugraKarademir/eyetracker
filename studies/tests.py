@@ -319,3 +319,24 @@ class QualityExclusionTests(TestCase):
         # Grup ozetine girmez -> isabet orani 0
         self.assertEqual(result["aoi_summary"][0]["hit_rate"], 0.0)
         self.assertEqual(result["aoi_summary"][0]["n_participants"], 0)
+
+
+class ClientMetaTests(TestCase):
+    def setUp(self):
+        self.teacher = User.objects.create_user("ogretmen", password="x")
+        self.study = Study.objects.create(name="Meta", teacher=self.teacher, status=Study.Status.ACTIVE)
+        with override_settings(MEDIA_ROOT=MEDIA):
+            self.material = Material.objects.create(study=self.study, order=1, image=_upload())
+        self.session = Session.objects.create(study=self.study, participant_code="k1")
+
+    def test_veri_meta_saklanir(self):
+        url = reverse("studies:session_data", args=[self.session.id])
+        body = {
+            "samples": [{"material_id": self.material.id, "t": 1, "x_px": 1, "y_px": 1}],
+            "meta": {"gaze_engine": "ensemble", "view_weights": [0.8, 0.15, 0.05], "validation_px": 120.5},
+        }
+        r = self.client.post(url, data=json.dumps(body), content_type="application/json")
+        self.assertEqual(r.status_code, 200)
+        self.session.refresh_from_db()
+        self.assertEqual(self.session.client_meta["gaze_engine"], "ensemble")
+        self.assertEqual(self.session.client_meta["view_weights"], [0.8, 0.15, 0.05])

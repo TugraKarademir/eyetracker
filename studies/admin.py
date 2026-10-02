@@ -57,6 +57,7 @@ class SessionAdmin(admin.ModelAdmin):
     readonly_fields = (
         "study", "participant_code", "user_agent", "screen_width", "screen_height",
         "viewport_width", "viewport_height", "device_pixel_ratio", "started_at", "finished_at",
+        "client_meta",
     )
     inlines = [CalibrationInline]
 

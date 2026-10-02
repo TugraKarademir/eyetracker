@@ -10,7 +10,7 @@
  */
 import { start as startEngine, latestFeatures, faceOk, fit, predict, lastWeights } from "./gaze/ensemble_engine.js";
 
-const APP_VERSION = "0.8.0-faz7-ensemble";
+const APP_VERSION = "0.8.1-faz7-ensemble";
 const MIN_W = 1280, MIN_H = 720;
 
 const study = JSON.parse(document.getElementById("study-data").textContent);
@@ -279,7 +279,17 @@ function showMaterial(mat) {
 
 function finishAndUpload() {
   screen("<h2>Veriler kaydediliyor…</h2><p>Lutfen pencereyi kapatmayin.</p>");
-  const payload = { calibrations: (validationResult ? [validationResult] : []).concat(midChecks), samples: allSamples };
+  const payload = {
+    calibrations: (validationResult ? [validationResult] : []).concat(midChecks),
+    samples: allSamples,
+    meta: {
+      app_version: APP_VERSION,
+      gaze_engine: "ensemble",
+      view_weights: W ? lastWeights(W) : null,   // [A, B, C] LOO agirliklari
+      validation_px: validationResult ? validationResult.avg_error_px : null,
+      calib_attempts: calibAttempt,
+    },
+  };
   sessionPromise.then((sid) => {
     if (!sid) throw new Error("Oturum yok");
     return postWithRetry(api.data_tmpl.replace("__ID__", sid), payload, 3)

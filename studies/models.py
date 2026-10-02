@@ -111,6 +111,8 @@ class Session(models.Model):
     status = models.CharField(
         "Durum", max_length=16, choices=Status.choices, default=Status.IN_PROGRESS
     )
+    # Istemci tanisi (gaze motoru, ensemble gorunum agirliklari, surum vb.) — spec disi, hata ayiklama
+    client_meta = models.JSONField("Istemci tanisi", default=dict, blank=True)
 
     class Meta:
         verbose_name = "Oturum"

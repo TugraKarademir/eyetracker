@@ -110,11 +110,18 @@ def session_data(request, session_id):
             )
         )
 
+    # Istemci tanisi (gaze motoru, ensemble agirliklari, surum) — varsa sakla
+    meta = data.get("meta")
     with transaction.atomic():
         if calib_objs:
             CalibrationResult.objects.bulk_create(calib_objs)
         if sample_objs:
             GazeSample.objects.bulk_create(sample_objs, batch_size=2000)
+        if isinstance(meta, dict):
+            cur = session.client_meta or {}
+            cur.update(meta)
+            session.client_meta = cur
+            session.save(update_fields=["client_meta"])
 
     return JsonResponse(
         {"saved_samples": len(sample_objs), "saved_calibrations": len(calib_objs), "skipped": skipped}
