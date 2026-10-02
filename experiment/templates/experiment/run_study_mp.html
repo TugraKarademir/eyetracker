@@ -27,6 +27,7 @@
     {{ study|json_script:"study-data" }}
     {{ materials_json|json_script:"materials-data" }}
     {{ api|json_script:"api-data" }}
+    {{ leppink_items|json_script:"leppink-data" }}
 
     <script type="module" src="{% static 'experiment/js/study_mp.js' %}?v={{ asset_version }}"></script>
 </body>

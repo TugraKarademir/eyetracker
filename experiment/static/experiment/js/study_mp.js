@@ -11,12 +11,15 @@
 import * as singleEngine from "./gaze/mediapipe_engine.js";   // tek iris gorunumu (bu donanimda en iyi: ~107px)
 import * as ensembleEngine from "./gaze/ensemble_engine.js";  // cok gorunum + fuzyon (opsiyonel)
 
-const APP_VERSION = "0.9.0-faz7-drift";
+const APP_VERSION = "0.9.1-faz9-rq-mp";
 const MIN_W = 1280, MIN_H = 720;
 
 const study = JSON.parse(document.getElementById("study-data").textContent);
 const materials = JSON.parse(document.getElementById("materials-data").textContent);
 const api = JSON.parse(document.getElementById("api-data").textContent);
+const leppinkEl = document.getElementById("leppink-data");
+const leppinkItems = leppinkEl ? JSON.parse(leppinkEl.textContent) : [];
+const cogLoad = [];  // {material_id, scores:[10]} — RQ3 Leppink
 
 // Motor secimi: varsayilan TEK iris (kanitlanmis en iyi); calisma ayarlarindan
 // ensemble acilabilir (cok kisi/donanimda robustluk denemek icin).
@@ -297,6 +300,8 @@ async function runMaterials(idx) {
   await sleep(1000);
   // materyal
   await showMaterial(mat);
+  // RQ3: materyalden sonra Leppink anketi
+  if (leppinkItems && leppinkItems.length) await leppinkSurvey(mat);
   // ara kontrol (her 3 materyalde bir)
   if ((idx + 1) % 3 === 0 && idx + 1 < materials.length) {
     const buf = await collectAt(0.5, 0.5, "●", 1200);
@@ -314,13 +319,28 @@ async function runMaterials(idx) {
 
 function showMaterial(mat) {
   return new Promise((resolve) => {
-    app.innerHTML =
-      '<div class="matwrap"><img id="mat" src="' + mat.src + '" alt="materyal">' +
-      '<div class="alt"><button id="devam">Devam</button></div></div>';
-    const img = document.getElementById("mat");
+    const isVideo = mat.kind === "video" && mat.video;
+    if (isVideo) {
+      app.innerHTML =
+        '<div class="matwrap"><video id="mat" src="' + mat.video + '" autoplay playsinline ' +
+        'style="max-width:100vw;max-height:88vh"></video>' +
+        '<div class="alt"><button id="devam" disabled>Videoyu izleyin…</button></div></div>';
+    } else {
+      app.innerHTML =
+        '<div class="matwrap"><img id="mat" src="' + mat.src + '" alt="materyal">' +
+        '<div class="alt"><button id="devam">Devam</button></div></div>';
+    }
+    const el = document.getElementById("mat");
+    const devamBtn = document.getElementById("devam");
     let box = null, samples = [];
     const start = performance.now();
-    const measure = () => { const r = img.getBoundingClientRect(); if (r.width > 0 && r.height > 0) box = r; };
+    const measure = () => { const r = el.getBoundingClientRect(); if (r.width > 0 && r.height > 0) box = r; };
+
+    if (isVideo) {
+      // Video bitince "Devam" etkinlesir
+      el.addEventListener("ended", () => { devamBtn.disabled = false; devamBtn.textContent = "Devam"; }, { once: true });
+      el.addEventListener("loadedmetadata", measure, { once: true });
+    }
 
     const capture = setInterval(() => {
       const f = latestFeatures();
@@ -339,15 +359,53 @@ function showMaterial(mat) {
       samples.push({ material_id: mat.id, t: Math.round(performance.now() - start), x_px: Math.round(xpx), y_px: Math.round(ypx), x_norm: xn, y_norm: yn, in_material: inm });
     }, 40);
 
-    if (img.complete && img.naturalWidth) measure();
-    else img.addEventListener("load", measure, { once: true });
+    if (!isVideo) {
+      if (el.complete && el.naturalWidth) measure();
+      else el.addEventListener("load", measure, { once: true });
+    }
 
-    document.getElementById("devam").onclick = () => {
+    devamBtn.onclick = () => {
+      if (devamBtn.disabled) return;   // video bitmeden gecilmez
       clearInterval(capture);
       for (const s of samples) allSamples.push(s);
       resolve();
     };
   });
+}
+
+// RQ3: Leppink bilissel yuk anketi (plain DOM, 10 madde 0-10)
+function leppinkSurvey(mat) {
+  return new Promise((resolve) => {
+    let html = '<div class="kart" style="max-width:780px;text-align:left;max-height:90vh;overflow:auto">' +
+      '<h2>Kısa anket</h2><p style="color:#bcd">Az önceki materyali düşünerek her ifadeye ' +
+      '<strong>0 (hiç) – 10 (tamamen)</strong> arası puan verin.</p><form id="lep">';
+    leppinkItems.forEach((text, i) => {
+      html += '<div style="margin:.7rem 0"><div style="margin-bottom:.2rem">' + (i + 1) + '. ' + escEl(text) + '</div>' +
+        '<input type="range" name="q' + i + '" min="0" max="10" step="1" value="5" ' +
+        'oninput="this.nextElementSibling.textContent=this.value" style="width:70%"> ' +
+        '<span>5</span></div>';
+    });
+    html += '<div style="margin-top:1rem"><button type="submit">Devam</button></div></form></div>';
+    app.innerHTML = html;
+    document.getElementById("lep").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const scores = leppinkItems.map((_, i) => {
+        const v = e.target["q" + i]; return v ? parseInt(v.value, 10) : null;
+      });
+      cogLoad.push({ material_id: mat.id, scores: scores });
+      resolve();
+    });
+  });
+}
+
+function escEl(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+function uploadCogLoad(sid) {
+  if (!api.load_tmpl || !cogLoad.length) return Promise.resolve();
+  const url = api.load_tmpl.replace("__ID__", sid);
+  return Promise.all(cogLoad.map((c) =>
+    postWithRetry(url, { material_id: c.material_id, scores: c.scores }, 2)
+      .catch((e) => console.error("Leppink gonderimi:", e))));
 }
 
 function finishAndUpload() {
@@ -370,7 +428,8 @@ function finishAndUpload() {
   sessionPromise.then((sid) => {
     if (!sid) throw new Error("Oturum yok");
     return postWithRetry(api.data_tmpl.replace("__ID__", sid), payload, 3)
-      .then((res) => postWithRetry(api.finish_tmpl.replace("__ID__", sid), { status: "completed" }, 3).then(() => res));
+      .then((res) => uploadCogLoad(sid).then(() =>
+        postWithRetry(api.finish_tmpl.replace("__ID__", sid), { status: "completed" }, 3).then(() => res)));
   }).then((res) => {
     screen("<h2>Tesekkurler!</h2><p>Veriniz kaydedildi (" + (res.saved_samples || allSamples.length) + " bakis ornegi).</p>");
   }).catch((e) => {
