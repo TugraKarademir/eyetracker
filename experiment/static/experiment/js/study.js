@@ -11,7 +11,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "0.3.0-faz9-rq";
+  const APP_VERSION = "0.3.1-faz9-rq1";
   const MIN_W = 1280;
   const MIN_H = 720;
   const IMG_STIM_ID = "#jspsych-image-button-response-stimulus";
@@ -64,6 +64,12 @@
       }
       throw err;
     });
+  }
+
+  function median(arr) {
+    const a = arr.slice().sort(function (x, y) { return x - y; });
+    const m = a.length >> 1;
+    return a.length ? (a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2) : 0;
   }
 
   function measureBox(stimId) {
@@ -132,6 +138,7 @@
   const allSamples = []; // {material_id, t, x_px, y_px, x_norm, y_norm, in_material}
   let validationResult = null;
   const midChecks = [];  // ara kontroller (spec §5.8)
+  let quadOK = 0, quadN = 0;  // RQ1 kadran dogrulugu (bilinen kose hedefleri)
 
   // Materyal adiminda gecici toplayici
   let matStart = null, matSamples = [], matBox = null, unsubscribeGaze = null;
@@ -214,6 +221,32 @@
       validationResult = summarizeValidation(data);
       console.log("Dogrulama:", validationResult);
     },
+  });
+
+  // 5b) RQ1 KADRAN DOGRULUGU: bilinen 4 kose hedefine bak, dogru kadran orani
+  [[0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]].forEach(function (pt) {
+    const cx = pt[0], cy = pt[1];
+    timeline.push({
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: '<div style="position:fixed;left:' + (cx * 100) + 'vw;top:' + (cy * 100) +
+        'vh;margin:-14px 0 0 -14px;width:28px;height:28px;border-radius:50%;background:#e53935">●</div>',
+      choices: "NO_KEYS",
+      trial_duration: 1300,
+      extensions: [{ type: jsPsychExtensionWebgazer, params: {} }],
+      data: { task: "quadrant" },
+      on_load: function () { try { jsPsych.extensions.webgazer.resume(); } catch (e) {} },
+      on_finish: function (data) {
+        try { jsPsych.extensions.webgazer.pause(); } catch (e) {}
+        const g = data.webgazer_data || [];
+        if (g.length >= 3) {
+          const tail = g.slice(Math.floor(g.length * 0.4));
+          const mx = median(tail.map(function (s) { return s.x; })) / window.innerWidth;
+          const my = median(tail.map(function (s) { return s.y; })) / window.innerHeight;
+          quadN++;
+          if ((mx < 0.5) === (cx < 0.5) && (my < 0.5) === (cy < 0.5)) quadOK++;
+        }
+      },
+    });
   });
 
   // 6) Her materyal: odak artisi + materyal
@@ -373,6 +406,12 @@
     const payload = {
       calibrations: (validationResult ? [validationResult] : []).concat(midChecks),
       samples: allSamples,
+      meta: {
+        app_version: APP_VERSION,
+        gaze_engine: "webgazer",
+        validation_px: validationResult ? validationResult.avg_error_px : null,
+        quadrant_accuracy: quadN ? +(quadOK / quadN).toFixed(3) : null,
+      },
     };
 
     sessionPromise.then(function (sessionId) {
