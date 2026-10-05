@@ -1,89 +1,133 @@
-# Göz İzleme ve Isı Haritası Uygulaması
+# webcam-eye-tracking-jspsych (based on WebGazer)
 
-Webcam tabanlı göz izleme, ısı haritası ve AOI analizi yapan web uygulaması.
-Tüm kapsam, algoritmalar ve kararlar için bkz. [`GOZ_IZLEME_SPEC.md`](GOZ_IZLEME_SPEC.md).
+Web kamerası tabanlı göz izleme ile **ekran dikkat dağılımı** ölçen, açık kaynak
+bir araştırma altyapısı. jsPsych + WebGazer.js ile deney akışı; sunucu tarafında
+Django ile veri kaydı, ilgi alanı (AOI) analizi, ısı haritaları, fiksasyon tespiti
+(I-DT) ve istatistik-hazır CSV çıktıları. Daha yüksek doğruluk için tarayıcı-içi
+**MediaPipe iris** motoru alternatif olarak sunulur.
 
-## Durum
+> **Gizlilik:** Kamera görüntüsü **tarayıcıdan hiç çıkmaz** — kaydedilmez ve sunucuya
+> gönderilmez. Yalnızca tahmini bakış koordinatları saklanır.
 
-- **Faz 0 — Kurulum:** ✓ Tamamlandı (Django + yerel HTTPS çalışıyor)
-- **Faz 1 — Katılımcı prototipi:** ✓ Tamamlandı (jsPsych + WebGazer; tek materyal, kalibrasyon, doğrulama; veri JSON olarak iner)
-- **Faz 2 — Sunucu ve veri kaydı:** ✓ Tamamlandı (Study/Material/Session/GazeSample modelleri, JSON API, çok materyalli çalışma, Django admin öğretmen paneli)
-- **Faz 3 — AOI çizim aracı:** ✓ Tamamlandı (Canvas ile dikdörtgen/çokgen çizimi, 0–1 normalize koordinatlar, çakışma uyarısı). Panel: `/panel/`
-- **Faz 4 — Analiz motoru + Excel:** ✓ Tamamlandı (I-DT fiksasyon, AOI metrikleri, 6 sayfalı Excel + uzun-format CSV). Panelden "Excel/CSV indir".
-- **Faz 5 — Isı haritaları, sıcak bölge, rapor:** ✓ Tamamlandı (süre-ağırlıklı Gauss ısı haritası, katılımcı ağırlık eşitleme, AOI dışı sıcak bölge önerisi, AOI sıralaması, sınırlılık notu). Panelden "Rapor".
-- **Faz 6 — Kalite ve ara kontroller:** ✓ Yazılım tamamlandı (dışlama kuralları: doğrulama hatası / kayıp veri / geçerli materyal oranı; kalite raporu; her 3 materyalde ara kontrol). **Pilot (5–10 kişi) manuel adımdır** — bkz. [`PILOT.md`](PILOT.md).
-- **Faz 7 — MediaPipe iris motoru:** ✓ (pilotta WebGazer'ın zayıf yatay takibi nedeniyle eklendi). Tarayıcı-içi FaceLandmarker (478 landmark + iris) + ridge kalibrasyon; pilotta yatay hata ~139px. **Varsayılan gaze motoru artık MediaPipe**; `Study.settings` içinde `"gaze_engine": "webgazer"` ile eskiye dönülebilir. Tanı sayfası: `/iris-test/`. Aynı API/veri formatı → analiz/AOI/rapor değişmez.
+*An open-source research toolkit for webcam-based eye tracking of on-screen attention
+(jsPsych + WebGazer.js; Django backend for storage, AOI analysis, heatmaps, I-DT
+fixations, and analysis-ready CSVs). An in-browser MediaPipe-iris engine is provided
+as a higher-accuracy alternative. The camera image never leaves the browser.*
 
-### Hızlı başlangıç (Faz 2)
+---
+
+## Araştırma çerçevesi (Research questions)
+
+- **RQ1 — Fizibilite:** jsPsych + WebGazer.js webcam sisteminin üniversite öğrencisi
+  örnekleminde 9-nokta kalibrasyon tamamlama, geçerli-veri üretim, **kadran / geniş-AOI
+  düzeyinde tespit doğruluğu** ve oturum tamamlama düzeyleri.
+- **RQ2 — Materyal türü × kaynak:** Farklı materyallerin (video, zihin haritası,
+  infografik; insan vs. yapay zekâ tasarımı) dikkat dağılımı göstergeleri üzerindeki
+  etkileri — ilgili/ilgisiz AOI'de toplam **dwell**, **ilk ilgili AOI'ye süre**,
+  **ilgili↔ilgisiz geçiş oranı**.
+- **RQ3 — Bilişsel yük ilişkisi:** Dikkat göstergeleri ile **Leppink dışsal bilişsel
+  yük** (extraneous load) puanları arasındaki ilişki.
+
+Panelden her RQ için istatistik-hazır CSV iner: **RQ1** (fizibilite, motor bazında),
+**RQ2** (katılımcı × materyal dikkat DV'leri + faktörler), **RQ3** (dikkat + Leppink
+alt ölçekleri; korelasyona hazır).
+
+## Mimari
+
+| Bileşen | Açıklama |
+|---|---|
+| `experiment/` | Katılımcı tarafı: jsPsych + WebGazer (`study.js`, varsayılan) ve MediaPipe iris (`study_mp.js`) runner'ları; tanı sayfası `/iris-test/` |
+| `studies/` | Veri modelleri (Study/Material/AOI/Session/GazeSample/CognitiveLoadResponse), kayıt API'si, öğretmen paneli, analiz adaptörü |
+| `gaze_analysis/` | **Django'dan bağımsız** analiz paketi: geometry, preprocessing, fixation (I-DT), aoi_metrics, heatmap, hotspots, report, quality, excel |
+| `pupil_bridge/` | (İsteğe bağlı) DIY IR göz izleyici (Pupil Core) köprüsü — aynı API/analiz |
+
+**İki gaze motoru, tek veri formatı:** Her iki runner da aynı kayıt API'sine aynı
+normalize bakış örneğini yazar; bu yüzden analiz/AOI/ısı haritası/rapor zinciri motordan
+bağımsızdır. `Study.settings`'te `{"gaze_engine": "mediapipe"}` ile motor değiştirilir
+(varsayılan `webgazer`).
+
+## Kurulum (Windows; Linux/macOS benzer)
+
+Gereksinim: Python 3.12, Git, güncel Chrome/Edge (masaüstü).
 
 ```powershell
-.venv\Scripts\python.exe manage.py migrate
-.venv\Scripts\python.exe manage.py seed_demo      # ogretmen hesabi + aktif demo calisma
-.venv\Scripts\python.exe manage.py runserver --noreload localhost:8000
-```
-- **Öğretmen paneli (admin):** <http://localhost:8000/admin/> — `ogretmen` / `ogretmen1234` (yerel geliştirme; değiştirin). Çalışma oluştur, materyal yükle, katılım linkini ve oturumları gör.
-- **Katılım linki:** admin'de çalışmanın "Katilim baglantisi" alanında (`/dene/<kod>/`). Bu sayfa çok materyalli çalışmayı çalıştırır ve veriyi **sunucuya** kaydeder.
-- Faz 1 tek-materyal demo (`/dene/`, sunucuya kayıt yok) geriye uyumlu durur.
-
-### Netleşen kararlar (spec §14)
-- Materyal ilerleme: öğrenci **"Devam"** düğmesiyle geçer
-- Katılım: **uzaktan** (öğrencinin kendi bilgisayarı)
-
-## Geliştirme ortamı (Windows)
-
-Gereksinimler: Python 3.12, Git.
-
-```powershell
-# Sanal ortamı oluştur ve bağımlılıkları kur
 py -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
-
-# Veritabanı migrasyonları
 .venv\Scripts\python.exe manage.py migrate
-
-# Yerel sunucuyu başlat (kamera testi için; bkz. aşağıdaki not)
+.venv\Scripts\python.exe manage.py seed_demo          # ogretmen hesabi + aktif demo
 .venv\Scripts\python.exe manage.py runserver --noreload localhost:8000
 ```
 
-Ardından tarayıcıda <http://localhost:8000> açılır.
+- **Öğretmen paneli:** <http://localhost:8000/panel/> ve Django admin
+  <http://localhost:8000/admin/> (`seed_demo`: `ogretmen` / `ogretmen1234` — **yerel
+  geliştirme; üretimde değiştirin**).
+- **Katılım linki:** admin'de çalışmanın katılım kodu → `/dene/<kod>/`.
 
-### Katılımcı deneyini çalıştırma (Faz 1)
+> **Yerel kamera testi neden düz HTTP + `localhost`?** getUserMedia yalnızca güvenli
+> bağlamda çalışır; tarayıcılar `http://localhost`'u güvenli bağlam sayar. **Uzaktan
+> gerçek katılımcılar için gerçek bir HTTPS sertifikası** (ör. Let's Encrypt) gerekir.
 
-Göz izleme prototipi: **<http://localhost:8000/dene/>**
+## Kullanım akışı
 
-Gerçek bir **webcam** gerekir ve **Chrome veya Edge** kullanılmalıdır. Akış:
-onam → cihaz kontrolü → tam ekran → kamera başlatma → 9 noktalı kalibrasyon →
-5 noktalı doğrulama → materyal ("Devam" ile geçilir). Bitişte bakış verisi
-**JSON olarak bilgisayara iner** (bu fazda sunucuya kayıt yoktur). Kamera
-görüntüsü hiçbir yere gönderilmez; yalnızca bakış koordinatları toplanır.
+1. Admin'de **Çalışma** oluştur, **Materyal** yükle (tür: infografik/zihin-haritası/**video**;
+   kaynak: insan/YZ), çalışmayı **Aktif** yap.
+2. `/panel/` → her materyalde **AOI çiz**; AOI'leri admin'de **ilgili/ilgisiz** işaretle.
+3. Katılımcı `/dene/<kod>/` ile girer: onam → kalibrasyon → doğrulama → materyaller
+   ("Devam"/video sonu) → her materyalden sonra **Leppink** anketi → veri sunucuya kaydedilir.
+4. `/panel/` → **Rapor** (ısı haritası, AOI sıralaması, kalite + RQ1 tablosu) ve
+   **RQ1/RQ2/RQ3 CSV** indir.
 
-> **Neden HTTP ve neden `localhost`?** Kamera erişimi (getUserMedia) yalnızca
-> "güvenli bağlam"da çalışır. Tarayıcılar **`http://localhost`**'u güvenli bağlam
-> sayar (spec §11), bu yüzden yerel testte sertifikaya gerek yoktur. Kendinden
-> imzalı HTTPS sertifikası (`runserver_plus`) tam tersine tarayıcıda sertifika
-> hatası doğurur ve kamerayı engeller — bu yüzden **yerel testte düz HTTP +
-> `localhost` kullanın**. (Not: `127.0.0.1` de güvenli bağlamdır, ama alışkanlık
-> olması için `localhost` tercih edilir.)
->
-> **Uzaktan katılım (ileride):** İnternet üzerinden gerçek katılımcılar için
-> **gerçek, güvenilir bir HTTPS sertifikası** gerekir (ör. Let's Encrypt).
-> Bu, Faz 2'de barındırma kararıyla birlikte ele alınacaktır.
+## Kalite güvencesi
 
-#### `runserver` vs `runserver_plus`
+- **Kalite kapısı:** doğrulama eşiği (varsayılan: hata ≤ ekran genişliğinin %10'u)
+  geçilmeden veri toplanmaz; eşik `Study.settings.max_validation_error_ratio` ile ayarlanır.
+- **Dışlama kuralları (spec §7):** doğrulama hatası / kayıp veri oranı / geçerli materyal
+  oranı. Dışlanan veri **silinmez**, yalnızca grup analizine alınmaz.
+- **Drift/ofset ölçümü:** materyal öncesi bilinen-hedef görevi; sistematik kayma ölçülüp
+  çıkarılır (MediaPipe runner).
 
-Yerel kamera testi için yukarıdaki **düz `runserver`** yeterli ve en sorunsuzudur.
-Yalnızca HTTPS'i yerelde denemek isterseniz `runserver_plus --cert-file cert.crt`
-kullanılabilir; ancak kendinden imzalı sertifika kamerayı engelleyebilir ve
-yeniden-yükleyicisi arka planda sürüp eski sürümü sunan bir alt süreç bırakabilir.
-`--noreload` bu sorunu önler.
+## Gizlilik ve etik
 
-## Proje yapısı
+- Kamera görüntüsü **tarayıcıdan çıkmaz**; yalnızca bakış koordinatları saklanır.
+- Katılımcıdan **bilgilendirilmiş onam** alınır; ad yerine **katılımcı kodu** kullanılır.
+- Bakış verisi kişisel veri olarak ele alınır; HTTPS, rol bazlı erişim, saklama/silme
+  süreçleri kurumsal etik ve **KVKK** gerekleriyle uyumlu yürütülmelidir.
+- Araştırma kullanımı için **etik kurul onayı** alınır.
 
-| Yol | Amaç |
-|---|---|
-| `gaze_tracker/` | Django proje ayarları ve URL'ler |
-| `core/` | Ortak sayfalar (şu an: sağlık kontrolü) |
-| `experiment/` | Katılımcı deneyi (jsPsych + WebGazer); `/dene/` demo ve `/dene/<kod>/` çalışma |
-| `studies/` | Veri modelleri (Study/Material/Session/GazeSample), kayıt API'si, admin paneli |
-| `gaze_analysis/` | Django'dan bağımsız analiz paketi: geometry, preprocessing, fixation (I-DT), aoi_metrics, excel, config |
-| `GOZ_IZLEME_SPEC.md` | Proje şartnamesi (ana kaynak) |
+## Testler
+
+```powershell
+.venv\Scripts\python.exe manage.py test          # Django + analiz birim testleri
+```
+
+## Sınırlılık (önemli)
+
+Web kamerası tabanlı göz izleme **bölge/geniş-AOI düzeyinde** yorumlanmalıdır; kelime/satır
+düzeyi bireysel kesinlik sağlamaz. Bireysel ısı haritaları gürültülüdür; güvenilir sonuç
+**çok katılımcılı grup eğilimlerinden** elde edilir. WebGazer.js doğruluğu tüketici
+donanımda sınırlı olabilir (bkz. RQ1); daha iyi yatay doğruluk için MediaPipe motoru sunulur.
+
+---
+
+## License
+
+**GPLv3** (GNU General Public License v3.0 or later). Bu yazılım GPLv3 lisanslı
+**WebGazer.js** kullandığından, türetilen/dağıtılan tüm çalışma GPLv3'tür. Ayrıntı için
+[`LICENSE`](LICENSE). *This project is licensed under the GPLv3 (because it uses WebGazer.js,
+GPLv3). See `LICENSE`.*
+
+### Üçüncü taraf / Third-party
+- **WebGazer.js** — GPLv3
+- **jsPsych** — MIT
+- **MediaPipe Tasks (FaceLandmarker)** — Apache-2.0
+- **Django, NumPy, SciPy, Matplotlib, openpyxl, Pillow** — kendi (izin veren) lisansları
+
+## Atıf / Citation
+
+Bu depo bir makaleye eşlik eder; yazar bilgileri gizli tutulmaktadır.
+*This repository accompanies a manuscript; author details are intentionally omitted.*
+
+```
+[AUTHORS]. (2026). webcam-eye-tracking-jspsych (based on WebGazer):
+An open-source webcam eye-tracking toolkit for on-screen attention research. [Software].
+```
