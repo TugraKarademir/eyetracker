@@ -11,7 +11,7 @@
 import * as singleEngine from "./gaze/mediapipe_engine.js";   // tek iris gorunumu (bu donanimda en iyi: ~107px)
 import * as ensembleEngine from "./gaze/ensemble_engine.js";  // cok gorunum + fuzyon (opsiyonel)
 
-const APP_VERSION = "0.9.1-faz9-rq-mp";
+const APP_VERSION = "0.9.2-faz9-rq1";
 const MIN_W = 1280, MIN_H = 720;
 
 const study = JSON.parse(document.getElementById("study-data").textContent);
@@ -271,12 +271,18 @@ async function driftCheck() {
 
   const vw = window.innerWidth, vh = window.innerHeight;
   const diffs = [];
+  let quadOK = 0, quadN = 0;   // RQ1 kadran dogrulugu (kose hedeflerinde)
   for (const [cx, cy] of pts) {
     const preds = await passiveTarget(cx, cy, 1300);
     if (preds.length >= 3) {
-      // ilk saccade'i ele: son %60'in medyani
       const tail = preds.slice(Math.floor(preds.length * 0.4));
-      diffs.push([median(tail.map((p) => p[0])) - cx, median(tail.map((p) => p[1])) - cy]);
+      const px = median(tail.map((p) => p[0])), py = median(tail.map((p) => p[1]));
+      diffs.push([px - cx, py - cy]);
+      // Kadran dogrulugu: yalniz kose hedefleri (cx,cy != 0.5)
+      if (cx !== 0.5 && cy !== 0.5) {
+        quadN++;
+        if ((px < 0.5) === (cx < 0.5) && (py < 0.5) === (cy < 0.5)) quadOK++;
+      }
     }
   }
   app.innerHTML = "";
@@ -287,8 +293,12 @@ async function driftCheck() {
   gazeOffset = [ox, oy];
   const rawPx = Math.sqrt(diffs.reduce((a, d) => a + (d[0] * vw) ** 2 + (d[1] * vh) ** 2, 0) / diffs.length);
   const corrPx = Math.sqrt(diffs.reduce((a, d) => a + ((d[0] - ox) * vw) ** 2 + ((d[1] - oy) * vh) ** 2, 0) / diffs.length);
-  const info = { raw_px: +rawPx.toFixed(1), corr_px: +corrPx.toFixed(1), offset: [+ox.toFixed(4), +oy.toFixed(4)] };
-  console.log("Drift/ofset:", info);
+  const info = {
+    raw_px: +rawPx.toFixed(1), corr_px: +corrPx.toFixed(1),
+    offset: [+ox.toFixed(4), +oy.toFixed(4)],
+    quadrant_accuracy: quadN ? +(quadOK / quadN).toFixed(3) : null,
+  };
+  console.log("Drift/ofset/kadran:", info);
   return info;
 }
 
@@ -423,6 +433,7 @@ function finishAndUpload() {
       drift_raw_px: driftInfo ? driftInfo.raw_px : null,
       drift_corr_px: driftInfo ? driftInfo.corr_px : null,
       drift_offset: driftInfo ? driftInfo.offset : null,
+      quadrant_accuracy: driftInfo ? driftInfo.quadrant_accuracy : null,
     },
   };
   sessionPromise.then((sid) => {

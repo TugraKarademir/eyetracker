@@ -120,3 +120,16 @@ def study_rq3_csv(request, study_id):
     fname = f"rq3_yuk_{slugify(study.name) or study.id}.csv"
     resp["Content-Disposition"] = f'attachment; filename="{fname}"'
     return resp
+
+
+@login_required
+def study_feasibility_csv(request, study_id):
+    """RQ1 fizibilite ozeti (motor bazinda) — CSV."""
+    from .analysis import build_feasibility_csv
+    study = get_object_or_404(Study, pk=study_id)
+    if not _require_owner(request, study):
+        return redirect("studies:dashboard")
+    resp = HttpResponse(build_feasibility_csv(study), content_type="text/csv; charset=utf-8")
+    fname = f"rq1_fizibilite_{slugify(study.name) or study.id}.csv"
+    resp["Content-Disposition"] = f'attachment; filename="{fname}"'
+    return resp

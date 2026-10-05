@@ -418,3 +418,43 @@ class CognitiveLoadTests(TestCase):
         r = self.client.get(reverse("studies:study_rq3_csv", args=[self.study.id]))
         self.assertEqual(r.status_code, 200)
         self.assertIn("yuk_dissal", r.content.decode("utf-8"))
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class FeasibilityTests(TestCase):
+    def setUp(self):
+        self.teacher = User.objects.create_user("ogretmen", password="x", is_superuser=True, is_staff=True)
+        self.study = Study.objects.create(name="Fiz", teacher=self.teacher, status=Study.Status.ACTIVE)
+        self.material = Material.objects.create(study=self.study, order=1, image=_upload(w=1200, h=800))
+
+    def _session(self, engine, status, err, passed, quad, n_in, n_out):
+        s = Session.objects.create(study=self.study, participant_code="p", status=status,
+                                   viewport_width=1920, viewport_height=1080,
+                                   client_meta={"gaze_engine": engine, "quadrant_accuracy": quad})
+        CalibrationResult.objects.create(session=s, attempt_no=1, avg_error_px=err, passed=passed)
+        for i in range(n_in):
+            GazeSample.objects.create(session=s, material=self.material, t=i, x_px=1, y_px=1,
+                                      x_norm=0.2, y_norm=0.2, in_material=True)
+        for i in range(n_out):
+            GazeSample.objects.create(session=s, material=self.material, t=100 + i, x_px=1, y_px=1,
+                                      x_norm=-0.1, y_norm=-0.1, in_material=False)
+        return s
+
+    def test_fizibilite_motor_bazinda(self):
+        from studies.analysis import build_feasibility
+        self._session("mediapipe", Session.Status.COMPLETED, 90.0, True, 1.0, 8, 2)
+        self._session("mediapipe", Session.Status.ABANDONED, 150.0, True, 0.75, 5, 5)
+        self._session("webgazer", Session.Status.COMPLETED, 900.0, False, 0.25, 9, 1)
+        rows = {r["engine"]: r for r in build_feasibility(self.study)}
+        self.assertEqual(rows["mediapipe"]["n_sessions"], 2)
+        self.assertEqual(rows["mediapipe"]["session_completion_rate"], 50.0)   # 1/2
+        self.assertEqual(rows["mediapipe"]["calib_completion_rate"], 100.0)
+        self.assertAlmostEqual(rows["mediapipe"]["mean_quadrant_accuracy"], 87.5, places=1)  # (1.0+0.75)/2
+        self.assertEqual(rows["webgazer"]["validation_pass_rate"], 0.0)
+
+    def test_fizibilite_csv_indirme(self):
+        self._session("mediapipe", Session.Status.COMPLETED, 90.0, True, 1.0, 8, 2)
+        self.client.force_login(self.teacher)
+        r = self.client.get(reverse("studies:study_feasibility_csv", args=[self.study.id]))
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("kadran_dogruluk", r.content.decode("utf-8"))

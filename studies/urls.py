@@ -13,6 +13,7 @@ urlpatterns = [
     path("panel/calisma/<int:study_id>/csv/", views.study_csv, name="study_csv"),
     path("panel/calisma/<int:study_id>/rq2-csv/", views.study_rq2_csv, name="study_rq2_csv"),
     path("panel/calisma/<int:study_id>/rq3-csv/", views.study_rq3_csv, name="study_rq3_csv"),
+    path("panel/calisma/<int:study_id>/rq1-csv/", views.study_feasibility_csv, name="study_feasibility_csv"),
     # Rapor ekrani (Faz 5)
     path("panel/calisma/<int:study_id>/rapor/", views.study_report, name="study_report"),
     # Veri kayit API'si (Faz 2)

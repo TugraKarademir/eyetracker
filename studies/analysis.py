@@ -289,6 +289,7 @@ def build_study_report(study, config=None):
         "materials": materials_ctx,
         "n_sessions": len(result["sessions"]),
         "sessions": result["sessions"],  # kalite raporu (spec §7)
+        "feasibility": build_feasibility(study),  # RQ1 fizibilite (motor bazinda)
     }
 
 
@@ -346,4 +347,76 @@ def build_rq3_csv(study, result):
             r["time_to_first_relevant_ms"], r["transition_ratio"],
             sub.get("extraneous"), sub.get("intrinsic"), sub.get("germane"),
         ])
+    return buf.getvalue()
+
+
+def build_feasibility(study):
+    """RQ1 fizibilite ozeti: motor bazinda (webgazer/mediapipe) sistem metrikleri.
+
+    Metrikler (katilimci orneklemi uzerinde oran/ortalama):
+      - kalibrasyon_tamamlama: dogrulama (CalibrationResult) olusan oturum orani
+      - dogrulama_gecme: esigi gecen oturum orani
+      - ort_dogrulama_px / %: ortalama dogrulama hatasi
+      - oturum_tamamlama: status=completed orani
+      - gecerli_veri: ortalama (materyal-ici ornek / toplam ornek)
+      - ort_kadran_dogruluk: bilinen-hedef kadran dogrulugu (varsa; client_meta)
+    """
+    from .models import CalibrationResult, GazeSample
+
+    rows = {}
+    for sess in study.sessions.all():
+        eng = (sess.client_meta or {}).get("gaze_engine") or "webgazer"
+        r = rows.setdefault(eng, {
+            "engine": eng, "n": 0, "n_calib": 0, "n_pass": 0, "n_completed": 0,
+            "val_px": [], "valid_rate": [], "quad": [],
+        })
+        r["n"] += 1
+        calib = CalibrationResult.objects.filter(session=sess).order_by("attempt_no").first()
+        if calib:
+            r["n_calib"] += 1
+            if calib.passed:
+                r["n_pass"] += 1
+            if calib.avg_error_px is not None and sess.viewport_width:
+                r["val_px"].append((calib.avg_error_px, sess.viewport_width))
+        if sess.status == sess.Status.COMPLETED:
+            r["n_completed"] += 1
+        total = GazeSample.objects.filter(session=sess).count()
+        if total:
+            inm = GazeSample.objects.filter(session=sess, in_material=True).count()
+            r["valid_rate"].append(inm / total)
+        q = (sess.client_meta or {}).get("quadrant_accuracy")
+        if isinstance(q, (int, float)):
+            r["quad"].append(q)
+
+    out = []
+    for eng, r in rows.items():
+        n = r["n"] or 1
+        mean_px = round(sum(p for p, _ in r["val_px"]) / len(r["val_px"]), 1) if r["val_px"] else None
+        mean_pct = round(sum(100 * p / w for p, w in r["val_px"]) / len(r["val_px"]), 1) if r["val_px"] else None
+        out.append({
+            "engine": eng,
+            "n_sessions": r["n"],
+            "calib_completion_rate": round(r["n_calib"] / n * 100, 1),
+            "validation_pass_rate": round(r["n_pass"] / n * 100, 1),
+            "mean_validation_px": mean_px,
+            "mean_validation_pct": mean_pct,
+            "session_completion_rate": round(r["n_completed"] / n * 100, 1),
+            "mean_valid_data_rate": round(sum(r["valid_rate"]) / len(r["valid_rate"]) * 100, 1) if r["valid_rate"] else None,
+            "mean_quadrant_accuracy": round(sum(r["quad"]) / len(r["quad"]) * 100, 1) if r["quad"] else None,
+        })
+    out.sort(key=lambda x: x["engine"])
+    return out
+
+
+def build_feasibility_csv(study):
+    rows = build_feasibility(study)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["motor", "oturum_sayisi", "kalibrasyon_tamamlama_%", "dogrulama_gecme_%",
+                "ort_dogrulama_px", "ort_dogrulama_%", "oturum_tamamlama_%",
+                "ort_gecerli_veri_%", "ort_kadran_dogruluk_%"])
+    for r in rows:
+        w.writerow([r["engine"], r["n_sessions"], r["calib_completion_rate"],
+                    r["validation_pass_rate"], r["mean_validation_px"], r["mean_validation_pct"],
+                    r["session_completion_rate"], r["mean_valid_data_rate"], r["mean_quadrant_accuracy"]])
     return buf.getvalue()

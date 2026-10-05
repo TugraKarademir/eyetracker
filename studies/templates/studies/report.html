@@ -35,6 +35,28 @@
         <div class="not"><strong>Sınırlılık:</strong> {{ limitation_note }}</div>
 
         <div class="mat">
+            <h2>RQ1 — Sistem Fizibilitesi (motor bazında)</h2>
+            <div class="meta">Kalibrasyon tamamlama, geçerli veri, oturum tamamlama ve kadran doğruluğu.</div>
+            <table>
+                <tr><th>Motor</th><th>Oturum</th><th>Kalib. tamamlama</th><th>Doğrulama geçme</th><th>Ort. hata (px / %)</th><th>Oturum tamamlama</th><th>Geçerli veri</th><th>Kadran doğruluk</th></tr>
+                {% for f in feasibility %}
+                <tr>
+                    <td><strong>{{ f.engine }}</strong></td>
+                    <td>{{ f.n_sessions }}</td>
+                    <td>%{{ f.calib_completion_rate }}</td>
+                    <td>%{{ f.validation_pass_rate }}</td>
+                    <td>{{ f.mean_validation_px|default:"—" }} / %{{ f.mean_validation_pct|default:"—" }}</td>
+                    <td>%{{ f.session_completion_rate }}</td>
+                    <td>{% if f.mean_valid_data_rate != None %}%{{ f.mean_valid_data_rate }}{% else %}—{% endif %}</td>
+                    <td>{% if f.mean_quadrant_accuracy != None %}%{{ f.mean_quadrant_accuracy }}{% else %}—{% endif %}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="8" class="bos">Henüz oturum yok.</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+
+        <div class="mat">
             <h2>Veri Kalitesi</h2>
             <div class="meta">Her katılımcı için doğrulama hatası, kayıp veri oranı, örnekleme hızı ve dışlanma durumu (spec §7).</div>
             <table>
