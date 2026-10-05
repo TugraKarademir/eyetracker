@@ -11,7 +11,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "0.4.0-faz11-random";
+  const APP_VERSION = "0.4.1-faz11-latin";
   const MIN_W = 1280;
   const MIN_H = 720;
   const IMG_STIM_ID = "#jspsych-image-button-response-stimulus";
@@ -23,9 +23,9 @@
   const leppinkItems = JSON.parse(document.getElementById("leppink-data").textContent);
   const cogLoad = [];  // {material_id, scores:[10]} — RQ3 Leppink
 
-  // Materyal sirasi her katilimcida RASTGELE (sira etkisini azaltmak icin).
-  // Gercek gosterim sirasi kaydedilir (analizde sira kontrolu icin).
-  const ordered = (study.randomize !== false) ? shuffle(materials.slice()) : materials.slice();
+  // Sunum sirasi SUNUCUDA belirlendi (Latin kare/random/fixed); materyaller zaten
+  // gosterim sirasinda geldi. Gercek sirayi kaydet (analizde sira kontrolu icin).
+  const ordered = materials.slice();
   const presentationOrder = {};
   ordered.forEach(function (m, i) { presentationOrder[m.id] = i + 1; });
 

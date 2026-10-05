@@ -1,3 +1,4 @@
+import random as _random
 from pathlib import Path
 
 from django.shortcuts import get_object_or_404, render
@@ -10,6 +11,41 @@ from studies import api as api_mod
 from studies.models import Study
 
 _JS_DIR = Path(__file__).resolve().parent / "static" / "experiment" / "js"
+
+
+def williams_square(n):
+    """Williams dengeli Latin kare: n (cift) satir; her kosul her konumda bir kez
+    ve birinci-dereceden taşıma (carryover) dengeli. Tek n'de 2n dizi döner."""
+    rows = []
+    for i in range(n):
+        row = []
+        for j in range(n):
+            k = j // 2 if j % 2 == 0 else n - 1 - (j - 1) // 2
+            row.append((k + i) % n)
+        rows.append(row)
+    if n % 2 == 1:
+        rows += [list(reversed(r)) for r in rows]
+    return rows
+
+
+def _order_materials(mats, scheme, seq_index):
+    """mats (sira'ya gore) -> gosterim sirasina gore yeniden duzenle.
+
+    scheme: 'latin' (Williams, seq_index ile dengeli), 'random' (rastgele),
+    'fixed' (materyal 'order' alani). seq_index: bu katilimcinin sira numarasi.
+    """
+    n = len(mats)
+    if n < 2:
+        return list(mats)
+    if scheme == "latin":
+        rows = williams_square(n)
+        perm = rows[seq_index % len(rows)]
+        return [mats[p] for p in perm]
+    if scheme == "random":
+        out = list(mats)
+        _random.shuffle(out)
+        return out
+    return list(mats)  # fixed
 
 
 def _asset_version(filename):
@@ -80,6 +116,14 @@ def run_study(request, code):
     cfg = AnalysisConfig.from_dict(study.settings)
     settings = study.settings or {}
 
+    # Materyal sunum sirasi (sira etkisini azaltmak icin). Sunucu tarafinda,
+    # bu katilimcinin sira numarasina (seq) gore belirlenir:
+    #   "latin"  = Williams dengeli Latin kare (onerilen, dengeli)
+    #   "random" = rastgele; "fixed" = materyal order'i
+    scheme = settings.get("order_scheme", "random")
+    seq_index = study.sessions.count()
+    materials = _order_materials(materials, scheme, seq_index)
+
     context = {
         "asset_version": _asset_version(js),
         "study": {
@@ -92,9 +136,9 @@ def run_study(request, code):
             "max_calibration_attempts": int(settings.get("max_calibration_attempts", 3)),
             # Varsayilan tek iris motoru; ayarlarda {"ensemble": true} ile acilir
             "ensemble": bool(settings.get("ensemble", False)),
-            # Materyal sirasi her katilimcida RASTGELE (sira etkisini azaltmak icin).
-            # Sabit sira istenirse Study.settings {"randomize_materials": false}.
-            "randomize": bool(settings.get("randomize_materials", True)),
+            # Sira sunucu tarafinda belirlendi; istemci materials_json'u OLDUGU GIBI
+            # kullanir (yeniden karistirmaz).
+            "order_scheme": scheme,
         },
         "materials_json": materials,
         "api": {

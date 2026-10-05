@@ -11,7 +11,7 @@
 import * as singleEngine from "./gaze/mediapipe_engine.js";   // tek iris gorunumu (bu donanimda en iyi: ~107px)
 import * as ensembleEngine from "./gaze/ensemble_engine.js";  // cok gorunum + fuzyon (opsiyonel)
 
-const APP_VERSION = "0.9.3-faz11-random";
+const APP_VERSION = "0.9.4-faz11-latin";
 const MIN_W = 1280, MIN_H = 720;
 
 const study = JSON.parse(document.getElementById("study-data").textContent);
@@ -21,12 +21,9 @@ const leppinkEl = document.getElementById("leppink-data");
 const leppinkItems = leppinkEl ? JSON.parse(leppinkEl.textContent) : [];
 const cogLoad = [];  // {material_id, scores:[10]} — RQ3 Leppink
 
-// Materyal sirasi her katilimcida RASTGELE (sira etkisini azaltmak icin).
-function shuffleArr(a) {
-  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; }
-  return a;
-}
-const ordered = (study.randomize !== false) ? shuffleArr(materials.slice()) : materials.slice();
+// Sunum sirasi SUNUCUDA belirlendi (Latin kare/random/fixed); materyaller zaten
+// gosterim sirasinda geldi. Gercek sirayi kaydet (analizde sira kontrolu icin).
+const ordered = materials.slice();
 const presentationOrder = {};
 ordered.forEach((m, i) => { presentationOrder[m.id] = i + 1; });
 
