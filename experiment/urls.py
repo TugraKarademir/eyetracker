@@ -7,6 +7,8 @@ app_name = "experiment"
 urlpatterns = [
     # Faz 1 tek-materyal demo (geriye uyumlu, sunucuya kayit yok)
     path("dene/", views.run_experiment, name="run"),
+    # Faz 11: makine kurulumu/kalifikasyonu (her PC'de bir kez)
+    path("kurulum/", views.setup_machine, name="setup_machine"),
     # Faz 7 arastirma: MediaPipe iris gaze prototipi (tani)
     path("iris-test/", views.iris_test, name="iris_test"),
     # Faz 2: katilim koduyla cok-materyalli calisma (sunucuya kayit)

@@ -1,6 +1,7 @@
 import random as _random
 from pathlib import Path
 
+from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, render
 from django.templatetags.static import static
 from django.urls import reverse
@@ -76,6 +77,19 @@ def run_experiment(request):
 
 
 @never_cache
+@login_required
+def setup_machine(request):
+    """Makine kalifikasyonu (her PC'de bir kez; kurulumu yapan kişi).
+
+    Bu bilgisayarın kamera/ekran/ışığıyla gerekli doğruluk sağlanıyor mu ölçer ve
+    sonucu tarayıcının localStorage'ına yazar; katılımcı oturumları yalnız uygun
+    makinelerde çalışır.
+    """
+    return render(request, "experiment/kurulum.html",
+                  {"asset_version": _asset_version("kurulum.js")})
+
+
+@never_cache
 def iris_test(request):
     """Faz 7 arastirma: MediaPipe Iris tabanli gaze prototipi (tani sayfasi).
 
@@ -139,6 +153,9 @@ def run_study(request, code):
             # Sira sunucu tarafinda belirlendi; istemci materials_json'u OLDUGU GIBI
             # kullanir (yeniden karistirmaz).
             "order_scheme": scheme,
+            # Makine kalifikasyonu: uygun bulunmayan/kurulmamis PC'de oturum
+            # engellenir ({"require_qualification": false} ile kapatilabilir).
+            "require_qualification": bool(settings.get("require_qualification", True)),
         },
         "materials_json": materials,
         "api": {

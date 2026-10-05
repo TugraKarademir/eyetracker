@@ -11,7 +11,7 @@
 import * as singleEngine from "./gaze/mediapipe_engine.js";   // tek iris gorunumu (bu donanimda en iyi: ~107px)
 import * as ensembleEngine from "./gaze/ensemble_engine.js";  // cok gorunum + fuzyon (opsiyonel)
 
-const APP_VERSION = "0.9.4-faz11-latin";
+const APP_VERSION = "0.9.5-faz11-qual";
 const MIN_W = 1280, MIN_H = 720;
 
 const study = JSON.parse(document.getElementById("study-data").textContent);
@@ -471,6 +471,20 @@ function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 function screen_w() { return window.screen ? window.screen.width : null; }
 function screen_h() { return window.screen ? window.screen.height : null; }
 
+// Makine kalifikasyonu: bu bilgisayarda /kurulum/ ile "uygun" işareti var mı?
+function machineQualified() {
+  try { const r = JSON.parse(localStorage.getItem("machine_qualified_v1")); return !!(r && r.qualified === true); }
+  catch (e) { return false; }
+}
+
 // baslat
-if (!materials.length) screen("<h2>Materyal yok</h2><p>Bu calismada henuz materyal yok.</p>");
-else consent();
+if (!materials.length) {
+  screen("<h2>Materyal yok</h2><p>Bu calismada henuz materyal yok.</p>");
+} else if (study.require_qualification && !machineQualified()) {
+  screen("<h2>Bu bilgisayar hazır değil</h2>" +
+    "<p>Bu bilgisayarda kurulum/kalifikasyon yapılmamış ya da uygun bulunmamış. " +
+    "Katılımcı oturumu alınamaz.</p><p>Kurulumu yapan kişi önce <strong>/kurulum/</strong> " +
+    "sayfasını çalıştırıp bu bilgisayarı uygun hale getirmelidir.</p>");
+} else {
+  consent();
+}

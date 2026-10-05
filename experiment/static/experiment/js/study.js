@@ -11,7 +11,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "0.4.1-faz11-latin";
+  const APP_VERSION = "0.5.0-faz11-qual";
   const MIN_W = 1280;
   const MIN_H = 720;
   const IMG_STIM_ID = "#jspsych-image-button-response-stimulus";
@@ -124,6 +124,18 @@
   }
   const issue = deviceIssue();
   if (issue) { showBlock(issue); return; }
+
+  // Makine kalifikasyonu: bu bilgisayarda /kurulum/ ile "uygun" isareti var mi?
+  function machineQualified() {
+    try { const r = JSON.parse(localStorage.getItem("machine_qualified_v1")); return !!(r && r.qualified === true); }
+    catch (e) { return false; }
+  }
+  if (study.require_qualification && !machineQualified()) {
+    showBlock("Bu bilgisayarda kurulum/kalifikasyon yapılmamış ya da uygun bulunmamış. " +
+      "Katılımcı oturumu alınamaz. Kurulumu yapan kişi önce <strong>/kurulum/</strong> " +
+      "sayfasını çalıştırmalıdır.");
+    return;
+  }
 
   // Her oturum temiz kalibrasyonla baslasin
   try {
