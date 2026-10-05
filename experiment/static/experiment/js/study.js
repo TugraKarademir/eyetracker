@@ -11,7 +11,7 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "0.3.1-faz9-rq1";
+  const APP_VERSION = "0.4.0-faz11-random";
   const MIN_W = 1280;
   const MIN_H = 720;
   const IMG_STIM_ID = "#jspsych-image-button-response-stimulus";
@@ -23,7 +23,14 @@
   const leppinkItems = JSON.parse(document.getElementById("leppink-data").textContent);
   const cogLoad = [];  // {material_id, scores:[10]} — RQ3 Leppink
 
-  console.log("Calisma JS surumu:", APP_VERSION, "| materyal:", materials.length);
+  // Materyal sirasi her katilimcida RASTGELE (sira etkisini azaltmak icin).
+  // Gercek gosterim sirasi kaydedilir (analizde sira kontrolu icin).
+  const ordered = (study.randomize !== false) ? shuffle(materials.slice()) : materials.slice();
+  const presentationOrder = {};
+  ordered.forEach(function (m, i) { presentationOrder[m.id] = i + 1; });
+
+  console.log("Calisma JS surumu:", APP_VERSION, "| materyal:", materials.length,
+    "| sira:", ordered.map(function (m) { return m.id; }));
 
   // Calisan surum rozeti
   try {
@@ -70,6 +77,14 @@
     const a = arr.slice().sort(function (x, y) { return x - y; });
     const m = a.length >> 1;
     return a.length ? (a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2) : 0;
+  }
+
+  function shuffle(a) {  // Fisher-Yates
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
   }
 
   function measureBox(stimId) {
@@ -249,8 +264,8 @@
     });
   });
 
-  // 6) Her materyal: odak artisi + materyal
-  materials.forEach(function (mat, idx) {
+  // 6) Her materyal: odak artisi + materyal (RASTGELE sirayla)
+  ordered.forEach(function (mat, idx) {
     timeline.push({
       type: jsPsychHtmlKeyboardResponse,
       stimulus: '<div style="font-size:64px">+</div>',
@@ -349,7 +364,7 @@
     }
 
     // Ara kontrol (spec §5.8): her 3 materyalde bir tek noktali hizli dogrulama
-    if ((idx + 1) % 3 === 0 && idx + 1 < materials.length) {
+    if ((idx + 1) % 3 === 0 && idx + 1 < ordered.length) {
       timeline.push({
         type: jsPsychWebgazerValidate,
         validation_points: [[50, 50]],
@@ -411,6 +426,7 @@
         gaze_engine: "webgazer",
         validation_px: validationResult ? validationResult.avg_error_px : null,
         quadrant_accuracy: quadN ? +(quadOK / quadN).toFixed(3) : null,
+        presentation_order: presentationOrder,  // {material_id: gosterim sirasi}
       },
     };
 

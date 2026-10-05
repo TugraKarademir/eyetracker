@@ -11,7 +11,7 @@
 import * as singleEngine from "./gaze/mediapipe_engine.js";   // tek iris gorunumu (bu donanimda en iyi: ~107px)
 import * as ensembleEngine from "./gaze/ensemble_engine.js";  // cok gorunum + fuzyon (opsiyonel)
 
-const APP_VERSION = "0.9.2-faz9-rq1";
+const APP_VERSION = "0.9.3-faz11-random";
 const MIN_W = 1280, MIN_H = 720;
 
 const study = JSON.parse(document.getElementById("study-data").textContent);
@@ -20,6 +20,15 @@ const api = JSON.parse(document.getElementById("api-data").textContent);
 const leppinkEl = document.getElementById("leppink-data");
 const leppinkItems = leppinkEl ? JSON.parse(leppinkEl.textContent) : [];
 const cogLoad = [];  // {material_id, scores:[10]} — RQ3 Leppink
+
+// Materyal sirasi her katilimcida RASTGELE (sira etkisini azaltmak icin).
+function shuffleArr(a) {
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a;
+}
+const ordered = (study.randomize !== false) ? shuffleArr(materials.slice()) : materials.slice();
+const presentationOrder = {};
+ordered.forEach((m, i) => { presentationOrder[m.id] = i + 1; });
 
 // Motor secimi: varsayilan TEK iris (kanitlanmis en iyi); calisma ayarlarindan
 // ensemble acilabilir (cok kisi/donanimda robustluk denemek icin).
@@ -303,8 +312,8 @@ async function driftCheck() {
 }
 
 async function runMaterials(idx) {
-  if (idx >= materials.length) { finishAndUpload(); return; }
-  const mat = materials[idx];
+  if (idx >= ordered.length) { finishAndUpload(); return; }
+  const mat = ordered[idx];
   // odak artisi
   app.innerHTML = '<div class="fix">+</div>';
   await sleep(1000);
@@ -313,7 +322,7 @@ async function runMaterials(idx) {
   // RQ3: materyalden sonra Leppink anketi
   if (leppinkItems && leppinkItems.length) await leppinkSurvey(mat);
   // ara kontrol (her 3 materyalde bir)
-  if ((idx + 1) % 3 === 0 && idx + 1 < materials.length) {
+  if ((idx + 1) % 3 === 0 && idx + 1 < ordered.length) {
     const buf = await collectAt(0.5, 0.5, "●", 1200);
     const preds = buf.map((f) => predict(W, f));
     if (preds.length) {
@@ -434,6 +443,7 @@ function finishAndUpload() {
       drift_corr_px: driftInfo ? driftInfo.corr_px : null,
       drift_offset: driftInfo ? driftInfo.offset : null,
       quadrant_accuracy: driftInfo ? driftInfo.quadrant_accuracy : null,
+      presentation_order: presentationOrder,  // {material_id: gosterim sirasi}
     },
   };
   sessionPromise.then((sid) => {

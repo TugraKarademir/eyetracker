@@ -92,6 +92,9 @@ def run_study(request, code):
             "max_calibration_attempts": int(settings.get("max_calibration_attempts", 3)),
             # Varsayilan tek iris motoru; ayarlarda {"ensemble": true} ile acilir
             "ensemble": bool(settings.get("ensemble", False)),
+            # Materyal sirasi her katilimcida RASTGELE (sira etkisini azaltmak icin).
+            # Sabit sira istenirse Study.settings {"randomize_materials": false}.
+            "randomize": bool(settings.get("randomize_materials", True)),
         },
         "materials_json": materials,
         "api": {

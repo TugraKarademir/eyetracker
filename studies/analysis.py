@@ -170,11 +170,13 @@ def run_study_analysis(study, config=None):
             # RQ2: katilimci x materyal dikkat dagilimi (ilgili/ilgisiz, gecis)
             if aois:
                 rq2 = rq2_attention_metrics(mr["fixations"], aois)
+                po = (sess.client_meta or {}).get("presentation_order") or {}
+                pres = po.get(str(mid), po.get(mid))  # gercek gosterim sirasi
                 result["rq2"].append({
                     "session_id": sess.id, "participant_code": sess.participant_code,
                     "material_order": info["order"], "material_id": mid,
                     "kind": info.get("kind"), "source": info.get("source"),
-                    "excluded": excl, **rq2,
+                    "presentation_order": pres, "excluded": excl, **rq2,
                 })
 
     # Grup ozeti (materyal x AOI)
@@ -302,7 +304,7 @@ def build_rq2_csv(result):
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow([
-        "oturum_id", "katilimci_kodu", "materyal_sira", "materyal_id",
+        "oturum_id", "katilimci_kodu", "materyal_sira", "gosterim_sirasi", "materyal_id",
         "tur", "kaynak", "analize_dahil",
         "ilgili_dwell_ms", "ilgisiz_dwell_ms",
         "ilgili_dwell_orani", "ilgisiz_dwell_orani",
@@ -310,7 +312,8 @@ def build_rq2_csv(result):
     ])
     for r in result.get("rq2", []):
         w.writerow([
-            r["session_id"], r["participant_code"], r["material_order"], r["material_id"],
+            r["session_id"], r["participant_code"], r["material_order"],
+            r.get("presentation_order"), r["material_id"],
             r.get("kind"), r.get("source"), int(not r.get("excluded")),
             r["relevant_dwell_ms"], r["irrelevant_dwell_ms"],
             r["relevant_dwell_ratio"], r["irrelevant_dwell_ratio"],
@@ -333,7 +336,7 @@ def build_rq3_csv(study, result):
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow([
-        "oturum_id", "katilimci_kodu", "materyal_sira", "materyal_id", "tur", "kaynak",
+        "oturum_id", "katilimci_kodu", "materyal_sira", "gosterim_sirasi", "materyal_id", "tur", "kaynak",
         "ilgili_dwell_ms", "ilgisiz_dwell_ms", "ilgili_dwell_orani",
         "ilk_ilgili_fiksasyon_ms", "gecis_orani",
         "yuk_dissal", "yuk_icsel", "yuk_germane",
@@ -341,7 +344,8 @@ def build_rq3_csv(study, result):
     for r in result.get("rq2", []):
         sub = load.get((r["session_id"], r["material_id"]), {})
         w.writerow([
-            r["session_id"], r["participant_code"], r["material_order"], r["material_id"],
+            r["session_id"], r["participant_code"], r["material_order"],
+            r.get("presentation_order"), r["material_id"],
             r.get("kind"), r.get("source"),
             r["relevant_dwell_ms"], r["irrelevant_dwell_ms"], r["relevant_dwell_ratio"],
             r["time_to_first_relevant_ms"], r["transition_ratio"],

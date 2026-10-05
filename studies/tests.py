@@ -458,3 +458,21 @@ class FeasibilityTests(TestCase):
         r = self.client.get(reverse("studies:study_feasibility_csv", args=[self.study.id]))
         self.assertEqual(r.status_code, 200)
         self.assertIn("kadran_dogruluk", r.content.decode("utf-8"))
+
+
+@override_settings(MEDIA_ROOT=MEDIA)
+class PresentationOrderTests(TestCase):
+    def test_gosterim_sirasi_rq2ye_aktarilir(self):
+        from studies.analysis import run_study_analysis
+        teacher = User.objects.create_user("o", password="x", is_superuser=True, is_staff=True)
+        study = Study.objects.create(name="S", teacher=teacher, status=Study.Status.ACTIVE)
+        m = Material.objects.create(study=study, order=1, image=_upload(w=1200, h=800))
+        AOI.objects.create(material=m, name="R", shape="rect", is_relevant=True,
+                           coords={"x": 0, "y": 0, "w": 0.5, "h": 1})
+        se = Session.objects.create(study=study, participant_code="k1", status=Session.Status.COMPLETED,
+                                    client_meta={"presentation_order": {str(m.id): 3}})
+        for t in (0, 100, 200, 300):
+            GazeSample.objects.create(session=se, material=m, t=t, x_px=1, y_px=1,
+                                      x_norm=0.2, y_norm=0.5, in_material=True)
+        r = run_study_analysis(study)
+        self.assertEqual(r["rq2"][0]["presentation_order"], 3)
