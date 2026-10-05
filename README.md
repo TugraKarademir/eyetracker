@@ -67,6 +67,32 @@ py -m venv .venv
 > bağlamda çalışır; tarayıcılar `http://localhost`'u güvenli bağlam sayar. **Uzaktan
 > gerçek katılımcılar için gerçek bir HTTPS sertifikası** (ör. Let's Encrypt) gerekir.
 
+## İnternetsiz (offline) kurulum
+
+Deney tarafı tüm tarayıcı bağımlılıkları (jsPsych, WebGazer, MediaPipe modeli/wasm)
+**projeye gömülüdür** (`experiment/static/experiment/vendor/`), CDN gerekmez. Sadece
+Python paketleri için offline wheel'ler taşınır.
+
+**İnternetli makinede** (bir kez):
+```powershell
+.venv\Scripts\python.exe -m pip download -r requirements.txt -d offline_wheels
+```
+Sonra tüm proje klasörünü (**`.venv` hariç**, `offline_wheels/` dahil) offline makineye kopyala:
+```powershell
+robocopy <kaynak> <hedef> /E /XD .venv
+```
+
+**İnternetsiz makinede** (Python 3.12 kurulu olsun):
+```powershell
+py -m venv .venv
+.venv\Scripts\python.exe -m pip install --no-index --find-links=offline_wheels -r requirements.txt
+.venv\Scripts\python.exe manage.py migrate
+.venv\Scripts\python.exe manage.py runserver --noreload localhost:8000
+```
+> Wheel'ler platforma özgüdür: indirme ve çalıştırma makineleri **aynı OS + Python 3.12**
+> olmalı (ör. ikisi de Windows x64). Verilerini/materyallerini taşımak için `db.sqlite3`
+> ve `media/` klasörünü de kopyala.
+
 ## Kullanım akışı
 
 1. Admin'de **Çalışma** oluştur, **Materyal** yükle (tür: infografik/zihin-haritası/**video**;

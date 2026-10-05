@@ -32,3 +32,4 @@ cert.key
 *.swp
 .DS_Store
 Thumbs.db
+offline_wheels/
