@@ -7,10 +7,11 @@
  *
  * KURAL (spec §6/§15): Kamera goruntusu tarayicidan CIKMAZ; her sey yereldir.
  */
-import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18";
+// Yerel (vendor) MediaPipe — internet gerektirmez (offline). Django static altinda.
+import { FaceLandmarker, FilesetResolver } from "/static/experiment/vendor/mediapipe/vision_bundle.mjs";
 
-const WASM = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm";
-const MODEL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+const WASM = "/static/experiment/vendor/mediapipe/wasm";
+const MODEL = "/static/experiment/vendor/mediapipe/face_landmarker.task";
 
 // MediaPipe FaceLandmarker (478) landmark indexleri
 const R = { outer: 33, inner: 133, top: 159, bottom: 145, iris: 468 };
