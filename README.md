@@ -46,6 +46,33 @@ Görüntü sunucuya **hiç gönderilmez**; yalnızca sayılar gider. Biten dersl
 | GET | `/api/stream` | SSE; `role=teacher&key=…` veya `role=student&sid=…` |
 | GET | `/api/report` | `code&key` → ders raporu JSON |
 
+## Bakış takibi: öğrenci ekranın neresine bakıyor?
+
+[webgaze](https://github.com/TugraKarademir/webgaze) projesinin göz takibi algoritması tarayıcıya
+taşındı (`static/gaze.js`). Öğrenci kurulum yapmaz; analiz yine kendi tarayıcısında çalışır.
+
+- **Kalibrasyon:** Öğrenci ekranında "Kalibre et" → 13 nokta + 9 doğrulama noktası (~40 sn).
+  Sonunda hata (px, derece) ve 3×3 bölge isabeti gösterilir. Kalibrasyon aynı pencere boyutunda
+  tarayıcıda saklanır; pencere boyutu/konumu değişirse takip duraklar ve "Tam ekrana dön /
+  Yeniden kalibre et" çıkar. Ders sırasında yapılan tıklamalar modeli iyileştirir.
+- **Bölgeler:** 📺 Materyal (öğretmen yayını / paylaşılan ekran), 📝 Konu, 📢 Duyuru, ✋ Etkileşim,
+  💬 Sohbet, 🤳 Kendi kamerası, 📄 Sayfanın boş yeri, 🚫 Ekran dışı (veya başka sekme).
+- **Materyal ısı haritası:** Bakış materyalin üzerindeyse görüntü içindeki konumu (u, v) gönderilir.
+  Öğretmen panelinde, o an yayınladığı karenin üstünde son ~10 sn'nin ısı haritası; raporda ders boyu harita.
+- **Öğretmen paneli:** "Şu an materyale bakan %", bölge dağılımı, her öğrenci kartında anlık bölge ve
+  son 1 dakikada materyale bakma oranı; zaman grafiğinde "Materyale bakan" çizgisi.
+- **Rapor / CSV:** öğrenci bazında "Materyale bakma %", sınıfın bölge dağılımı, ders boyu ısı haritası.
+- Bakış "ekran dışı" diyorsa, dikkat skorundaki "ekrana bakmıyor" kararı da buna göre verilir.
+
+webgaze ile birebir aynı tutulanlar: MediaPipe Face Mesh landmark indeksleri, `eye_features`,
+`model_features`/`expand`, ridge regresyon (λ=10), 3 karelik yumuşatma, MAD aykırı eleme, One Euro filtresi,
+kalibrasyon zamanlaması, bölgeye oturtma (snap) + 4 kare tutma, tıklamayla öğrenme. JS taşıması aynı
+girdilerle webgaze'in Python fonksiyonlarıyla karşılaştırıldı (tahmin farkı < 1e-10 px).
+
+**Doğruluk:** web kamerasıyla tipik hata 2–3°'dir (webgaze ölçümü: 21.5" ekranda ~63 px). Bu, slaydın
+"sol üst / orta / sağ alt" gibi bölgelerini ayırt etmeye yeter; tek tek kelime düzeyinde değildir.
+Baş sabit, yüz önden aydınlık olmalı. Materyal ne kadar büyük gösterilirse (⛶ sinema modu) ayrım o kadar iyi olur.
+
 ## Canlı yayın
 
 Öğretmen panelindeki **Yayını başlat** ile kamera + mikrofon tüm öğrencilere WebRTC üzerinden iletilir.

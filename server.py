@@ -38,6 +38,11 @@ LOW_ENERGY = 35
 PERSIST_EVERY = 5           # saniye; aktif dersler bu aralıkla diske yazılır
 RESTORE_HOURS = 24          # açılışta bu kadar yeni, bitmemiş dersler geri yüklenir
 
+# Bakış (göz takibi) ilgi alanları — öğrenci ekranındaki bölgeler
+AOI_KEYS = ["materyal", "konu", "duyuru", "etkilesim", "sohbet", "kamera", "sayfa", "disari"]
+HX, HY = 32, 18             # materyal ısı haritası çözünürlüğü (16:9)
+HEAT_DECAY = 0.92           # canlı ısı haritası saniyelik sönüm (~8 sn yarı ömür)
+
 LOCK = threading.RLock()
 CLASSES = {}
 
@@ -92,7 +97,15 @@ def public_student(s, t):
         "lookingAway": m.get("lookingAway", False), "eyesClosed": m.get("eyesClosed", False),
         "tabHidden": m.get("tabHidden", False), "hand": s["hand"],
         "lowFor": round(t - s["low_since"]) if s["low_since"] else 0,
+        "gazeCal": m.get("gazeCal", False), "gazeRegion": m.get("gazeRegion"),
+        "materialPct": material_pct(s["samples"][-30:]),
     }
+
+
+def material_pct(samples):
+    """Örneklerdeki (5. alan = materyale bakma payı) ortalama, yüzde."""
+    v = [x[4] for x in samples if len(x) > 4 and x[4] is not None]
+    return round(100 * sum(v) / len(v)) if v else None
 
 
 def aggregate(cls, t):
@@ -108,7 +121,20 @@ def aggregate(cls, t):
         "energy": round(sum(s["metrics"].get("energy", 0) for s in online) / n) if n else None,
         "emotions": emo,
         "hands": sum(1 for s in cls["students"].values() if s["hand"]),
+        "gaze": gaze_agg(online),
     }
+
+
+def gaze_agg(online):
+    cal = [s for s in online if s["metrics"].get("gazeCal")]
+    regions = {k: 0 for k in AOI_KEYS}
+    for s in cal:
+        r = s["metrics"].get("gazeRegion")
+        if r in regions:
+            regions[r] += 1
+    n = len(cal)
+    return {"calibrated": n, "regions": regions,
+            "onMaterial": round(100 * regions["materyal"] / n) if n else None}
 
 
 def snapshot(cls, t):
@@ -121,7 +147,20 @@ def snapshot(cls, t):
                            key=lambda x: (not x["online"], x["attention"])),
         "timeline": cls["timeline"][-120:],
         "reactions": cls["reaction_counts"],
+        "heat": norm_heat(cls["heat_live"]),
     }
+
+
+def norm_heat(grid):
+    mx = max(grid) if grid else 0
+    return [round(100 * v / mx) for v in grid] if mx > 0.05 else None
+
+
+def add_heat(cls, pts):
+    for u, v in pts:
+        i = min(HY - 1, int(v * HY)) * HX + min(HX - 1, int(u * HX))
+        cls["heat_live"][i] += 1
+        cls["heat_total"][i] += 1
 
 
 def add_alert(cls, kind, text, key, t, cooldown=60):
@@ -157,11 +196,34 @@ def simulate_demo(cls, t):
         m = {"attention": clamp(p["att"]), "energy": p["energy"], "emotion": p["emotion"],
              "face": p["away"] == 0 or random.random() < 0.5, "lookingAway": p["away"] > 0,
              "eyesClosed": p["energy"] < 25 and random.random() < 0.3, "tabHidden": False}
-        record_metrics(cls, s, m, t)
+        record_metrics(cls, s, m, t, simulate_gaze(cls, p))
         if not s["hand"] and random.random() < 0.004:
             s["hand"] = True
             s["hand_count"] += 1
             push(cls, {"type": "hand", "id": s["id"], "name": s["name"], "up": True}, role="teacher")
+
+
+def simulate_gaze(cls, p):
+    """Demo öğrenci bakışı: sınıfın ortak odak noktası (öğretmenin anlattığı yer) etrafında."""
+    fx, fy = cls["sim_focus"]
+    if p["away"] > 0:
+        return {"region": "disari", "share": {"disari": 1.0}, "pts": []}
+    if random.random() < 0.07:
+        r = random.choice(["sohbet", "konu", "kamera"])
+        return {"region": r, "share": {r: 1.0}, "pts": []}
+    sd = 0.05 + (100 - p["att"]) / 900
+    pts = [(clamp(random.gauss(fx, sd), 0, 0.999), clamp(random.gauss(fy, sd * 1.3), 0, 0.999))
+           for _ in range(6)]
+    return {"region": "materyal", "share": {"materyal": 1.0}, "pts": pts}
+
+
+def move_focus(cls):
+    """Odak noktası slaytta yavaşça gezinir (okuma sırası: soldan sağa, yukarıdan aşağı)."""
+    fx, fy = cls["sim_focus"]
+    fx += 0.012
+    if fx > 0.85:
+        fx, fy = 0.15, (fy + 0.18 if fy < 0.75 else 0.25)
+    cls["sim_focus"] = [fx, fy]
 
 
 def make_sim():
@@ -189,13 +251,22 @@ def make_student(sid, name, demo=False):
     return {"id": sid, "name": name, "demo": demo, "joined": t, "last_seen": t,
             "metrics": {"attention": 0, "energy": 0, "emotion": "notr"},
             "hand": False, "hand_count": 0, "chat_count": 0, "reactions": 0,
-            "samples": [], "low_since": None, "low_alerted": False}
+            "samples": [], "low_since": None, "low_alerted": False, "gaze_time": {}}
 
 
-def record_metrics(cls, s, m, t):
+def record_metrics(cls, s, m, t, gaze=None):
+    m["gazeCal"] = gaze is not None
+    m["gazeRegion"] = gaze["region"] if gaze else None
     s["metrics"] = m
     s["last_seen"] = t
-    s["samples"].append([round(t, 1), round(m["attention"]), round(m["energy"]), m["emotion"]])
+    mat = None
+    if gaze:
+        for k, v in gaze["share"].items():
+            s["gaze_time"][k] = s["gaze_time"].get(k, 0) + v
+        if gaze["share"]:
+            mat = round(gaze["share"].get("materyal", 0), 2)
+        add_heat(cls, gaze["pts"])
+    s["samples"].append([round(t, 1), round(m["attention"]), round(m["energy"]), m["emotion"], mat])
     if m["attention"] < LOW_ATT:
         if not s["low_since"]:
             s["low_since"] = t
@@ -250,12 +321,15 @@ def ticker():
             for cls in list(CLASSES.values()):
                 if cls["ended"]:
                     continue
+                move_focus(cls)
                 simulate_demo(cls, t)
+                cls["heat_live"] = [v * HEAT_DECAY for v in cls["heat_live"]]
                 agg = aggregate(cls, t)
                 if take_tl and agg["present"]:
                     cls["timeline"].append({"t": round(t), "attention": agg["attention"],
                                             "energy": agg["energy"], "present": agg["present"],
-                                            "emotions": agg["emotions"]})
+                                            "emotions": agg["emotions"],
+                                            "material": agg["gaze"]["onMaterial"]})
                     class_alerts(cls, agg, t)
                 push(cls, snapshot(cls, t), role="teacher")
 
@@ -268,6 +342,15 @@ def persist(cls):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
     os.replace(tmp, os.path.join(DATA, cls["code"] + ".json"))
+
+
+def ensure_gaze_fields(cls):
+    cls.setdefault("alert_marks", {})
+    cls.setdefault("heat_live", [0.0] * (HX * HY))
+    cls.setdefault("heat_total", [0.0] * (HX * HY))
+    cls.setdefault("sim_focus", [0.15, 0.25])
+    for st in cls["students"].values():
+        st.setdefault("gaze_time", {})
 
 
 def restore_active():
@@ -285,7 +368,7 @@ def restore_active():
             continue
         cls["clients"] = []
         cls["live"] = False                       # öğretmenin medya akışı sunucu kapanınca kaybolur
-        cls.setdefault("alert_marks", {})
+        ensure_gaze_fields(cls)
         for st in cls["students"].values():
             if st.get("demo"):
                 st["sim"] = make_sim()
@@ -303,8 +386,24 @@ def load_class(code):
         with open(path, encoding="utf-8") as f:
             cls = json.load(f)
         cls["clients"] = []
+        ensure_gaze_fields(cls)
         return cls
     return None
+
+
+def parse_gaze(g):
+    """Öğrenciden gelen bakış özetini doğrula. Kalibre değilse None."""
+    if not isinstance(g, dict) or not g.get("cal"):
+        return None
+    share = {}
+    if isinstance(g.get("share"), dict):
+        share = {k: clamp(v, 0, 1) for k, v in g["share"].items() if k in AOI_KEYS}
+    pts = []
+    for q in (g.get("pts") or [])[:40]:
+        if isinstance(q, (list, tuple)) and len(q) == 2:
+            pts.append((clamp(q[0], 0, 0.999), clamp(q[1], 0, 0.999)))
+    region = g.get("region") if g.get("region") in AOI_KEYS else None
+    return {"region": region, "share": share, "pts": pts}
 
 
 def build_report(cls):
@@ -325,8 +424,14 @@ def build_report(cls):
             "emotions": {k: round(100 * v / n) if n else 0 for k, v in emo.items()},
             "minutes": round((smp[-1][0] - smp[0][0]) / 60, 1) if n > 1 else 0,
             "hands": s["hand_count"], "messages": s["chat_count"], "reactions": s["reactions"],
+            "materialPct": material_pct(smp),
+            "gazeRegions": pct_dist(s.get("gaze_time", {})),
         })
     students.sort(key=lambda x: -(x["avgAttention"] or 0))
+    total_gaze = {}
+    for s in cls["students"].values():
+        for k, v in s.get("gaze_time", {}).items():
+            total_gaze[k] = total_gaze.get(k, 0) + v
     tl = cls["timeline"]
     valid = [p for p in tl if p["attention"] is not None]
     emo_total = {e: 0 for e in EMOTIONS}
@@ -346,7 +451,14 @@ def build_report(cls):
         "emotions": {k: round(100 * v / tot) for k, v in emo_total.items()},
         "timeline": tl, "students": students, "alerts": cls["alerts"],
         "reactions": cls["reaction_counts"], "chat": cls["chat"],
+        "gazeRegions": pct_dist(total_gaze),
+        "heat": norm_heat(cls.get("heat_total", [])), "heatSize": [HX, HY],
     }
+
+
+def pct_dist(d):
+    tot = sum(d.values())
+    return {k: round(100 * v / tot) for k, v in d.items() if v} if tot else {}
 
 
 # --------------------------------------------------------------- HTTP ----
@@ -511,6 +623,7 @@ class Handler(BaseHTTPRequestHandler):
                          "created": t, "ended": None, "students": {}, "timeline": [], "chat": [],
                          "alerts": [], "alert_marks": {}, "clients": [], "announce": None,
                          "reaction_counts": {}, "topic_log": [{"t": t, "topic": topic}] if topic else []}
+        ensure_gaze_fields(CLASSES[code])
         persist(CLASSES[code])
         self.send_json({"code": code, "key": CLASSES[code]["teacher_key"]})
 
@@ -541,7 +654,7 @@ class Handler(BaseHTTPRequestHandler):
         m = {"attention": clamp(b.get("attention")), "energy": clamp(b.get("energy")), "emotion": emotion,
              "face": bool(b.get("face")), "lookingAway": bool(b.get("lookingAway")),
              "eyesClosed": bool(b.get("eyesClosed")), "tabHidden": bool(b.get("tabHidden"))}
-        record_metrics(cls, s, m, now())
+        record_metrics(cls, s, m, now(), parse_gaze(b.get("gaze")))
         self.send_json({"ok": True})
 
     def event(self, b):

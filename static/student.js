@@ -1,4 +1,5 @@
 // Öğrenci tarafı
+let gaze = null;
 let CODE = null, SID = null, analyzer = null, stream = null, es = null, paused = false, handUp = false, sendTimer = null;
 const params = new URLSearchParams(location.search);
 $("#jCode").value = (params.get("code") || "").toUpperCase();
@@ -33,6 +34,7 @@ $("#camBtn").onclick = async () => {
   show("classView");
   $("#video").srcObject = stream;
   connect();
+  startGaze();
   try {
     analyzer = new FocusAnalyzer($("#video"), { onUpdate: renderMe });
     await analyzer.load((t) => ($("#vbadge").textContent = t));
@@ -57,9 +59,12 @@ async function sendMetrics() {
   if (paused || !analyzer) return;
   const s = analyzer.state;
   if (s.calibrating && s.face) return;   // kalibrasyon bitmeden gönderme
+  const g = gaze ? gaze.flush() : null;
+  // Bakış kalibre ise "ekran dışı" kararı baş yönünden daha güvenilirdir
+  const away = s.lookingAway || !!(g && g.cal && (g.share?.disari || 0) >= 0.6);
   try {
     await api("/api/metrics", { code: CODE, sid: SID, attention: s.attention, energy: s.energy, emotion: s.emotion,
-      face: s.face, lookingAway: s.lookingAway, eyesClosed: s.eyesClosed, tabHidden: document.hidden });
+      face: s.face, lookingAway: away, eyesClosed: s.eyesClosed, tabHidden: document.hidden, gaze: g });
   } catch (err) { if (/aktif değil/.test(err.message)) finish(); }
 }
 document.addEventListener("visibilitychange", () => { if (analyzer) { analyzer.state.tabHidden = document.hidden; if (document.hidden) { analyzer.att = 0; analyzer.state.attention = 0; } sendMetrics(); } });
@@ -67,6 +72,7 @@ document.addEventListener("visibilitychange", () => { if (analyzer) { analyzer.s
 $("#pauseBtn").onclick = () => {
   paused = !paused;
   $("#pauseBtn").textContent = paused ? "Devam et" : "Duraklat";
+  gaze?.pause(paused);
   if (paused) { analyzer?.stop(); stream?.getVideoTracks().forEach((t) => (t.enabled = false)); $("#vbadge").textContent = "Duraklatıldı"; }
   else { stream?.getVideoTracks().forEach((t) => (t.enabled = true)); analyzer?.start(); }
 };
@@ -107,7 +113,69 @@ document.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => { ev({ t
 $("#chatForm").onsubmit = (e) => { e.preventDefault(); const v = $("#chatIn").value.trim(); if (v) { ev({ type: "chat", text: v }); $("#chatIn").value = ""; } };
 
 function finish() {
+  gaze?.pause(true); gaze?.setShowDot(false);
   analyzer?.stop(); clearInterval(sendTimer); es?.close(); window.LIVE?.setLive(false);
   stream?.getTracks().forEach((t) => t.stop());
   show("endView");
 }
+
+// ================================================================ bakış takibi
+function rectOf(el) { const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; }
+
+// Öğrenci ekranındaki ilgi alanları (viewport CSS px). Materyal: öğretmen yayınının
+// gerçek görüntü alanı (object-fit: contain kenar boşlukları hariç) -> u,v ısı haritası.
+function gazeRegions() {
+  const out = [];
+  const tv = rectOf($("#tv")), v = $("#teacherVideo");
+  const ar = v.videoWidth && v.videoHeight ? v.videoWidth / v.videoHeight : 16 / 9;
+  let cw = tv.w, ch = cw / ar;
+  if (ch > tv.h) { ch = tv.h; cw = ch * ar; }
+  out.push({ name: "materyal", ...tv, content: { x: tv.x + (tv.w - cw) / 2, y: tv.y + (tv.h - ch) / 2, w: cw, h: ch } });
+  if (document.body.classList.contains("theater")) return out;
+  const add = (name, el) => { if (!el) return; const r = rectOf(el); if (r.w > 0 && r.h > 0) out.push({ name, ...r }); };
+  add("konu", $(".card.topic"));
+  add("duyuru", $("#annCard"));
+  add("etkilesim", $("#handBtn").closest(".card"));
+  add("etkilesim", $("#floorCard"));
+  add("sohbet", $("#classView .chat"));
+  add("kamera", $(".self-col"));
+  return out;
+}
+
+function gazeStatus(s) {
+  const st = $("#gazeStatus");
+  $("#gazeBanner").classList.toggle("hidden", s !== "stale");
+  if (s === "ok" && gaze?.report) {
+    const r = gaze.report;
+    st.innerHTML = `<span style="color:var(--good)">● Aktif</span> · hata ~${r.acc} px · 3×3 isabet %${r.hit3}`;
+    $("#gazeCalBtn").textContent = "Yeniden kalibre et";
+  } else if (s === "stale") {
+    st.innerHTML = '<span style="color:var(--warn)">● Duraklatıldı</span> · pencere değişti';
+  } else st.textContent = s;
+}
+
+async function startGaze() {
+  gaze = new GazeTracker($("#video"), { getRegions: gazeRegions, onStatus: gazeStatus });
+  try {
+    await gaze.load();
+    if (!gaze.model) toast("👁️ Bakış takibini açmak için soldaki “Kalibre et” düğmesine basın (≈40 sn).", 7000);
+  } catch (e) {
+    console.error(e);
+    gazeStatus("Bakış modeli yüklenemedi (internet bağlantısını kontrol edin)");
+  }
+}
+
+setInterval(() => {
+  if (!gaze || !gaze.tracking || gaze.stale) { $("#gazeRegion").textContent = ""; return; }
+  const r = gaze.region;
+  $("#gazeRegion").textContent = r ? `${AOI[r].icon} Şu an: ${AOI[r].label}` : "Yüz algılanmıyor";
+}, 500);
+
+$("#gazeCalBtn").onclick = () => gaze?.calibrate();
+$("#gazeRecalBtn").onclick = () => gaze?.calibrate();
+$("#gazeFsBtn").onclick = () => document.documentElement.requestFullscreen?.().catch(() => {});
+$("#gazeDotChk").onchange = (e) => gaze?.setShowDot(e.target.checked);
+// Tam ekrana dönüldüğünde / pencere eski boyutuna gelince kayıtlı kalibrasyonu tekrar kullan
+const regaze = () => { if (gaze && gaze.ready && !gaze.model && gaze.restore()) gazeStatus("ok"); };
+addEventListener("resize", regaze);
+document.addEventListener("fullscreenchange", regaze);

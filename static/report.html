@@ -13,6 +13,7 @@
   th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; cursor: pointer; }
   td.num { font-variant-numeric: tabular-nums; }
   .tbl { overflow-x: auto; }
+  .heat { width: 100%; aspect-ratio: 16/9; display: block; border-radius: 10px; }
   .alerts div { font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border); }
   @media (max-width: 860px) { .two { grid-template-columns: 1fr; } .wrap { padding: 16px; } }
   @media print { .topbar, .noprint { display: none !important; } body { background: #fff; } .card { box-shadow: none; } }
@@ -55,8 +56,14 @@
     </div>
     <div class="card">
       <div class="row" style="justify-content:space-between;margin-bottom:8px"><h3 style="margin:0">Ders boyunca sınıf ortalaması</h3>
-      <div class="legend"><span style="--c:var(--c-att)">Dikkat</span><span style="--c:var(--c-en)">Enerji</span></div></div>
+      <div class="legend"><span style="--c:var(--c-att)">Dikkat</span><span style="--c:var(--c-en)">Enerji</span><span style="--c:#f0b429">Materyale bakan</span></div></div>
       <canvas id="chart"></canvas>
+    </div>
+    <div class="two">
+      <div class="card"><h3>👁️ Materyalde en çok bakılan yerler (ders boyu)</h3><canvas id="heat" class="heat"></canvas>
+        <div class="small muted" style="margin-top:6px">Öğretmen yayınının / paylaşılan ekranın üzerine düşen tüm öğrenci bakışları.</div></div>
+      <div class="card"><h3>👁️ Ekranın neresine bakıldı?</h3><div id="aoi"></div>
+        <div class="small muted" style="margin-top:8px">Yalnızca bakış takibini kalibre eden öğrenciler.</div></div>
     </div>
     <div class="two">
       <div class="card"><h3>Duygu dağılımı</h3><div id="emo"></div>
@@ -66,20 +73,26 @@
     </div>
     <div class="card"><h3>Öğrenci bazında</h3><div class="tbl"><table id="tbl"></table></div></div>`;
 
-  drawLineChart($("#chart"), r.timeline, [{ key: "attention", color: "var(--c-att)", fill: true }, { key: "energy", color: "var(--c-en)" }]);
-  addEventListener("resize", () => drawLineChart($("#chart"), r.timeline, [{ key: "attention", color: "var(--c-att)", fill: true }, { key: "energy", color: "var(--c-en)" }]));
+  const SERIES = [{ key: "attention", color: "var(--c-att)", fill: true }, { key: "energy", color: "var(--c-en)" }, { key: "material", color: "#f0b429", dash: [5, 4] }];
+  const drawAll = () => {
+    drawLineChart($("#chart"), r.timeline, SERIES);
+    drawHeat($("#heat"), r.heat, { cols: r.heatSize?.[0] || 32, rows: r.heatSize?.[1] || 18, empty: "Bakış verisi yok" });
+  };
+  drawAll();
+  addEventListener("resize", drawAll);
+  aoiBars($("#aoi"), r.gazeRegions || {}, true);
   emotionBars($("#emo"), r.emotions, true);
 
   const cols = [
     ["name", "Öğrenci"], ["avgAttention", "Ort. dikkat"], ["avgEnergy", "Ort. enerji"], ["lowAttentionPct", "Düşük dikkat süresi"],
-    ["dominantEmotion", "Baskın duygu"], ["minutes", "Süre (dk)"], ["hands", "✋"], ["messages", "Mesaj"], ["reactions", "Tepki"]];
+    ["materialPct", "Materyale bakma"], ["dominantEmotion", "Baskın duygu"], ["minutes", "Süre (dk)"], ["hands", "✋"], ["messages", "Mesaj"], ["reactions", "Tepki"]];
   let sortKey = "avgAttention", dir = -1;
   const renderTable = () => {
     const rows = [...r.students].sort((a, b) => ((a[sortKey] ?? -1) > (b[sortKey] ?? -1) ? 1 : -1) * dir);
     $("#tbl").innerHTML = `<tr>${cols.map(([k, l]) => `<th data-k="${k}">${l}${k === sortKey ? (dir < 0 ? " ↓" : " ↑") : ""}</th>`).join("")}</tr>` +
       rows.map((s) => `<tr><td>${esc(s.name)}${s.demo ? ' <span class="pill" style="font-size:10px">demo</span>' : ""}</td>
         <td class="num" style="color:${levelColor(s.avgAttention)}">${pct(s.avgAttention)}</td><td class="num">${pct(s.avgEnergy)}</td>
-        <td class="num">${pct(s.lowAttentionPct)}</td><td>${s.dominantEmotion ? EMO[s.dominantEmotion].icon + " " + EMO[s.dominantEmotion].label : "–"}</td>
+        <td class="num">${pct(s.lowAttentionPct)}</td><td class="num" style="color:${levelColor(s.materialPct)}">${pct(s.materialPct)}</td><td>${s.dominantEmotion ? EMO[s.dominantEmotion].icon + " " + EMO[s.dominantEmotion].label : "–"}</td>
         <td class="num">${s.minutes}</td><td class="num">${s.hands}</td><td class="num">${s.messages}</td><td class="num">${s.reactions}</td></tr>`).join("");
   };
   $("#tbl").onclick = (e) => { const k = e.target.dataset.k; if (!k) return; dir = k === sortKey ? -dir : -1; sortKey = k; renderTable(); };
@@ -89,8 +102,10 @@
     const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const lines = [cols.map(([, l]) => q(l)).join(";")].concat(r.students.map((s) =>
       cols.map(([k]) => q(k === "dominantEmotion" && s[k] ? EMO[s[k]].label : s[k])).join(";")));
-    lines.push("", q("Zaman") + ";" + q("Dikkat") + ";" + q("Enerji") + ";" + q("Çevrim içi"));
-    r.timeline.forEach((p) => lines.push([q(new Date(p.t * 1000).toLocaleTimeString("tr-TR")), p.attention, p.energy, p.present].join(";")));
+    lines.push("", q("Zaman") + ";" + q("Dikkat") + ";" + q("Enerji") + ";" + q("Çevrim içi") + ";" + q("Materyale bakan %"));
+    r.timeline.forEach((p) => lines.push([q(new Date(p.t * 1000).toLocaleTimeString("tr-TR")), p.attention, p.energy, p.present, p.material ?? ""].join(";")));
+    lines.push("", q("Bakış bölgesi") + ";" + q("%"));
+    Object.entries(r.gazeRegions || {}).forEach(([k, v]) => lines.push(q(AOI[k]?.label || k) + ";" + v));
     const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `dersnabzi-${r.code}.csv`; a.click();
   };

@@ -128,7 +128,10 @@ window.LIVE = (() => {
   }
 
   $("#unmuteBtn").onclick = play;
-  $("#fsBtn").onclick = () => ($("#tv").requestFullscreen?.() || video.webkitEnterFullscreen?.());
+  // Sinema modu (CSS): tarayıcı tam ekranından farklı olarak pencere boyutunu değiştirmez,
+  // böylece bakış kalibrasyonu geçerli kalır.
+  $("#fsBtn").onclick = () => document.body.classList.toggle("theater");
+  addEventListener("keydown", (e) => { if (e.key === "Escape") document.body.classList.remove("theater"); });
   $("#micOnBtn").onclick = openMic;
   $("#muteBtn").onclick = () => { if (micTrack) { micTrack.enabled = !micTrack.enabled; renderFloor(); } };
   $("#endFloorBtn").onclick = () => endFloor(true);

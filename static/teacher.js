@@ -90,10 +90,8 @@ function renderState(s) {
   emotionBars($("#emoBars"), a.emotions);
   const rc = Object.entries(s.reactions || {});
   $("#reacts").innerHTML = rc.length ? rc.map(([e, n]) => `<span>${e} <b>${n}</b></span>`).join("") : '<span class="muted small">Henüz tepki yok</span>';
-  drawLineChart($("#chart"), s.timeline, [
-    { key: "attention", color: "var(--c-att)", fill: true },
-    { key: "energy", color: "var(--c-en)" },
-  ]);
+  drawLineChart($("#chart"), s.timeline, CHART_SERIES);
+  renderGaze(s);
   renderStudents(s.students);
 }
 
@@ -125,6 +123,7 @@ function renderStudents(list) {
         <div class="st">${statusText(st)}${low ? ` · ${st.lowFor} sn` : ""}</div></div></div>
       <div class="metric"><span>Dikkat</span><div class="bar"><i style="width:${st.attention}%;background:${levelColor(st.attention)}"></i></div><b>${st.attention}</b></div>
       <div class="metric"><span>Enerji</span><div class="bar"><i style="width:${st.energy}%;background:var(--c-en)"></i></div><b>${st.energy}</b></div>
+      ${gazeLine(st)}
       ${floorBtn}
     </div>`;
   }).join("");
@@ -165,10 +164,47 @@ $("#codeBox").onclick = () => {
   const link = `${location.origin}/student.html?code=${CODE}`;
   navigator.clipboard?.writeText(link).then(() => toast("Katılım bağlantısı kopyalandı: " + link), () => toast(link));
 };
-addEventListener("resize", () => lastState && drawLineChart($("#chart"), lastState.timeline, [
-  { key: "attention", color: "var(--c-att)", fill: true }, { key: "energy", color: "var(--c-en)" }]));
+addEventListener("resize", () => lastState && drawLineChart($("#chart"), lastState.timeline, CHART_SERIES));
 
 // Açılış
 const qc = (params.get("code") || "").toUpperCase();
 if (qc && saved[qc]) start(qc, saved[qc].key);
 else showRecent();
+
+// ================================================================ bakış (göz takibi)
+const CHART_SERIES = [
+  { key: "attention", color: "var(--c-att)", fill: true },
+  { key: "energy", color: "var(--c-en)" },
+  { key: "material", color: "#f0b429", dash: [5, 4] },
+];
+let lastHeat = null;
+
+function gazeLine(st) {
+  if (!st.online) return "";
+  if (!st.gazeCal) return `<div class="gz">👁️ bakış takibi kapalı</div>`;
+  const r = AOI[st.gazeRegion];
+  const mp = st.materialPct == null ? "" : ` · son 1 dk materyalde <b style="color:${levelColor(st.materialPct)}">%${st.materialPct}</b>`;
+  return `<div class="gz">👁️ ${r ? r.icon + " " + r.label : "belirsiz"}${mp}</div>`;
+}
+
+function renderGaze(s) {
+  const g = s.agg.gaze || { calibrated: 0, regions: {} };
+  lastHeat = s.heat;
+  $("#gazeCal").textContent = g.calibrated
+    ? `${g.calibrated} / ${s.agg.present} çevrim içi öğrencide bakış takibi açık`
+    : "Bakış takibi açık öğrenci yok (öğrenciler kendi ekranlarında kalibre etmeli)";
+  const k = $("#kMat");
+  k.textContent = g.onMaterial == null ? "–" : "%" + g.onMaterial;
+  k.style.color = levelColor(g.onMaterial);
+  aoiBars($("#aoiBars"), g.regions);
+}
+
+// Isı haritası arka planı: öğretmenin şu an yayınladığı kare (kamera ya da paylaşılan ekran)
+setInterval(() => {
+  if ($("#dash").classList.contains("hidden")) return;
+  const live = window.LIVE?.on;
+  drawHeat($("#heat"), lastHeat, {
+    bg: live ? $("#myVideo") : null,
+    empty: live ? "Henüz materyale bakış verisi yok" : "Yayın kapalı — ısı haritası yine de toplanır",
+  });
+}, 150);
