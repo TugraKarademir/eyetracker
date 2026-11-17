@@ -1,0 +1,9 @@
+# Terim sözlüğü — her satır:  Türkçe = English
+# Sunumdan önce kendi alanının terimlerini, kurum/proje adlarını buraya ekle.
+# Hem yazıya dökmede (doğru tanıma) hem çeviride (doğru terim) kullanılır. Değişiklik anında geçerli.
+
+göz izleme = eye tracking
+ilgi alanı = area of interest
+örneklem = sample
+karşıt dengeleme = counterbalancing
+etki büyüklüğü = effect size

@@ -1,0 +1,5 @@
+.venv/
+.env
+ayarlar.json
+kayitlar/
+__pycache__/

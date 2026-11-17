@@ -1,0 +1,5 @@
+.venv/
+songs/
+uploads/
+test_data/
+__pycache__/

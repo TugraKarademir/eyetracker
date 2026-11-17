@@ -1,0 +1,18 @@
+# Python 3.12. torch/torchaudio CPU sürümü için önce:
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# basic-pitch'i bağımlılıksız kur (aksi halde Windows+3.12'de eski tensorflow ister):
+#   pip install --no-deps basic-pitch
+demucs>=4.0
+librosa
+soundfile
+numpy
+fastapi
+uvicorn[standard]
+python-multipart
+onnxruntime
+mir_eval
+pretty_midi
+resampy<0.4.3
+scikit-learn
+scipy
+typing_extensions

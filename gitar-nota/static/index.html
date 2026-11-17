@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101217">
+<title>Gitar Nota</title>
+<style>
+:root{
+  --bg:#101217; --panel:#1a1d25; --panel2:#232733; --line:#2e3341; --text:#e9ebf1; --mute:#8b91a1;
+  --accent:#3fd6a0; --guitar:#ffb03a; --back:#5aa2ff; --bad:#ef5b5b; --chord:#c99bff;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:#4a5468}
+button.primary{background:var(--accent);border-color:var(--accent);color:#06261a;font-weight:600}
+button.on{background:#3a2e17;border-color:var(--guitar);color:#ffd28a}
+button.onb{background:#17283f;border-color:var(--back);color:#a9cdff}
+button:disabled{opacity:.4;cursor:default}
+.hidden{display:none!important}
+header{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+header h1{font-size:18px;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wrap{max-width:1150px;margin:0 auto;padding:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px}
+.muted{color:var(--mute);font-size:13px}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* kütüphane */
+#drop{border:2px dashed var(--line);border-radius:14px;padding:28px 16px;text-align:center;cursor:pointer}
+#drop.over{border-color:var(--accent);background:#14241e}
+#drop b{font-size:17px}
+.song{display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;border:1px solid var(--line);margin-top:8px;background:var(--panel2);cursor:pointer}
+.song:hover{border-color:#4a5468}
+.song .t{flex:1;min-width:0}
+.song .t div:first-child{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pending{border-style:dashed;cursor:default}
+.spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 1s linear infinite;flex:none}
+@keyframes sp{to{transform:rotate(360deg)}}
+/* oynatıcı */
+.chordbar{display:flex;gap:14px;align-items:center}
+.chordnow{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
+.chordnow .name{font-size:44px;font-weight:700;color:var(--chord);min-width:90px}
+.chordnext{display:flex;align-items:center;gap:8px;opacity:.6}
+.chordnext .name{font-size:22px;font-weight:600;color:var(--chord)}
+.diagram svg{display:block}
+#tabwrap{position:relative;border-radius:12px;overflow:hidden;background:#0c0e12;border:1px solid var(--line);touch-action:none}
+#tab{display:block;width:100%;height:240px;cursor:grab}
+#tab:active{cursor:grabbing}
+.mixer{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.ch{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px}
+.ch h3{margin:0 0 8px;font-size:14px;display:flex;align-items:center;gap:8px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.vol{accent-color:var(--guitar)}
+.volb{accent-color:var(--back)}
+.transport{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.transport .time{font-variant-numeric:tabular-nums;color:var(--mute);font-size:13px;min-width:92px;text-align:center}
+#play{width:56px;height:56px;border-radius:50%;font-size:22px;padding:0}
+#seek{flex:1;min-width:160px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{border:0;border-radius:0;border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.tabs{display:flex;gap:6px;margin-bottom:10px}
+.sheet{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px}
+.bar{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 6px;min-height:52px;cursor:pointer;position:relative}
+.bar .n{position:absolute;top:3px;left:6px;font-size:10px;color:var(--mute)}
+.bar .c{margin-top:12px;font-weight:600;color:var(--chord);display:flex;gap:6px;flex-wrap:wrap}
+.bar.cur{border-color:var(--accent);background:#14241e}
+.bar.inloop{box-shadow:inset 0 -3px 0 var(--guitar)}
+.warn{background:#3a2a12;border:1px solid #6b4c1c;color:#ffd28a;border-radius:10px;padding:8px 12px;font-size:13px;margin-bottom:10px}
+kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:12px}
+@media (max-width:700px){
+  .mixer{grid-template-columns:1fr}
+  .chordnow .name{font-size:34px;min-width:70px}
+  .chordnext .diagram{display:none}
+  #tab{height:200px}
+  .wrap{padding:12px}
+}
+</style>
+</head>
+<body>
+<header>
+  <button id="back" class="hidden">←</button>
+  <h1 id="htitle">🎸 Gitar Nota</h1>
+  <span class="muted" id="hinfo"></span>
+</header>
+
+<!-- KÜTÜPHANE -->
+<div class="wrap" id="lib">
+  <div class="card">
+    <div id="drop">
+      <b>MP3 yükle</b><br>
+      <span class="muted">Dosyayı buraya sürükle ya da dokun · mp3, wav, flac, m4a, ogg</span>
+      <input type="file" id="file" accept=".mp3,.wav,.flac,.ogg,.m4a,audio/*" class="hidden">
+    </div>
+    <p class="muted" style="margin:10px 0 0">Yapay zekâ şarkıyı <b>gitar</b> ve <b>altyapı</b> olarak ikiye ayırır, gitar notalarını (tab) ve akorları çıkarır.
+      İşlem ekran kartı olmadan şarkı süresinin yaklaşık 2–3 katı sürer.</p>
+  </div>
+  <div class="card">
+    <div class="row"><b style="flex:1">Şarkılarım</b><button id="refresh">Yenile</button></div>
+    <div id="songs"><p class="muted">Yükleniyor…</p></div>
+  </div>
+</div>
+
+<!-- OYNATICI -->
+<div class="wrap hidden" id="player">
+  <div id="warn" class="warn hidden"></div>
+
+  <div class="card chordbar">
+    <div class="chordnow"><div class="name" id="cnow">–</div><div class="diagram" id="dnow"></div></div>
+    <div class="chordnext"><span class="muted">sonra</span><div class="name" id="cnext">–</div><div class="diagram" id="dnext"></div></div>
+  </div>
+
+  <div class="tabs">
+    <button id="vTab" class="onb">Tab</button>
+    <button id="vSheet">Akor kâğıdı</button>
+    <span style="flex:1"></span>
+    <div class="seg"><button id="zout" title="Uzaklaştır">−</button><button id="zin" title="Yakınlaştır">+</button></div>
+  </div>
+
+  <div id="tabview" class="card" style="padding:8px">
+    <div id="tabwrap"><canvas id="tab"></canvas></div>
+    <div class="muted" style="margin-top:6px">Tab'ı sürükleyerek ileri-geri sar · <kbd>Boşluk</kbd> oynat/duraklat · <kbd>G</kbd> gitarı aç/kapat · <kbd>←</kbd><kbd>→</kbd> 5 sn</div>
+  </div>
+  <div id="sheetview" class="card hidden"><div class="sheet" id="sheet"></div></div>
+
+  <div class="card">
+    <div class="transport">
+      <button id="play" class="primary">▶</button>
+      <button id="rew">−5s</button>
+      <button id="fwd">+5s</button>
+      <span class="time" id="time">0:00 / 0:00</span>
+      <input type="range" id="seek" min="0" max="1000" value="0">
+    </div>
+    <div class="row" style="margin-top:12px">
+      <span class="muted">Döngü</span>
+      <div class="seg"><button id="setA">A</button><button id="setB">B</button><button id="clrAB">✕</button></div>
+      <span class="muted" id="abinfo">kapalı</span>
+      <span style="flex:1"></span>
+      <span class="muted">Hız</span>
+      <div class="seg" id="speeds">
+        <button data-r="0.5">50%</button><button data-r="0.75">75%</button><button data-r="0.9">90%</button><button data-r="1" class="onb">100%</button><button data-r="1.1">110%</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mixer">
+    <div class="ch">
+      <h3><span class="dot" style="background:var(--guitar)"></span>Gitar
+        <span style="flex:1"></span>
+        <div class="seg"><button id="gOn" class="on">Açık</button><button id="gOff">Kapalı</button><button id="gSolo">Solo</button></div>
+      </h3>
+      <input type="range" id="gVol" class="vol" min="0" max="100" value="100">
+    </div>
+    <div class="ch">
+      <h3><span class="dot" style="background:var(--back)"></span>Altyapı <span class="muted">(vokal, bas, davul, klavye…)</span>
+        <span style="flex:1"></span>
+        <button id="bMute" class="onb">Açık</button>
+      </h3>
+      <input type="range" id="bVol" class="volb" min="0" max="100" value="100">
+    </div>
+  </div>
+
+  <div class="card row" style="margin-top:14px">
+    <span class="muted" style="flex:1" id="stats"></span>
+    <a id="dlMid" download><button>MIDI indir</button></a>
+    <button id="dlTab">Tab (.txt) indir</button>
+    <a id="dlBack" download><button>Gitarsız MP3</button></a>
+    <a id="dlGtr" download><button>Sadece gitar MP3</button></a>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const fmt = t => { t = Math.max(0, t|0); return `${(t/60)|0}:${String(t%60).padStart(2,'0')}`; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------------- kütüphane ---------------- */
+let pollTimer = null;
+async function loadLib(){
+  const r = await fetch('/api/songs').then(r => r.json()).catch(() => null);
+  if (!r){ $('#songs').innerHTML = '<p class="muted">Sunucuya ulaşılamadı.</p>'; return; }
+  let h = '';
+  for (const p of r.pending){
+    const err = p.status === 'error';
+    h += `<div class="song pending">${err ? '⚠️' : '<div class="spin"></div>'}<div class="t"><div>${esc(p.title)}</div><div class="muted">${esc(p.stage)}</div></div></div>`;
+  }
+  for (const s of r.songs){
+    h += `<div class="song" data-id="${s.id}"><span style="font-size:22px">🎸</span><div class="t"><div>${esc(s.title)}</div>
+      <div class="muted">${fmt(s.duration)} · ${Math.round(s.bpm)} BPM · ${s.notes} nota · ${s.chords} farklı akor</div></div>
+      <button data-del="${s.id}" title="Sil">🗑</button></div>`;
+  }
+  $('#songs').innerHTML = h || '<p class="muted">Henüz şarkı yok — yukarıdan bir MP3 yükle.</p>';
+  clearTimeout(pollTimer);
+  if (r.pending.some(p => p.status !== 'error')) pollTimer = setTimeout(loadLib, 2000);
+}
+$('#songs').addEventListener('click', async e => {
+  const del = e.target.closest('[data-del]');
+  if (del){ e.stopPropagation(); if (confirm('Bu şarkı silinsin mi?')){ await fetch('/api/songs/' + del.dataset.del, {method:'DELETE'}); loadLib(); } return; }
+  const s = e.target.closest('.song[data-id]');
+  if (s) location.hash = s.dataset.id;
+});
+$('#refresh').onclick = loadLib;
+const drop = $('#drop');
+drop.onclick = () => $('#file').click();
+$('#file').onchange = e => e.target.files[0] && upload(e.target.files[0]);
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]); };
+async function upload(f){
+  drop.querySelector('b').textContent = 'Yükleniyor… ' + f.name;
+  const fd = new FormData(); fd.append('file', f);
+  const r = await fetch('/api/upload', {method:'POST', body:fd});
+  drop.querySelector('b').textContent = 'MP3 yükle';
+  $('#file').value = '';
+  if (!r.ok){ alert((await r.json()).detail || 'Yükleme başarısız'); return; }
+  loadLib();
+}
+
+/* ---------------- akor diyagramları ---------------- */
+const ROOTS = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const OPEN = {C:[-1,3,2,0,1,0], D:[-1,-1,0,2,3,2], E:[0,2,2,1,0,0], G:[3,2,0,0,0,3], A:[-1,0,2,2,2,0],
+              Am:[-1,0,2,2,1,0], Dm:[-1,-1,0,2,3,1], Em:[0,2,2,0,0,0]};
+function shape(name){
+  if (!name || name === 'N') return null;
+  if (OPEN[name]) return OPEN[name];
+  const minor = name.endsWith('m'), root = ROOTS.indexOf(minor ? name.slice(0,-1) : name);
+  const f = (root - 4 + 12) % 12, g = (root - 9 + 12) % 12;
+  if (f <= g) return minor ? [f,f+2,f+2,f,f,f] : [f,f+2,f+2,f+1,f,f];
+  return minor ? [-1,g,g+2,g+2,g+1,g] : [-1,g,g+2,g+2,g+2,g];
+}
+function diagram(name, w = 74){
+  const s = shape(name); if (!s) return '';
+  const fr = s.filter(x => x > 0), lo = fr.length ? Math.min(...fr) : 1;
+  const base = Math.max(...s) <= 4 ? 1 : lo, h = w * 1.15, px = 10, top = 16, gw = (w - 2*px) / 5, gh = (h - top - 6) / 4;
+  let o = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`;
+  for (let i = 0; i < 6; i++) o += `<line x1="${px+i*gw}" y1="${top}" x2="${px+i*gw}" y2="${top+4*gh}" stroke="#6b7387" stroke-width="1"/>`;
+  for (let j = 0; j <= 4; j++) o += `<line x1="${px}" y1="${top+j*gh}" x2="${px+5*gw}" y2="${top+j*gh}" stroke="#6b7387" stroke-width="${j===0&&base===1?3:1}"/>`;
+  if (base > 1) o += `<text x="${px+5*gw+3}" y="${top+gh*0.7}" fill="#8b91a1" font-size="9">${base}</text>`;
+  const bar = fr.length && s.filter(x => x === lo).length >= 3 && lo === base && base > 1;
+  if (bar){ const i0 = s.indexOf(lo), i1 = s.lastIndexOf(lo); o += `<rect x="${px+i0*gw-4}" y="${top+(lo-base+0.5)*gh-4}" width="${(i1-i0)*gw+8}" height="8" rx="4" fill="#c99bff"/>`; }
+  s.forEach((f, i) => {
+    const x = px + i*gw;
+    if (f < 0) o += `<text x="${x}" y="${top-4}" fill="#8b91a1" font-size="10" text-anchor="middle">×</text>`;
+    else if (f === 0) o += `<circle cx="${x}" cy="${top-7}" r="3" fill="none" stroke="#8b91a1"/>`;
+    else if (!(bar && f === lo)) o += `<circle cx="${x}" cy="${top+(f-base+0.5)*gh}" r="${gw*0.36}" fill="#c99bff"/>`;
+  });
+  return o + '</svg>';
+}
+
+/* ---------------- oynatıcı ---------------- */
+let song = null, sid = null, gA = null, bA = null, raf = 0;
+let gMode = 'on', bOn = true, rate = 1, pps = 170, loopA = null, loopB = null, view = 'tab';
+let measures = [];
+
+function master(){ return bA; }
+function now(){ return bA ? bA.currentTime : 0; }
+function applyVol(){
+  if (!gA) return;
+  const gv = $('#gVol').value / 100, bv = $('#bVol').value / 100;
+  gA.volume = gv; bA.volume = bv;
+  gA.muted = gMode === 'off';
+  bA.muted = gMode === 'solo' || !bOn;
+  $('#gOn').className = gMode === 'on' ? 'on' : '';
+  $('#gOff').className = gMode === 'off' ? 'on' : '';
+  $('#gSolo').className = gMode === 'solo' ? 'on' : '';
+  $('#bMute').className = (bOn && gMode !== 'solo') ? 'onb' : '';
+  $('#bMute').textContent = bOn ? 'Açık' : 'Kapalı';
+}
+function seek(t){
+  t = Math.max(0, Math.min(song.duration - 0.05, t));
+  bA.currentTime = t; gA.currentTime = t;
+  if (bA.paused) draw();
+}
+function setRate(r){
+  rate = r; for (const a of [gA, bA]){ a.preservesPitch = true; a.mozPreservesPitch = true; a.webkitPreservesPitch = true; a.playbackRate = r; }
+  document.querySelectorAll('#speeds button').forEach(b => b.className = +b.dataset.r === r ? 'onb' : '');
+}
+async function togglePlay(){
+  if (!bA) return;
+  if (bA.paused){
+    gA.currentTime = bA.currentTime;
+    try { await Promise.all([bA.play(), gA.play()]); } catch(e){ console.warn(e); }
+  } else { bA.pause(); gA.pause(); }
+}
+function updatePlayBtn(){ $('#play').textContent = bA && !bA.paused ? '❚❚' : '▶'; }
+
+function buildMeasures(){
+  const b = song.beats.length >= 8 ? song.beats : Array.from({length: Math.ceil(song.duration*2)}, (_, i) => i*0.5);
+  measures = [];
+  for (let i = 0; i < b.length; i += 4) measures.push({t: b[i], end: b[i+4] ?? song.duration, beats: b.slice(i, i+4)});
+  if (measures.length && measures[0].t > 0.3) measures.unshift({t: 0, end: measures[0].t, beats: [0]});
+}
+function chordAt(t){
+  const c = song.chords; let lo = 0, hi = c.length - 1, k = -1;
+  while (lo <= hi){ const m = (lo+hi) >> 1; if (c[m].t <= t){ k = m; lo = m+1; } else hi = m-1; }
+  return k;
+}
+function nextRealChord(k){ for (let i = k+1; i < song.chords.length; i++) if (song.chords[i].name !== 'N') return song.chords[i]; return null; }
+
+function buildSheet(){
+  let h = '';
+  measures.forEach((m, i) => {
+    const names = [];
+    for (const c of song.chords){
+      if (c.end <= m.t + 0.05 || c.t >= m.end - 0.05) continue;
+      const n = c.name === 'N' ? '–' : c.name;
+      if (names[names.length-1] !== n) names.push(n);
+    }
+    h += `<div class="bar" data-i="${i}" data-t="${m.t}"><span class="n">${i+1}</span><div class="c">${names.map(esc).join('<span class="muted">·</span>') || '<span class="muted">–</span>'}</div></div>`;
+  });
+  $('#sheet').innerHTML = h;
+}
+$('#sheet').addEventListener('click', e => { const b = e.target.closest('.bar'); if (b) seek(+b.dataset.t); });
+
+let lastChord = -2, lastBar = -1;
+function updateChords(t){
+  const k = chordAt(t);
+  if (k !== lastChord){
+    lastChord = k;
+    const cur = k >= 0 ? song.chords[k] : null, nx = nextRealChord(k);
+    const cn = cur && cur.name !== 'N' ? cur.name : '–';
+    $('#cnow').textContent = cn; $('#dnow').innerHTML = diagram(cur && cur.name);
+    $('#cnext').textContent = nx ? nx.name : '–'; $('#dnext').innerHTML = diagram(nx && nx.name, 54);
+  }
+  if (view === 'sheet'){
+    let bi = measures.findIndex(m => t >= m.t && t < m.end);
+    if (bi !== lastBar){
+      document.querySelectorAll('.bar.cur').forEach(e => e.classList.remove('cur'));
+      const el = document.querySelector(`.bar[data-i="${bi}"]`);
+      if (el){ el.classList.add('cur'); if (!bA.paused) el.scrollIntoView({block:'nearest', behavior:'smooth'}); }
+      lastBar = bi;
+    }
+  }
+}
+
+/* --- tab çizimi --- */
+const cv = $('#tab'), ctx = cv.getContext('2d');
+function fitCanvas(){
+  const r = cv.getBoundingClientRect(), d = devicePixelRatio || 1;
+  cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d);
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+}
+function firstIdx(arr, t){ let lo = 0, hi = arr.length; while (lo < hi){ const m = (lo+hi) >> 1; if (arr[m].t < t) lo = m+1; else hi = m; } return lo; }
+function draw(){
+  if (!song) return;
+  const t = now(), W = cv.clientWidth, H = cv.clientHeight;
+  const x0 = Math.round(W * 0.22), top = 46, gap = (H - top - 22) / 5;
+  const t0 = t - x0 / pps, t1 = t + (W - x0) / pps, X = tt => x0 + (tt - t) * pps;
+  ctx.clearRect(0, 0, W, H);
+  // döngü bölgesi
+  if (loopA != null){
+    const a = X(loopA), b = loopB != null ? X(loopB) : X(t);
+    ctx.fillStyle = 'rgba(255,176,58,.08)'; ctx.fillRect(a, 0, b - a, H);
+  }
+  // vuruş / ölçü çizgileri
+  ctx.font = '10px system-ui'; ctx.textAlign = 'left';
+  for (const b of song.beats){ if (b < t0 || b > t1) continue; ctx.fillStyle = '#1b1f29'; ctx.fillRect(X(b), top, 1, gap*5); }
+  measures.forEach((m, i) => {
+    if (m.t < t0 - 1 || m.t > t1) return;
+    ctx.fillStyle = '#3a4152'; ctx.fillRect(X(m.t), top, 1.5, gap*5);
+    ctx.fillStyle = '#5c6478'; ctx.fillText(i+1, X(m.t) + 3, top + gap*5 + 14);
+  });
+  // teller
+  for (let s = 0; s < 6; s++){
+    ctx.fillStyle = '#394050'; ctx.fillRect(0, top + s*gap, W, s > 2 ? 1.4 : 1);
+    ctx.fillStyle = '#6b7387'; ctx.fillText(song.tuning[5-s], 4, top + s*gap + 3.5);
+  }
+  // akor adları
+  ctx.font = '600 14px system-ui';
+  for (const c of song.chords){
+    if (c.end < t0 || c.t > t1 || c.name === 'N') continue;
+    const xs = Math.max(X(c.t), 18);
+    ctx.fillStyle = 'rgba(201,155,255,.12)'; ctx.fillRect(X(c.t), 8, Math.max(2, X(c.end) - X(c.t) - 3), 24);
+    ctx.fillStyle = '#c99bff'; ctx.fillText(c.name, xs + 5, 25);
+  }
+  // notalar
+  const N = song.notes; let i = firstIdx(N, t0 - 4);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (; i < N.length && N[i].t <= t1; i++){
+    const n = N[i], x = X(n.t), y = top + n.s * gap;
+    if (x + n.d * pps < 0) continue;
+    const act = t >= n.t && t < n.t + Math.max(n.d, 0.12);
+    ctx.fillStyle = act ? 'rgba(255,176,58,.55)' : 'rgba(255,176,58,.18)';
+    ctx.fillRect(x, y - 2, Math.max(0, n.d * pps), 4);
+    const lab = String(n.f), w = lab.length > 1 ? 20 : 15;
+    ctx.fillStyle = act ? '#ffb03a' : '#0c0e12'; ctx.fillRect(x - w/2, y - 8, w, 16);
+    ctx.fillStyle = act ? '#1b1205' : (n.t < t ? '#7d6a4a' : '#ffd28a');
+    ctx.font = (act ? '700 ' : '600 ') + '13px system-ui'; ctx.fillText(lab, x, y + 0.5);
+  }
+  ctx.textBaseline = 'alphabetic';
+  // oynatma çizgisi
+  ctx.fillStyle = '#3fd6a0'; ctx.fillRect(x0 - 1, 0, 2, H);
+  // zaman
+  $('#time').textContent = `${fmt(t)} / ${fmt(song.duration)}`;
+  if (!seeking) $('#seek').value = Math.round(t / song.duration * 1000);
+  updateChords(t);
+}
+function loop(){
+  if (bA && !bA.paused){
+    const t = bA.currentTime;
+    if (loopA != null && loopB != null && t >= loopB){ seek(loopA); }
+    else if (Math.abs(gA.currentTime - t) > 0.06) gA.currentTime = t;   // kayma düzeltme
+  }
+  draw();
+  raf = requestAnimationFrame(loop);
+}
+// sürükleyerek sarma
+let drag = null;
+cv.addEventListener('pointerdown', e => { if (!song) return; drag = {x: e.clientX, t: now()}; cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointermove', e => { if (drag) seek(drag.t - (e.clientX - drag.x) / pps); });
+cv.addEventListener('pointerup', () => drag = null);
+cv.addEventListener('wheel', e => { if (!song) return; e.preventDefault(); seek(now() + (e.deltaX || e.deltaY) / pps); }, {passive:false});
+
+let seeking = false;
+$('#seek').addEventListener('input', e => { seeking = true; seek(e.target.value / 1000 * song.duration); });
+$('#seek').addEventListener('change', () => seeking = false);
+$('#play').onclick = togglePlay;
+$('#rew').onclick = () => seek(now() - 5);
+$('#fwd').onclick = () => seek(now() + 5);
+$('#gOn').onclick = () => { gMode = 'on'; applyVol(); };
+$('#gOff').onclick = () => { gMode = 'off'; applyVol(); };
+$('#gSolo').onclick = () => { gMode = 'solo'; applyVol(); };
+$('#bMute').onclick = () => { bOn = !bOn; if (gMode === 'solo') gMode = 'on'; applyVol(); };
+$('#gVol').oninput = applyVol; $('#bVol').oninput = applyVol;
+$('#speeds').onclick = e => { const b = e.target.closest('button'); if (b) setRate(+b.dataset.r); };
+$('#zin').onclick = () => { pps = Math.min(600, pps * 1.25); draw(); };
+$('#zout').onclick = () => { pps = Math.max(50, pps / 1.25); draw(); };
+function abInfo(){
+  $('#abinfo').textContent = loopA == null ? 'kapalı' : loopB == null ? `A ${fmt(loopA)} → B?` : `${fmt(loopA)} → ${fmt(loopB)} tekrar`;
+  $('#setA').className = loopA != null ? 'on' : ''; $('#setB').className = loopB != null ? 'on' : '';
+}
+$('#setA').onclick = () => { loopA = now(); if (loopB != null && loopB <= loopA) loopB = null; abInfo(); };
+$('#setB').onclick = () => { if (loopA == null || now() <= loopA + 0.3) return; loopB = now(); seek(loopA); abInfo(); };
+$('#clrAB').onclick = () => { loopA = loopB = null; abInfo(); };
+$('#vTab').onclick = () => { view = 'tab'; $('#tabview').classList.remove('hidden'); $('#sheetview').classList.add('hidden'); $('#vTab').className = 'onb'; $('#vSheet').className = ''; fitCanvas(); };
+$('#vSheet').onclick = () => { view = 'sheet'; lastBar = -1; $('#sheetview').classList.remove('hidden'); $('#tabview').classList.add('hidden'); $('#vSheet').className = 'onb'; $('#vTab').className = ''; };
+document.addEventListener('keydown', e => {
+  if (!song || e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
+  if (e.code === 'Space'){ e.preventDefault(); togglePlay(); }
+  else if (e.key === 'g' || e.key === 'G'){ gMode = gMode === 'off' ? 'on' : 'off'; applyVol(); }
+  else if (e.key === 'ArrowLeft'){ e.preventDefault(); seek(now() - 5); }
+  else if (e.key === 'ArrowRight'){ e.preventDefault(); seek(now() + 5); }
+});
+
+/* --- ASCII tab dışa aktarma --- */
+function asciiTab(){
+  const cols = 16, beats = song.beats.length >= 8 ? song.beats : measures.map(m => m.t);
+  const grid = [];                 // her ölçü için 16 sütun zamanı
+  measures.forEach(m => { for (let k = 0; k < cols; k++) grid.push(m.t + (m.end - m.t) * k / cols); });
+  const cells = grid.map(() => Array(6).fill(null)), chordRow = grid.map(() => '');
+  for (const n of song.notes){
+    let j = firstIdx(grid.map(t => ({t})), n.t);
+    if (j > 0 && (j >= grid.length || n.t - grid[j-1] < grid[j] - n.t)) j--;
+    if (j < grid.length && cells[j][n.s] == null) cells[j][n.s] = n.f;
+  }
+  for (const c of song.chords){ if (c.name === 'N') continue; let j = firstIdx(grid.map(t => ({t})), c.t - 0.02); if (j < grid.length && !chordRow[j]) chordRow[j] = c.name; }
+  let out = `${song.title}\nTempo ≈ ${Math.round(song.bpm)} BPM · Akort: standart (E A D G B e)\nOtomatik çıkarılmıştır — hatalar olabilir.\n\n`;
+  const perLine = 4;
+  for (let m0 = 0; m0 < measures.length; m0 += perLine){
+    const rows = Array.from({length: 6}, (_, s) => song.tuning[5-s].padEnd(1) + '|');
+    let ch = '  ';
+    for (let m = m0; m < Math.min(measures.length, m0 + perLine); m++){
+      for (let k = 0; k < cols; k++){
+        const j = m*cols + k, w = Math.max(2, ...cells[j].map(v => v == null ? 0 : String(v).length + 1));
+        for (let s = 0; s < 6; s++){ const v = cells[j][s]; rows[s] += (v == null ? '' : String(v)).padEnd(w, '-'); }
+        ch += (chordRow[j] || '').padEnd(w).slice(0, w);
+      }
+      rows.forEach((_, s) => rows[s] += '|'); ch += ' ';
+    }
+    out += `[${m0+1}]\n${ch.trimEnd()}\n${rows.join('\n')}\n\n`;
+  }
+  return out;
+}
+$('#dlTab').onclick = () => {
+  const b = new Blob([asciiTab()], {type: 'text/plain;charset=utf-8'}), a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = song.title + ' - gitar tab.txt'; a.click();
+};
+
+async function openSong(id){
+  closeSong();
+  const r = await fetch(`/songs/${id}/song.json`);
+  if (!r.ok){ location.hash = ''; return; }
+  song = await r.json(); sid = id;
+  $('#lib').classList.add('hidden'); $('#player').classList.remove('hidden'); $('#back').classList.remove('hidden');
+  $('#htitle').textContent = song.title; $('#hinfo').textContent = `${Math.round(song.bpm)} BPM`;
+  const base = `/songs/${id}/`;
+  gA = new Audio(base + song.files.guitar); bA = new Audio(base + song.files.backing);
+  for (const a of [gA, bA]){ a.preload = 'auto'; }
+  bA.onplay = bA.onpause = updatePlayBtn; bA.onended = () => { gA.pause(); updatePlayBtn(); };
+  $('#dlMid').href = base + 'guitar.mid'; $('#dlMid').download = song.title + ' - gitar.mid';
+  $('#dlBack').href = base + song.files.backing; $('#dlBack').download = song.title + ' - gitarsiz.mp3';
+  $('#dlGtr').href = base + song.files.guitar; $('#dlGtr').download = song.title + ' - gitar.mp3';
+  const nCh = new Set(song.chords.map(c => c.name).filter(n => n !== 'N')).size;
+  $('#stats').textContent = `${song.notes.length} gitar notası · ${nCh} farklı akor · işlem ${Math.round(song.processing_seconds)} sn`;
+  const w = $('#warn');
+  if (song.guitar_level < 0.06){ w.textContent = 'Bu şarkıda gitar çok az tespit edildi — gitar sesi zayıf olabilir ya da başka bir enstrüman (piyano, synth) baskın. Tab güvenilir olmayabilir; akorlar yine de işe yarar.'; w.classList.remove('hidden'); }
+  else w.classList.add('hidden');
+  gMode = 'on'; bOn = true; loopA = loopB = null; lastChord = -2; lastBar = -1; abInfo();
+  buildMeasures(); buildSheet(); setRate(1); applyVol(); updatePlayBtn();
+  fitCanvas(); cancelAnimationFrame(raf); loop();
+}
+function closeSong(){
+  if (gA){ gA.pause(); bA.pause(); gA.src = bA.src = ''; }
+  gA = bA = song = null; cancelAnimationFrame(raf);
+}
+function route(){
+  const id = location.hash.slice(1);
+  if (id) openSong(id);
+  else {
+    closeSong();
+    $('#player').classList.add('hidden'); $('#lib').classList.remove('hidden'); $('#back').classList.add('hidden');
+    $('#htitle').textContent = '🎸 Gitar Nota'; $('#hinfo').textContent = '';
+    loadLib();
+  }
+}
+$('#back').onclick = () => location.hash = '';
+addEventListener('hashchange', route);
+addEventListener('resize', () => song && view === 'tab' && fitCanvas());
+route();
+</script>
+</body>
+</html>

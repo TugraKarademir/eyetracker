@@ -1,0 +1,13 @@
+numpy
+scipy
+PyAudioWPatch
+openai
+requests
+python-dotenv
+# ücretsiz mod
+faster-whisper
+edge-tts
+deep-translator
+miniaudio
+comtypes
+SpeechRecognition

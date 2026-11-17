@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Öneri Defteri</title>
+<style>
+/* Tek sütun defter: özet şeridi, araç çubuğu, öneri satırları; düzenleme tam ekran panel */
+:root {
+  --bg: #f5f7f6; --surface: #ffffff; --fg: #1b2422; --muted: #5d6b67; --line: #dbe2df;
+  --accent: #1f6f5c; --accent-soft: #e2f0eb; --on-accent: #ffffff;
+  --warn: #a35c00; --warn-soft: #fbefdc; --crit: #b3261e; --ok: #2c7a3f; --shade: rgba(20,30,28,.38);
+  --f-body: Roboto, "Segoe UI", system-ui, sans-serif;
+  --f-mono: "Roboto Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #121816; --surface: #1a2220; --fg: #e4ece9; --muted: #95a59f; --line: #2b3633;
+  --accent: #5cc4a6; --accent-soft: #1d3530; --on-accent: #0d1a16;
+  --warn: #f0b259; --warn-soft: #3a2c16; --crit: #f28b82; --ok: #7fd18f; --shade: rgba(0,0,0,.55); color-scheme: dark } }
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 16px; line-height: 1.5; }
+.wrap { max-width: 980px; margin: 0 auto; padding: 18px max(16px, env(safe-area-inset-right)) 96px max(16px, env(safe-area-inset-left));
+  display: flex; flex-direction: column; gap: 16px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+h1 { font-size: 1.6rem; margin: 0; letter-spacing: -.01em; }
+.sub { color: var(--muted); margin: 0; font-size: .9rem; }
+button, input, select, textarea { font: inherit; color: inherit; }
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 10px 14px; border-radius: 10px; cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.btn.danger { color: var(--crit); }
+.btn.danger.armed { background: var(--crit); border-color: var(--crit); color: var(--surface); }
+.icon-btn { border: 1px solid var(--line); background: var(--surface); width: 44px; height: 44px; border-radius: 10px; font-size: 1.3rem; line-height: 1; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.stats { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.stats::-webkit-scrollbar { display: none; }
+.stat { flex: 0 0 auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; cursor: pointer; text-align: left; min-width: 92px; }
+.stat[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.stat b { display: block; font-size: 1.3rem; font-variant-numeric: tabular-nums; }
+.stat span { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+
+.tools { display: flex; flex-wrap: wrap; gap: 8px; }
+.tools input[type=search] { flex: 1 1 100%; min-width: 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.tools select { flex: 1 1 140px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: none; padding: 9px 12px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+.list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 14px; border: 0; border-top: 1px solid var(--line); cursor: pointer; text-align: left; background: none; width: 100%; }
+.row:first-child { border-top: 0; }
+.row:active { background: var(--accent-soft); }
+.row .t { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.row .meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); font-size: .82rem; }
+.row .s { color: var(--muted); font-size: .9rem; grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pill { font-size: .74rem; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); white-space: nowrap; }
+.pill.kind { background: var(--accent-soft); color: var(--accent); border-color: transparent; font-weight: 600; }
+.pill.st-aktif { color: var(--accent); border-color: var(--accent); }
+.pill.st-bitti { color: var(--ok); border-color: var(--ok); }
+.pill.st-raf { opacity: .7; }
+.pill.hi { color: var(--crit); border-color: var(--crit); }
+.due { font-family: var(--f-mono); font-size: .78rem; white-space: nowrap; color: var(--muted); }
+.due.soon { color: var(--warn); } .due.late { color: var(--crit); }
+.tag { font-family: var(--f-mono); font-size: .76rem; }
+.empty { padding: 32px 18px; text-align: center; color: var(--muted); display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.empty h2 { color: var(--fg); margin: 0; font-size: 1.15rem; }
+.empty p { margin: 0; }
+
+.fab { position: fixed; right: max(18px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom)); z-index: 10;
+  background: var(--accent); color: var(--on-accent); border: 0; border-radius: 16px; padding: 16px 20px; font-weight: 600; font-size: 1rem;
+  box-shadow: 0 6px 18px rgba(0,0,0,.22); cursor: pointer; }
+
+.shade { position: fixed; inset: 0; background: var(--shade); z-index: 20; }
+.panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100%); background: var(--surface); z-index: 21; display: flex; flex-direction: column; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); gap: 8px; }
+.panel-head h2 { margin: 0; font-size: 1.15rem; }
+.panel-body { overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; flex: 1; }
+.panel-foot { display: flex; gap: 8px; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--line); }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.field input, .field select, .field textarea { padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); width: 100%; }
+.field textarea { resize: vertical; min-height: 90px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 420px) { .two { grid-template-columns: 1fr; } }
+.log { display: flex; flex-direction: column; gap: 8px; }
+.log-item { border-left: 2px solid var(--accent); padding: 2px 0 2px 10px; font-size: .9rem; overflow-wrap: anywhere; }
+.log-item time { font-family: var(--f-mono); font-size: .74rem; color: var(--muted); display: block; }
+.log-add { display: flex; gap: 8px; }
+.log-add input { flex: 1; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.stamp { font-family: var(--f-mono); font-size: .74rem; color: var(--muted); margin: 0; }
+.menu { position: fixed; top: 64px; right: max(16px, env(safe-area-inset-right)); z-index: 22; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.18); display: flex; flex-direction: column; min-width: 230px; overflow: hidden; }
+.menu button { border: 0; background: none; text-align: left; padding: 14px 16px; cursor: pointer; }
+.menu button + button { border-top: 1px solid var(--line); }
+.menu small { display: block; color: var(--muted); font-size: .78rem; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 96px; background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 10px; z-index: 30; max-width: calc(100% - 32px); text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Öneri Defteri</h1>
+      <p class="sub">Çalışma ve proje önerilerin</p>
+    </div>
+    <button class="icon-btn" data-act="menu" aria-label="Menü">⋮</button>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="tools">
+    <input type="search" id="q" placeholder="Ara: başlık, özet, not, etiket, ortak…" aria-label="Ara">
+    <div class="seg" id="kindSeg" role="group" aria-label="Tür">
+      <button data-k="" aria-pressed="true">Tümü</button>
+      <button data-k="Çalışma" aria-pressed="false">Çalışma</button>
+      <button data-k="Proje" aria-pressed="false">Proje</button>
+    </div>
+    <select id="sort" aria-label="Sıralama">
+      <option value="upd">Son güncellenen</option>
+      <option value="due">Son tarihi yakın</option>
+      <option value="new">Yeni eklenen</option>
+      <option value="pri">Önceliğe göre</option>
+      <option value="az">Başlık A–Z</option>
+    </select>
+  </div>
+
+  <div class="list" id="list"></div>
+</div>
+
+<button class="fab" data-act="new">+ Yeni öneri</button>
+<div id="panelRoot"></div>
+<input type="file" id="fileIn" accept=".json,application/json" hidden>
+
+<script>
+const STATUSES = ["Fikir", "Taslak", "Başvuruldu", "Devam ediyor", "Tamamlandı", "Rafa kaldırıldı"];
+const ST_CLASS = { "Devam ediyor": "st-aktif", "Başvuruldu": "st-aktif", "Tamamlandı": "st-bitti", "Rafa kaldırıldı": "st-raf" };
+const PRI = ["Yüksek", "Orta", "Düşük"];
+const KEY = "oneri-defteri-v1";
+const bridge = window.Android || null;
+
+let items = [];
+const ui = { q: "", kind: "", status: "", sort: "upd" };
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const localISO = (d = new Date()) => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
+const fmtDate = (iso) => iso ? new Date(iso.length === 10 ? iso + "T00:00:00" : iso).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "numeric" }) : "";
+const fmtDT = (iso) => iso ? new Date(iso).toLocaleString("tr-TR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+const norm = (s) => String(s ?? "").toLocaleLowerCase("tr-TR");
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+/* ---------- Depolama (telefonun içinde) ---------- */
+function load() {
+  try { const v = JSON.parse(localStorage.getItem(KEY)); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+function persist() {
+  try { localStorage.setItem(KEY, JSON.stringify(items)); return true; }
+  catch { toast("Kaydedilemedi: telefonda yer kalmamış olabilir."); return false; }
+}
+
+function toast(msg) {
+  document.querySelectorAll(".toast").forEach(t => t.remove());
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
+}
+
+function dueInfo(d, status) {
+  if (!d || status === "Tamamlandı" || status === "Rafa kaldırıldı") return null;
+  const days = Math.round((new Date(d + "T00:00:00") - new Date(localISO() + "T00:00:00")) / 864e5);
+  if (days < 0) return { cls: "late", txt: `${-days} gün geçti` };
+  if (days === 0) return { cls: "late", txt: "bugün son gün" };
+  return { cls: days <= 14 ? "soon" : "", txt: `${days} gün kaldı` };
+}
+
+function filtered() {
+  const q = norm(ui.q).trim();
+  const out = items.filter(it => {
+    if (ui.kind && it.tur !== ui.kind) return false;
+    if (ui.status && it.durum !== ui.status) return false;
+    if (!q) return true;
+    const hay = norm([it.baslik, it.ozet, it.notlar, (it.etiketler || []).join(" "), it.ortaklar, it.fon, it.durum, it.tur,
+      (it.gecmis || []).map(g => g.metin).join(" ")].join(" "));
+    return q.split(/\s+/).every(w => hay.includes(w));
+  });
+  const by = {
+    upd: (a, b) => (b.guncelleme || "").localeCompare(a.guncelleme || ""),
+    new: (a, b) => (b.olusturma || "").localeCompare(a.olusturma || ""),
+    az: (a, b) => (a.baslik || "").localeCompare(b.baslik || "", "tr"),
+    pri: (a, b) => PRI.indexOf(a.oncelik || "Orta") - PRI.indexOf(b.oncelik || "Orta"),
+    due: (a, b) => (a.sonTarih || "9999").localeCompare(b.sonTarih || "9999"),
+  };
+  return out.sort(by[ui.sort]);
+}
+
+function renderStats() {
+  const counts = Object.fromEntries(STATUSES.map(s => [s, 0]));
+  items.forEach(it => { if (counts[it.durum] != null) counts[it.durum]++; });
+  const cells = [["", "Tümü", items.length], ...STATUSES.map(s => [s, s, counts[s]])];
+  $("#stats").innerHTML = cells.map(([v, l, n]) =>
+    `<button class="stat" data-s="${esc(v)}" aria-pressed="${ui.status === v}"><b>${n}</b><span>${esc(l)}</span></button>`).join("");
+}
+
+function renderList() {
+  const list = $("#list");
+  if (!items.length) {
+    list.innerHTML = `<div class="empty"><h2>Henüz öneri yok</h2>
+      <p>Aklına gelen ilk çalışma ya da proje fikrini ekle. Başlık yeterli, gerisini sonra doldurursun.</p>
+      <p style="font-size:.85rem">Bilgisayardaki defterden yedek indirdiysen ⋮ menüsünden “Yedekten içe aktar” ile getirebilirsin.</p></div>`;
+    return;
+  }
+  const rows = filtered();
+  if (!rows.length) { list.innerHTML = `<div class="empty"><h2>Eşleşen öneri yok</h2><p>Aramayı veya filtreleri değiştir.</p></div>`; return; }
+  list.innerHTML = rows.map(it => {
+    const d = dueInfo(it.sonTarih, it.durum);
+    return `<button class="row" data-id="${esc(it.id)}">
+      <span class="t">${esc(it.baslik || "(başlıksız)")}</span>
+      ${d ? `<span class="due ${d.cls}">${d.txt}</span>` : `<span class="due">${esc(fmtDate(it.guncelleme))}</span>`}
+      ${it.ozet ? `<span class="s">${esc(it.ozet)}</span>` : ""}
+      <span class="meta">
+        <span class="pill kind">${esc(it.tur || "Çalışma")}</span>
+        <span class="pill ${ST_CLASS[it.durum] || ""}">${esc(it.durum || "Fikir")}</span>
+        ${it.oncelik === "Yüksek" ? '<span class="pill hi">Öncelik: yüksek</span>' : ""}
+        ${it.sonTarih ? `<span>${esc(fmtDate(it.sonTarih))}</span>` : ""}
+        ${it.fon ? `<span>${esc(it.fon)}</span>` : ""}
+        ${(it.etiketler || []).map(t => `<span class="tag">#${esc(t)}</span>`).join(" ")}
+      </span></button>`;
+  }).join("");
+}
+function render() { renderStats(); renderList(); }
+
+/* ---------- Düzenleme paneli ---------- */
+let editing = null;
+function openPanel(it) {
+  closeMenu();
+  editing = it ? JSON.parse(JSON.stringify(it)) : { tur: ui.kind || "Çalışma", durum: "Fikir", oncelik: "Orta", etiketler: [], gecmis: [] };
+  const isNew = !it;
+  const opt = (arr, v) => arr.map(x => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("");
+  $("#panelRoot").innerHTML = `
+    <div class="shade" data-act="close"></div>
+    <aside class="panel" role="dialog" aria-modal="true" aria-labelledby="pTitle">
+      <div class="panel-head"><h2 id="pTitle">${isNew ? "Yeni öneri" : "Öneriyi düzenle"}</h2>
+        <button class="btn" data-act="close">Kapat</button></div>
+      <form class="panel-body" id="form">
+        <div class="field"><label for="f-baslik">Başlık</label><input id="f-baslik" value="${esc(editing.baslik)}" placeholder="Örn. Okuma sırasında dikkat dağınıklığı"></div>
+        <div class="two">
+          <div class="field"><label for="f-tur">Tür</label><select id="f-tur">${opt(["Çalışma", "Proje"], editing.tur)}</select></div>
+          <div class="field"><label for="f-durum">Durum</label><select id="f-durum">${opt(STATUSES, editing.durum)}</select></div>
+          <div class="field"><label for="f-oncelik">Öncelik</label><select id="f-oncelik">${opt(PRI, editing.oncelik)}</select></div>
+          <div class="field"><label for="f-son">Son tarih / başvuru</label><input id="f-son" type="date" value="${esc(editing.sonTarih)}"></div>
+        </div>
+        <div class="field"><label for="f-ozet">Özet / amaç</label><textarea id="f-ozet" placeholder="Araştırma sorusu, amaç, yöntem…">${esc(editing.ozet)}</textarea></div>
+        <div class="field"><label for="f-fon">Destek / çağrı</label><input id="f-fon" value="${esc(editing.fon)}" placeholder="TÜBİTAK 1001, BAP, AB…"></div>
+        <div class="field"><label for="f-ortak">Ortaklar / ekip</label><input id="f-ortak" value="${esc(editing.ortaklar)}" placeholder="İsimler, kurumlar"></div>
+        <div class="field"><label for="f-etiket">Etiketler (virgülle)</label><input id="f-etiket" value="${esc((editing.etiketler || []).join(", "))}" placeholder="göz izleme, eğitim"></div>
+        <div class="field"><label for="f-not">Notlar</label><textarea id="f-not" placeholder="Kaynaklar, fikirler, yapılacaklar…">${esc(editing.notlar)}</textarea></div>
+        <div class="field"><label for="f-log">Güncelleme günlüğü</label>
+          <div class="log-add"><input id="f-log" placeholder="Bugün ne değişti?" enterkeyhint="done"><button type="button" class="btn" data-act="log">Ekle</button></div>
+          <div class="log" id="logList"></div></div>
+        ${isNew ? "" : `<p class="stamp">Eklendi: ${esc(fmtDT(editing.olusturma))}<br>Son güncelleme: ${esc(fmtDT(editing.guncelleme))}</p>`}
+      </form>
+      <div class="panel-foot">
+        <div>${isNew ? "" : '<button class="btn danger" data-act="del" id="delBtn">Sil</button>'}</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" data-act="close">Vazgeç</button>
+          <button class="btn primary" data-act="save">Kaydet</button>
+        </div>
+      </div>
+    </aside>`;
+  renderLog();
+  if (isNew) $("#f-baslik").focus();
+  $("#form").addEventListener("submit", e => { e.preventDefault(); save(); });
+  $("#f-log").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addLog(); } });
+}
+function renderLog() {
+  const g = (editing.gecmis || []).slice().sort((a, b) => b.tarih.localeCompare(a.tarih));
+  $("#logList").innerHTML = g.length ? g.map(x => `<div class="log-item"><time>${esc(fmtDT(x.tarih))}</time>${esc(x.metin)}</div>`).join("")
+    : '<span class="stamp">Henüz kayıt yok.</span>';
+}
+function addLog() {
+  const inp = $("#f-log"); const v = inp.value.trim(); if (!v) return;
+  editing.gecmis = [...(editing.gecmis || []), { tarih: new Date().toISOString(), metin: v }];
+  inp.value = ""; renderLog();
+}
+function closePanel() { $("#panelRoot").innerHTML = ""; editing = null; }
+
+function save() {
+  if ($("#f-log").value.trim()) addLog();
+  const baslik = $("#f-baslik").value.trim();
+  if (!baslik) { $("#f-baslik").focus(); toast("Başlık gerekli"); return; }
+  const now = new Date().toISOString();
+  const prevStatus = editing.durum;
+  const body = {
+    id: editing.id || newId(),
+    baslik, tur: $("#f-tur").value, durum: $("#f-durum").value, oncelik: $("#f-oncelik").value,
+    sonTarih: $("#f-son").value || "", ozet: $("#f-ozet").value.trim(), fon: $("#f-fon").value.trim(),
+    ortaklar: $("#f-ortak").value.trim(), notlar: $("#f-not").value.trim(),
+    etiketler: $("#f-etiket").value.split(",").map(s => s.trim()).filter(Boolean),
+    gecmis: editing.gecmis || [], olusturma: editing.olusturma || now, guncelleme: now,
+  };
+  if (editing.id && prevStatus !== body.durum) body.gecmis = [...body.gecmis, { tarih: now, metin: `Durum: ${prevStatus} → ${body.durum}` }];
+  const prev = items;
+  items = editing.id ? items.map(x => x.id === body.id ? body : x) : [...items, body];
+  if (!persist()) { items = prev; return; }
+  closePanel(); render(); toast("Kaydedildi");
+}
+function del() {
+  const b = $("#delBtn");
+  if (!b.classList.contains("armed")) {
+    b.classList.add("armed"); b.textContent = "Kalıcı olarak sil?";
+    setTimeout(() => { if (b.isConnected) { b.classList.remove("armed"); b.textContent = "Sil"; } }, 4000);
+    return;
+  }
+  const prev = items;
+  items = items.filter(x => x.id !== editing.id);
+  if (!persist()) { items = prev; return; }
+  closePanel(); render(); toast("Silindi");
+}
+
+/* ---------- Menü: yedekleme ---------- */
+function openMenu() {
+  if ($(".menu")) { closeMenu(); return; }
+  const m = document.createElement("div"); m.className = "menu";
+  m.innerHTML = `<button data-act="export">Yedek al<small>Tüm önerileri bir dosyaya kaydet</small></button>
+    <button data-act="import">Yedekten içe aktar<small>Dosyadaki önerileri deftere ekle</small></button>`;
+  document.body.appendChild(m);
+}
+function closeMenu() { document.querySelectorAll(".menu").forEach(m => m.remove()); }
+
+function doExport() {
+  closeMenu();
+  if (!items.length) { toast("Yedeklenecek öneri yok."); return; }
+  const json = JSON.stringify(items, null, 2);
+  const name = `oneri-defteri-${localISO()}.json`;
+  if (bridge) { bridge.exportJson(json, name); return; }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([json], { type: "application/json" })); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function doImport() {
+  closeMenu();
+  if (bridge) { bridge.importJson(); return; }
+  $("#fileIn").value = ""; $("#fileIn").click();
+}
+$("#fileIn").addEventListener("change", async e => { const f = e.target.files[0]; if (f) window.onImport(await f.text()); });
+
+/* Android tarafından çağrılır */
+window.onImport = (text) => {
+  let data;
+  try { data = JSON.parse(text); } catch { toast("Dosya okunamadı: geçerli bir yedek değil."); return; }
+  if (!Array.isArray(data)) { toast("Dosya okunamadı: geçerli bir yedek değil."); return; }
+  let added = 0, updated = 0;
+  const map = new Map(items.map(x => [x.id, x]));
+  for (const raw of data) {
+    if (!raw || typeof raw !== "object" || !raw.baslik) continue;
+    const it = { ...raw, id: String(raw.id || newId()) };
+    const cur = map.get(it.id);
+    if (!cur) { map.set(it.id, it); added++; }
+    else if ((it.guncelleme || "") > (cur.guncelleme || "")) { map.set(it.id, it); updated++; }
+  }
+  const prev = items;
+  items = [...map.values()];
+  if (!persist()) { items = prev; return; }
+  render();
+  toast(added || updated ? `${added} öneri eklendi, ${updated} güncellendi.` : "Yeni öneri yok; hepsi zaten defterde.");
+};
+window.onExportDone = (ok) => toast(ok ? "Yedek kaydedildi." : "Yedek kaydedilemedi.");
+window.onPickCancelled = () => {};
+window.appBack = () => {
+  if ($(".menu")) { closeMenu(); return true; }
+  if (editing) { closePanel(); return true; }
+  return false;
+};
+
+/* ---------- Olaylar ---------- */
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-act],[data-id],[data-s],[data-k]");
+  if (!t) { closeMenu(); return; }
+  if (!t.closest(".menu") && t.dataset.act !== "menu") closeMenu();
+  if (t.dataset.id) { const it = items.find(x => x.id === t.dataset.id); if (it) openPanel(it); return; }
+  if (t.classList.contains("stat")) { ui.status = ui.status === t.dataset.s ? "" : t.dataset.s; render(); return; }
+  if (t.dataset.k !== undefined && t.closest("#kindSeg")) {
+    ui.kind = t.dataset.k; document.querySelectorAll("#kindSeg button").forEach(b => b.setAttribute("aria-pressed", b === t)); renderList(); return; }
+  const a = t.dataset.act;
+  if (a === "close") closePanel(); else if (a === "save") save(); else if (a === "del") del();
+  else if (a === "log") addLog(); else if (a === "new") openPanel(null);
+  else if (a === "menu") openMenu(); else if (a === "export") doExport(); else if (a === "import") doImport();
+});
+$("#q").addEventListener("input", e => { ui.q = e.target.value; renderList(); });
+$("#sort").addEventListener("change", e => { ui.sort = e.target.value; try { localStorage.setItem("oneri-sort", ui.sort); } catch {} renderList(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") window.appBack(); });
+try { const s = localStorage.getItem("oneri-sort"); if (s) { ui.sort = s; $("#sort").value = s; } } catch {}
+
+items = load();
+render();
+</script>
+</body>
+</html>
