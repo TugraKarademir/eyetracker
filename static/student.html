@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Derse katıl — DersNabzı</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .layout { display: grid; grid-template-columns: 300px 1fr 340px; gap: 16px; padding: 16px 24px; max-width: 1400px; margin: 0 auto; min-height: calc(100vh - 60px); }
+  .video-wrap { position: relative; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 4/3; }
+  #video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+  .vbadge { position: absolute; left: 8px; bottom: 8px; background: rgba(0,0,0,.6); color: #fff; font-size: 12px; padding: 4px 8px; border-radius: 6px; }
+  .stage { display: flex; flex-direction: column; gap: 16px; }
+  .tv { position: relative; aspect-ratio: 16/9; background: #0b0d10; border-radius: 10px; overflow: hidden; }
+  .tv video { width: 100%; height: 100%; object-fit: contain; display: block; background: #0b0d10; }
+  .tv-off { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; color: #8a94a3; font-size: 40px; }
+  .tv-off span { font-size: 14px; }
+  .live-speaker { position: absolute; left: 10px; top: 10px; background: rgba(0,0,0,.65); color: #fff; }
+  .floor-card { border: 2px solid var(--accent); background: var(--accent-soft); }
+  .topic { padding: 18px 24px; text-align: center; }
+  .topic .t { font-size: clamp(20px, 2.6vw, 28px); font-weight: 700; letter-spacing: -.02em; }
+  .announce { border-left: 4px solid var(--accent); }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .actions .btn { font-size: 22px; padding: 10px 16px; }
+  .actions .btn.hand-on { background: var(--warn); color: #fff; border-color: var(--warn); }
+  .me .metric { display: grid; grid-template-columns: 60px 1fr 36px; gap: 8px; align-items: center; font-size: 13px; margin: 8px 0; }
+  .me .metric b { text-align: right; }
+  .layout .chat { height: calc(100vh - 92px); }
+  .consent li { margin: 6px 0; }
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: 1fr; padding: 16px; } .layout .chat { height: 380px; }
+    .stage { order: -1; }
+    .self-col { display: grid !important; grid-template-columns: 200px 1fr; }
+  }
+  @media (max-width: 560px) { .self-col { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span data-brand></span><span class="spacer"></span>
+  <span id="clsTitle" class="muted"></span>
+</header>
+
+<!-- 1. Katılım -->
+<div class="center-wrap" id="joinView">
+  <form class="card form-card" id="joinForm">
+    <h2>Derse katıl</h2>
+    <p class="muted">Öğretmeninizin paylaştığı 6 haneli kodu girin.</p>
+    <label for="jCode">Ders kodu</label>
+    <input id="jCode" required maxlength="6" placeholder="ör. K7M2QX" style="text-transform:uppercase;letter-spacing:.15em;font-weight:700">
+    <label for="jName">Adınız</label>
+    <input id="jName" required maxlength="40" placeholder="Ad Soyad">
+    <button class="btn primary" style="width:100%;margin-top:18px">Devam</button>
+    <div class="error" id="jErr"></div>
+  </form>
+</div>
+
+<!-- 2. Rıza -->
+<div class="center-wrap hidden" id="consentView">
+  <div class="card form-card" style="max-width:520px">
+    <h2>Kamera ve analiz izni</h2>
+    <ul class="consent muted">
+      <li>Kameranız <b>yalnızca bu tarayıcıda</b> analiz edilir; görüntü kaydedilmez ve kimseye gönderilmez.</li>
+      <li>Öğretmeninize yalnızca <b>dikkat %, enerji % ve genel duygu etiketi</b> gibi sayılar iletilir.</li>
+      <li>Analizi istediğiniz an <b>duraklatabilirsiniz</b> (bu sürede panelde çevrim dışı görünürsünüz).</li>
+      <li>Duygu tahminleri yaklaşıktır ve hata yapabilir.</li>
+    </ul>
+    <label class="row" style="font-weight:500;gap:10px"><input type="checkbox" id="agree" style="width:auto"> Okudum, kabul ediyorum.</label>
+    <button class="btn primary" id="camBtn" style="width:100%;margin-top:16px" disabled>Kamerayı aç ve derse gir</button>
+    <div class="error" id="cErr"></div>
+  </div>
+</div>
+
+<!-- 3. Ders -->
+<div class="layout hidden" id="classView">
+  <div class="self-col" style="display:flex;flex-direction:column;gap:16px">
+    <div class="card" style="padding:10px">
+      <div class="video-wrap"><video id="video" autoplay muted playsinline></video><div class="vbadge" id="vbadge">Hazırlanıyor…</div></div>
+      <div class="row" style="margin-top:10px;justify-content:space-between">
+        <span class="small muted">🔒 Görüntü cihazınızda kalır</span>
+        <button class="btn sm" id="pauseBtn">Duraklat</button>
+      </div>
+    </div>
+    <div class="card me">
+      <div class="row" style="justify-content:space-between"><h3 style="margin:0">Benim durumum</h3><button class="btn sm" id="recalBtn" title="Ekrana düz bakarken tıklayın">Kalibre et</button></div>
+      <div class="metric"><span>Dikkat</span><div class="bar"><i id="mAttBar"></i></div><b id="mAtt">–</b></div>
+      <div class="metric"><span>Enerji</span><div class="bar"><i id="mEnBar" style="background:var(--c-en)"></i></div><b id="mEn">–</b></div>
+      <div class="small muted" id="mEmo">&nbsp;</div>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="card" style="padding:10px">
+      <div class="tv" id="tv">
+        <video id="teacherVideo" autoplay playsinline></video>
+        <div class="tv-off" id="tvOff">🎥<br><span id="tvMsg">Öğretmen henüz yayın başlatmadı</span></div>
+        <button class="btn sm hidden" id="unmuteBtn" style="position:absolute;right:10px;bottom:10px">🔊 Sesi aç</button>
+        <button class="btn sm" id="fsBtn" style="position:absolute;right:10px;top:10px" title="Tam ekran">⛶</button>
+        <span class="pill live-speaker hidden" id="speakerPill"><span class="eq"><i></i><i></i><i></i></span> <span id="speakerName"></span></span>
+      </div>
+      <audio id="floorAudio" autoplay></audio>
+    </div>
+    <div class="card floor-card hidden" id="floorCard">
+      <div class="row" style="flex-wrap:wrap;gap:10px">
+        <div style="flex:1;min-width:200px">
+          <b>🎙️ Söz sizde</b>
+          <div class="small muted hidden" id="micLive"><span class="eq"><i></i><i></i><i></i></span> Mikrofonunuz açık; öğretmen ve sınıf sizi duyuyor.</div>
+        </div>
+        <button class="btn primary" id="micOnBtn">🎙️ Mikrofonu aç ve konuş</button>
+        <button class="btn" id="muteBtn">🔇 Sessize al</button>
+        <button class="btn danger" id="endFloorBtn">Sözü bitir</button>
+      </div>
+    </div>
+    <div class="card topic">
+      <div class="muted small" style="text-transform:uppercase;letter-spacing:.08em;font-weight:600">Güncel konu</div>
+      <div class="t" id="topic">—</div>
+    </div>
+    <div class="card announce hidden" id="annCard"><b>📢 Öğretmenden duyuru</b><div id="annText" style="margin-top:6px"></div></div>
+    <div class="card">
+      <h3 style="text-align:center">Etkileşim</h3>
+      <div class="actions">
+        <button class="btn" id="handBtn" title="Söz iste">✋ <span style="font-size:15px">Söz iste</span></button>
+        <button class="btn" data-r="👍" title="Anladım">👍</button>
+        <button class="btn" data-r="❓" title="Anlamadım">❓</button>
+        <button class="btn" data-r="🐢" title="Biraz yavaş">🐢</button>
+        <button class="btn" data-r="💡" title="Fikrim var">💡</button>
+        <button class="btn" data-r="🎉" title="Harika">🎉</button>
+      </div>
+      <p class="small muted" style="text-align:center;margin-bottom:0">❓ Anlamadım · 🐢 Biraz yavaş · 💡 Fikrim var</p>
+    </div>
+  </div>
+
+  <div class="card chat">
+    <h3>Sohbet</h3>
+    <div class="msgs" id="msgs"></div>
+    <form class="row" id="chatForm"><input id="chatIn" placeholder="Mesaj yaz…" autocomplete="off"><button class="btn sm primary">Gönder</button></form>
+  </div>
+</div>
+
+<!-- 4. Bitti -->
+<div class="center-wrap hidden" id="endView">
+  <div class="card form-card" style="text-align:center">
+    <div style="font-size:48px">🎓</div>
+    <h2>Ders sona erdi</h2>
+    <p class="muted">Katıldığınız için teşekkürler. Kameranız kapatıldı.</p>
+    <a class="btn" href="/">Ana sayfa</a>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
+<script src="/common.js"></script>
+<script src="/analyzer.js"></script>
+<script src="/student.js"></script>
+<script src="/student-live.js"></script>
+</body>
+</html>

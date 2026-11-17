@@ -1,0 +1,11 @@
+# Ders kayıtları: öğrenci isimleri, metrikler ve öğretmen anahtarları içerir
+data/
+
+# Python
+__pycache__/
+*.pyc
+
+# Geçici dosyalar
+*.tmp
+.DS_Store
+Thumbs.db

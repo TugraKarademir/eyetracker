@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ders Raporu — DersNabzı</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+  #chart { width: 100%; height: 260px; display: block; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; cursor: pointer; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .tbl { overflow-x: auto; }
+  .alerts div { font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  @media (max-width: 860px) { .two { grid-template-columns: 1fr; } .wrap { padding: 16px; } }
+  @media print { .topbar, .noprint { display: none !important; } body { background: #fff; } .card { box-shadow: none; } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span data-brand></span><span class="spacer"></span>
+  <div class="row noprint">
+    <button class="btn sm" id="csvBtn">CSV indir</button>
+    <button class="btn sm" onclick="print()">Yazdır / PDF</button>
+    <a class="btn sm primary" href="/teacher.html">Yeni ders</a>
+  </div>
+</header>
+<div class="wrap" id="wrap"><div class="card">Yükleniyor…</div></div>
+<script src="/common.js"></script>
+<script>
+(async () => {
+  const code = (new URLSearchParams(location.search).get("code") || "").toUpperCase();
+  const key = (store.get("dn_teacher") || {})[code]?.key;
+  const W = $("#wrap");
+  if (!key) { W.innerHTML = `<div class="card">Bu raporu görüntüleme yetkiniz yok. Rapor yalnızca dersi oluşturan tarayıcıda açılabilir.</div>`; return; }
+  let r;
+  try { r = await api(`/api/report?code=${code}&key=${encodeURIComponent(key)}`); }
+  catch (e) { W.innerHTML = `<div class="card">${esc(e.message)}</div>`; return; }
+
+  const pct = (v) => v == null ? "–" : "%" + v;
+  const dt = (t) => new Date(t * 1000).toLocaleString("tr-TR", { dateStyle: "medium", timeStyle: "short" });
+  W.innerHTML = `
+    <div>
+      <div class="muted small">${dt(r.created)} · ${r.durationMin} dk · Kod ${r.code} ${r.ended ? "" : '· <span class="pill live">devam ediyor</span>'}</div>
+      <h1 style="margin-top:4px">${esc(r.name)}</h1>
+      ${r.topics.length ? `<div class="muted">Konular: ${r.topics.map((t) => esc(t.topic)).filter(Boolean).join(" → ")}</div>` : ""}
+    </div>
+    <div class="kpis">
+      <div class="card kpi"><div class="l">Ortalama dikkat</div><div class="v" style="color:${levelColor(r.avgAttention)}">${pct(r.avgAttention)}</div></div>
+      <div class="card kpi"><div class="l">Ortalama enerji</div><div class="v" style="color:${levelColor(r.avgEnergy)}">${pct(r.avgEnergy)}</div></div>
+      <div class="card kpi"><div class="l">Katılımcı</div><div class="v">${r.students.length}</div><div class="s">en yüksek eş zamanlı: ${r.peakPresent}</div></div>
+      <div class="card kpi"><div class="l">En düşük an</div><div class="v" style="font-size:26px;padding:4px 0">${r.lowestMoment ? fmtTime(r.lowestMoment.t) : "–"}</div><div class="s">${r.lowestMoment ? "dikkat " + pct(r.lowestMoment.attention) : ""}</div></div>
+    </div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px"><h3 style="margin:0">Ders boyunca sınıf ortalaması</h3>
+      <div class="legend"><span style="--c:var(--c-att)">Dikkat</span><span style="--c:var(--c-en)">Enerji</span></div></div>
+      <canvas id="chart"></canvas>
+    </div>
+    <div class="two">
+      <div class="card"><h3>Duygu dağılımı</h3><div id="emo"></div>
+        <h3 style="margin-top:16px">Tepkiler</h3><div>${Object.entries(r.reactions).map(([e, n]) => `${e} <b>${n}</b>`).join(" &nbsp; ") || '<span class="muted small">Yok</span>'}</div></div>
+      <div class="card"><h3>Uyarılar (${r.alerts.length})</h3><div class="alerts" style="max-height:260px;overflow:auto">
+        ${r.alerts.map((a) => `<div><span class="muted">${fmtTime(a.t)}</span> · ${esc(a.text)}</div>`).join("") || '<span class="muted small">Uyarı oluşmadı.</span>'}</div></div>
+    </div>
+    <div class="card"><h3>Öğrenci bazında</h3><div class="tbl"><table id="tbl"></table></div></div>`;
+
+  drawLineChart($("#chart"), r.timeline, [{ key: "attention", color: "var(--c-att)", fill: true }, { key: "energy", color: "var(--c-en)" }]);
+  addEventListener("resize", () => drawLineChart($("#chart"), r.timeline, [{ key: "attention", color: "var(--c-att)", fill: true }, { key: "energy", color: "var(--c-en)" }]));
+  emotionBars($("#emo"), r.emotions, true);
+
+  const cols = [
+    ["name", "Öğrenci"], ["avgAttention", "Ort. dikkat"], ["avgEnergy", "Ort. enerji"], ["lowAttentionPct", "Düşük dikkat süresi"],
+    ["dominantEmotion", "Baskın duygu"], ["minutes", "Süre (dk)"], ["hands", "✋"], ["messages", "Mesaj"], ["reactions", "Tepki"]];
+  let sortKey = "avgAttention", dir = -1;
+  const renderTable = () => {
+    const rows = [...r.students].sort((a, b) => ((a[sortKey] ?? -1) > (b[sortKey] ?? -1) ? 1 : -1) * dir);
+    $("#tbl").innerHTML = `<tr>${cols.map(([k, l]) => `<th data-k="${k}">${l}${k === sortKey ? (dir < 0 ? " ↓" : " ↑") : ""}</th>`).join("")}</tr>` +
+      rows.map((s) => `<tr><td>${esc(s.name)}${s.demo ? ' <span class="pill" style="font-size:10px">demo</span>' : ""}</td>
+        <td class="num" style="color:${levelColor(s.avgAttention)}">${pct(s.avgAttention)}</td><td class="num">${pct(s.avgEnergy)}</td>
+        <td class="num">${pct(s.lowAttentionPct)}</td><td>${s.dominantEmotion ? EMO[s.dominantEmotion].icon + " " + EMO[s.dominantEmotion].label : "–"}</td>
+        <td class="num">${s.minutes}</td><td class="num">${s.hands}</td><td class="num">${s.messages}</td><td class="num">${s.reactions}</td></tr>`).join("");
+  };
+  $("#tbl").onclick = (e) => { const k = e.target.dataset.k; if (!k) return; dir = k === sortKey ? -dir : -1; sortKey = k; renderTable(); };
+  renderTable();
+
+  $("#csvBtn").onclick = () => {
+    const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const lines = [cols.map(([, l]) => q(l)).join(";")].concat(r.students.map((s) =>
+      cols.map(([k]) => q(k === "dominantEmotion" && s[k] ? EMO[s[k]].label : s[k])).join(";")));
+    lines.push("", q("Zaman") + ";" + q("Dikkat") + ";" + q("Enerji") + ";" + q("Çevrim içi"));
+    r.timeline.forEach((p) => lines.push([q(new Date(p.t * 1000).toLocaleTimeString("tr-TR")), p.attention, p.energy, p.present].join(";")));
+    const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `dersnabzi-${r.code}.csv`; a.click();
+  };
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Öğretmen Paneli — DersNabzı</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .layout { display: grid; grid-template-columns: 1fr 340px; gap: 16px; padding: 16px 24px; max-width: 1500px; margin: 0 auto; }
+  .main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .side { display: flex; flex-direction: column; gap: 16px; }
+  .code-box { font-family: ui-monospace, Consolas, monospace; font-weight: 700; font-size: 18px; letter-spacing: .15em; background: var(--surface-2); padding: 4px 12px; border-radius: 8px; cursor: pointer; }
+  #chart { width: 100%; height: 220px; display: block; }
+  .students { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+  .stu { border: 1px solid var(--border); border-radius: 12px; padding: 12px; background: var(--surface); position: relative; transition: border-color .3s, opacity .3s; }
+  .stu.low { border-color: var(--bad); box-shadow: 0 0 0 2px color-mix(in srgb, var(--bad) 20%, transparent); }
+  .stu.off { opacity: .45; }
+  .stu .top { display: flex; align-items: center; gap: 8px; }
+  .stu .av { width: 34px; height: 34px; border-radius: 50%; background: var(--surface-2); display: grid; place-items: center; font-size: 18px; flex: none; }
+  .stu .nm { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stu .st { font-size: 12px; color: var(--muted); }
+  .stu .metric { display: grid; grid-template-columns: 52px 1fr 34px; gap: 8px; align-items: center; font-size: 12px; margin-top: 8px; color: var(--muted); }
+  .stu .metric b { text-align: right; color: var(--text); }
+  .stu .hand { position: absolute; top: 8px; right: 8px; font-size: 20px; cursor: pointer; animation: wave 1s infinite; }
+  @keyframes wave { 50% { transform: rotate(18deg); } }
+  .alerts { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .alert { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); border-left: 3px solid var(--warn); }
+  .alert.class { border-left-color: var(--bad); }
+  .alert .tm { color: var(--muted); font-size: 11px; }
+  .side .chat { height: 340px; }
+  .reacts { display: flex; gap: 12px; font-size: 14px; flex-wrap: wrap; }
+  .live-card { display: grid; grid-template-columns: 360px 1fr; gap: 18px; align-items: center; }
+  .live-video { position: relative; aspect-ratio: 16/9; background: #0b0d10; border-radius: 10px; overflow: hidden; }
+  .live-video video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .live-video video.mirror { transform: scaleX(-1); }
+  .live-off { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; color: #8a94a3; font-size: 30px; }
+  .live-off span { font-size: 13px; }
+  .btn.off { color: var(--bad); }
+  .floor-bar { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 12px; border-radius: 10px; background: var(--accent-soft); font-size: 14px; }
+  .stu.speaking { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  .stu .floor-btn { margin-top: 10px; width: 100%; }
+  @media (max-width: 700px) { .live-card { grid-template-columns: 1fr; } }
+  .empty { text-align: center; padding: 40px 16px; color: var(--muted); }
+  @media (max-width: 1050px) { .layout { grid-template-columns: 1fr; padding: 16px; } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <span data-brand></span>
+  <span class="spacer"></span>
+  <div id="hdr" class="row hidden" style="gap:12px;flex-wrap:wrap">
+    <span class="pill live" id="livePill">CANLI</span>
+    <b id="clsName"></b>
+    <span class="code-box" id="codeBox" title="Kopyalamak için tıkla"></span>
+    <button class="btn sm" id="demoBtn" title="Kamerasız test için simüle öğrenciler ekler">+ Demo öğrenciler</button>
+    <button class="btn sm danger" id="endBtn">Dersi bitir</button>
+  </div>
+</header>
+
+<!-- Ders oluşturma -->
+<div class="center-wrap" id="createView">
+  <form class="card form-card" id="createForm">
+    <h2>Yeni ders başlat</h2>
+    <p class="muted">Öğrencilerinizle paylaşacağınız bir katılım kodu oluşturulacak.</p>
+    <label for="cName">Ders adı</label>
+    <input id="cName" required maxlength="80" placeholder="ör. Matematik 9-A">
+    <label for="cTopic">Güncel konu (isteğe bağlı)</label>
+    <input id="cTopic" maxlength="120" placeholder="ör. Türev'e giriş">
+    <button class="btn primary" style="width:100%;margin-top:18px">Dersi başlat</button>
+    <div class="error" id="cErr"></div>
+    <div id="recent" class="small muted" style="margin-top:12px"></div>
+  </form>
+</div>
+
+<!-- Panel -->
+<div class="layout hidden" id="dash">
+  <div class="main">
+    <div class="card live-card">
+      <div class="live-video">
+        <video id="myVideo" autoplay muted playsinline></video>
+        <div class="live-off" id="liveOff">📹<br><span>Yayın kapalı</span></div>
+        <span class="pill live hidden" id="onAir" style="position:absolute;top:10px;left:10px">YAYINDA</span>
+      </div>
+      <div class="live-ctl">
+        <h3 style="margin:0">Canlı yayın</h3>
+        <p class="small muted" style="margin:4px 0 12px">Kameranız, mikrofonunuz ve ekranınız tüm öğrencilere iletilir. Öğrencilerin görüntüsü size gelmez; yalnızca analiz sonuçları gelir.</p>
+        <div class="row" style="flex-wrap:wrap">
+          <button class="btn primary" id="liveBtn">● Yayını başlat</button>
+          <button class="btn hidden" id="micBtn" title="Mikrofon">🎙️ Mikrofon açık</button>
+          <button class="btn hidden" id="camBtn2" title="Kamera">📷 Kamera açık</button>
+          <button class="btn hidden" id="shareBtn">🖥️ Ekran paylaş</button>
+        </div>
+        <div class="floor-bar hidden" id="floorBar">
+          <span class="eq"><i></i><i></i><i></i></span> <b id="floorName"></b>
+          <button class="btn sm danger" id="takeFloorBtn" style="margin-left:auto">Sözü al</button>
+        </div>
+        <audio id="floorAudio" autoplay></audio>
+        <div class="small muted" style="margin-top:10px" id="viewers"></div>
+      </div>
+    </div>
+    <div class="kpis">
+      <div class="card kpi"><div class="l">Sınıf dikkati</div><div class="v" id="kAtt">–</div><div class="s">çevrim içi öğrenci ortalaması</div></div>
+      <div class="card kpi"><div class="l">Enerji</div><div class="v" id="kEn">–</div><div class="s">uyanıklık / yorgunluk</div></div>
+      <div class="card kpi"><div class="l">Baskın duygu</div><div class="v" id="kEmo" style="font-size:26px;padding:4px 0">–</div><div class="s" id="kEmoS">&nbsp;</div></div>
+      <div class="card kpi"><div class="l">Katılım</div><div class="v" id="kPres">0</div><div class="s" id="kPresS">öğrenci çevrim içi</div></div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <h3 style="margin:0">Son 10 dakika</h3>
+        <div class="legend"><span style="--c:var(--c-att)">Dikkat</span><span style="--c:var(--c-en)">Enerji</span></div>
+      </div>
+      <canvas id="chart"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:12px">
+        <h3 style="margin:0">Öğrenciler</h3>
+        <span class="small muted">Dikkati en düşük olanlar önce · ✋'a tıklayarak eli indirin</span>
+      </div>
+      <div class="students" id="students"></div>
+    </div>
+  </div>
+
+  <aside class="side">
+    <div class="card">
+      <h3>Uyarılar</h3>
+      <div class="alerts" id="alerts"><div class="small muted" id="noAlerts">Şimdilik her şey yolunda.</div></div>
+    </div>
+    <div class="card">
+      <h3>Duygu dağılımı</h3>
+      <div id="emoBars"></div>
+      <h3 style="margin-top:16px">Tepkiler</h3>
+      <div class="reacts" id="reacts"><span class="muted small">Henüz tepki yok</span></div>
+    </div>
+    <div class="card">
+      <h3>Konu ve duyuru</h3>
+      <form class="row" id="topicForm"><input id="topicIn" placeholder="Güncel konu"><button class="btn sm">Güncelle</button></form>
+      <form class="row" id="annForm" style="margin-top:8px"><input id="annIn" placeholder="Öğrencilere duyuru"><button class="btn sm">Gönder</button></form>
+    </div>
+    <div class="card chat">
+      <h3>Sohbet</h3>
+      <div class="msgs" id="msgs"></div>
+      <form class="row" id="chatForm"><input id="chatIn" placeholder="Mesaj yaz…" autocomplete="off"><button class="btn sm primary">Gönder</button></form>
+    </div>
+  </aside>
+</div>
+
+<script src="/common.js"></script>
+<script src="/teacher.js"></script>
+<script src="/teacher-live.js"></script>
+</body>
+</html>
