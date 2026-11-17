@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><title>Tanıma Testi</title>
+<style>body{font:14px system-ui;margin:16px;background:#fff;color:#222}canvas{max-width:100%;border:1px solid #ccc}pre{background:#f4f4f4;padding:8px}</style>
+</head><body>
+<h2>Harf taşı tanıma — sentetik test</h2>
+<pre id="out">çalışıyor…</pre>
+<canvas id="cv" width="960" height="540"></canvas>
+<script>document.write('<script src="js/vision.js?' + Date.now() + '"><\/script>')</script>
+<script>
+const H = Vision.HARFLER;
+function rnd(a, b) { return a + Math.random() * (b - a); }
+function sahne(ctx, harfler, sec) {
+  const W = ctx.canvas.width, Hh = ctx.canvas.height;
+  ctx.save(); ctx.filter = 'none';
+  ctx.fillStyle = sec.zemin || '#d8c7a3'; ctx.fillRect(0, 0, W, Hh);
+  for (let i = 0; i < 400; i++) { ctx.fillStyle = `rgba(${120 + Math.random() * 60},${90 + Math.random() * 40},50,0.15)`; ctx.fillRect(rnd(0, W), rnd(0, Hh), rnd(20, 200), 2); }
+  const yer = [];
+  // dikkat dağıtıcılar: ten rengi lekeler, koyu mavi kumaş
+  if (sec.tip === 'harf') for (let i = 0; i < 6; i++) { ctx.fillStyle = i % 2 ? '#e0a090' : '#1d2a55'; ctx.beginPath(); ctx.ellipse(rnd(0, W), rnd(0, Hh), rnd(20, 60), rnd(10, 40), rnd(0, 3), 0, 7); ctx.fill(); }
+  harfler.forEach((h, i) => {
+    const boy = rnd(sec.min, sec.max);
+    const cols = Math.floor(W / (sec.max * 1.7));
+    const cx = (i % cols + 0.5) * (W / cols) + rnd(-8, 8), cy = (Math.floor(i / cols) + 0.5) * (sec.max * 1.7) + rnd(-8, 8);
+    const ang = rnd(-sec.aci, sec.aci) * Math.PI / 180, renk = Math.random() < 0.5 ? 'mavi' : 'kirmizi';
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang);
+    ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 2;
+    const harfRenk = renk === 'mavi' ? sec.mavi : sec.kirmizi;
+    ctx.fillStyle = sec.tip === 'harf' ? '#eeeef4' : harfRenk;
+    const r = boy * 0.15; ctx.beginPath(); ctx.roundRect(-boy / 2, -boy / 2, boy, boy, r); ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.fillStyle = sec.tip === 'harf' ? harfRenk : '#fff'; ctx.font = sec.font.replace('{px}', Math.round(boy * 0.62));
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(h, 0, boy * 0.04);
+    ctx.restore();
+    yer.push({ h, cx, cy, renk });
+  });
+  ctx.restore();
+  // bulanıklık + gürültü
+  if (sec.blur) { const t = document.createElement('canvas'); t.width = W; t.height = Hh; const c2 = t.getContext('2d'); c2.filter = `blur(${sec.blur}px)`; c2.drawImage(ctx.canvas, 0, 0); ctx.drawImage(t, 0, 0); }
+  const im = ctx.getImageData(0, 0, W, Hh), d = im.data;
+  for (let i = 0; i < d.length; i += 4) { const n = rnd(-sec.gurultu, sec.gurultu); d[i] += n; d[i + 1] += n; d[i + 2] += n; }
+  ctx.putImageData(im, 0, 0);
+  return yer;
+}
+function degerlendir(ctx, yer, sablonlar, sec) {
+  const im = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+  const t0 = performance.now(); const r = Vision.tara(im, sablonlar, sec.vision || {}); const ms = performance.now() - t0;
+  let dogru = 0, yanlis = 0, bos = 0; const hatalar = [];
+  for (const y of yer) {
+    const d = r.tespitler.find(t => Math.hypot(t.x - y.cx, t.y - y.cy) < sec.max * 0.6);
+    if (d) skorlar.push(d.skor);
+    if (!d || !d.harf) { bos++; hatalar.push(y.h + '→' + (d ? '?' + d.aday : '∅')); }
+    else if (d.harf === y.h && d.renk === y.renk) dogru++;
+    else { yanlis++; hatalar.push(y.h + '→' + d.harf); }
+  }
+  return { dogru, yanlis, bos, ms, hatalar, fazla: r.tespitler.length - yer.length };
+}
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d', { willReadFrequently: true });
+const sonuc = {}; const skorlar = [];
+function calistir(ad, sec, sablonlar, tekrar) {
+  let D = 0, Y = 0, B = 0, ms = 0, hat = [];
+  for (let k = 0; k < tekrar; k++) {
+    const harfler = [...H].sort(() => Math.random() - .5);
+    const yer = sahne(ctx, harfler, sec);
+    const s = degerlendir(ctx, yer, sablonlar, sec);
+    D += s.dogru; Y += s.yanlis; B += s.bos; ms += s.ms; hat.push(...s.hatalar);
+  }
+  const top = D + Y + B;
+  const sk = skorlar.splice(0).sort((a, b) => a - b);
+  sonuc[ad] = { enDusukSkor: +(sk[0] || 0).toFixed(2), skor5yuzde: +(sk[Math.floor(sk.length * 0.05)] || 0).toFixed(2), dogruluk: +(D / top).toFixed(3), yanlis: Y, tanimsiz: B, msKare: +(ms / tekrar).toFixed(1), hatalar: hat.slice(0, 30).join(' ') };
+}
+const fontS = Vision.fontSablonlari();
+const temel = { min: 44, max: 62, aci: 25, blur: 0.8, gurultu: 14, mavi: '#2c6fd6', kirmizi: '#d93a3a', font: 'bold {px}px Tahoma, sans-serif' };
+calistir('font_sablon_tahoma', temel, fontS, 4);
+calistir('font_sablon_kucuk_tas_30px', Object.assign({}, temel, { min: 28, max: 34 }), fontS, 4);
+calistir('font_sablon_georgia', Object.assign({}, temel, { font: 'bold {px}px Georgia, serif' }), fontS, 3);
+// Öğrenme simülasyonu: dik konmuş bir sahneden şablon öğren, döndürülmüşlerde test et
+{
+  const harfler = [...H]; const yer = sahne(ctx, harfler, Object.assign({}, temel, { aci: 3, font: 'bold {px}px Georgia, serif' }));
+  const r = Vision.tara(ctx.getImageData(0, 0, cv.width, cv.height), fontS, {});
+  const ogr = [];
+  for (const y of yer) { const d = r.tespitler.find(t => Math.hypot(t.x - y.cx, t.y - y.cy) < 40); if (d && d.ham) ogr.push(Vision.ogrenilmisSablon(y.h, Vision.hamKodla(d.ham))); }
+  calistir('ogrenilmis_georgia', Object.assign({}, temel, { font: 'bold {px}px Georgia, serif' }), fontS.concat(ogr.filter(Boolean)), 3);
+}
+calistir('soluk_renk_golge', Object.assign({}, temel, { mavi: '#4a86c8', kirmizi: '#c8504f', blur: 1.3, gurultu: 22 }), fontS, 3);
+const harfSec = { tasTipi: 'harf', sMin: 0.42, vMin: 0.35, minSkor: 0.74, minFark: 0.025 };
+const osmo = Object.assign({}, temel, { tip: 'harf', zemin: '#d8d2c4', vision: harfSec, font: '600 {px}px Verdana, sans-serif' });
+calistir('OSMO_tipi_verdana', osmo, fontS, 4);
+calistir('OSMO_tipi_tahoma_kucuk', Object.assign({}, osmo, { min: 36, max: 44, font: 'bold {px}px Tahoma, sans-serif' }), fontS, 4);
+calistir('OSMO_tipi_soluk_bulanik', Object.assign({}, osmo, { mavi: '#4a86c8', kirmizi: '#c8504f', blur: 1.3, gurultu: 22 }), fontS, 3);
+calistir('OSMO_tipi_georgia', Object.assign({}, osmo, { font: 'bold {px}px Georgia, serif' }), fontS, 3);
+{
+  const g = Object.assign({}, osmo, { font: 'bold {px}px Georgia, serif' });
+  const yer = sahne(ctx, [...H], Object.assign({}, g, { aci: 3 }));
+  const r = Vision.tara(ctx.getImageData(0, 0, cv.width, cv.height), fontS, harfSec);
+  const ogr = [];
+  for (const y of yer) { const d = r.tespitler.find(t => Math.hypot(t.x - y.cx, t.y - y.cy) < 40); if (d && d.ham) ogr.push(Vision.ogrenilmisSablon(y.h, Vision.hamKodla(d.ham))); }
+  calistir('OSMO_tipi_georgia_OGRENILMIS', g, fontS.concat(ogr.filter(Boolean)), 3);
+}
+document.getElementById('out').textContent = JSON.stringify(sonuc, null, 2);
+window.TEST_SONUC = sonuc;
+</script>
+</body></html>

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#2c6fd6">
+<title>Harf Avcısı</title>
+<link rel="stylesheet" href="style.css?v=8">
+</head>
+<body>
+<video id="video" playsinline muted autoplay></video>
+<div class="konfeti" id="konfeti"></div>
+<div class="kutlama" id="kutlama"></div>
+
+<!-- ANA MENÜ -->
+<section id="menu" class="ekran aktif">
+  <header class="baslik">
+    <h1><span class="t m">H</span><span class="t k">A</span><span class="t m">R</span><span class="t k">F</span> Avcısı</h1>
+    <p>Taşları masaya koy, harfleri bul, kelimeyi tamamla!</p>
+  </header>
+  <div class="secimler">
+    <div class="secim-grup"><span>Oyuncu</span>
+      <button class="cip" data-ayar="oyuncu" data-deger="1">Tek kişi</button>
+      <button class="cip" data-ayar="oyuncu" data-deger="2">Mavi ⚔ Kırmızı</button>
+    </div>
+    <div class="secim-grup"><span>Zorluk</span>
+      <button class="cip" data-ayar="zorluk" data-deger="kolay">Kolay</button>
+      <button class="cip" data-ayar="zorluk" data-deger="orta">Orta</button>
+      <button class="cip" data-ayar="zorluk" data-deger="zor">Zor</button>
+    </div>
+    <div class="secim-grup"><span>Konu</span><select id="kategoriSec"></select></div>
+  </div>
+  <div class="mod-kartlari">
+    <button class="mod" data-mod="kelime"><b>🖼️</b><strong>Kelime Avı</strong><small>Resmi gör, harfleri bul</small></button>
+    <button class="mod" data-mod="ilk"><b>🔤</b><strong>İlk Harf</strong><small>Hangi harfle başlıyor?</small></button>
+    <button class="mod" data-mod="harf"><b>🔎</b><strong>Harf Avı</strong><small>Söylenen harfi bul</small></button>
+  </div>
+  <nav class="alt-menu">
+    <button data-git="ogret">🎓 Taşları öğret</button>
+    <button data-git="kamera">📷 Kamera ayarı</button>
+    <button data-git="ayarlar">⚙️ Ayarlar</button>
+    <a href="harf-taslari.html" target="_blank">🖨️ Türkçe harf taşları yazdır</a>
+  </nav>
+  <p id="kameraDurum" class="durum"></p>
+</section>
+
+<!-- OYUN -->
+<section id="oyun" class="ekran">
+  <div class="ust-cubuk">
+    <button class="geri" data-git="menu" aria-label="Menü">✕</button>
+    <div class="skor mavi" id="skorMavi"><span>Mavi</span><b>0</b></div>
+    <div class="ilerleme" id="ilerleme">1 / 10</div>
+    <div class="skor kirmizi" id="skorKirmizi"><span>Kırmızı</span><b>0</b></div>
+    <div class="canlar" id="canlar"></div>
+  </div>
+  <div class="sahne">
+    <div class="resim" id="resim">🍎</div>
+    <div class="buyuk-harf" id="buyukHarf">A</div>
+    <div class="yuvalar" id="yuvalar"></div>
+    <div class="mesaj" id="mesaj"></div>
+  </div>
+  <div class="alt-cubuk">
+    <div class="yanlislar" id="yanlislar"></div>
+    <canvas class="mini-kamera" id="miniKamera" width="320" height="180" title="Kamera"></canvas>
+    <div class="dugmeler">
+      <button id="muzikBtn" title="Müzik">🎵</button>
+      <button id="dinleBtn" title="Dinle">🔊</button>
+      <button id="ipucuBtn" title="İpucu">💡</button>
+      <button id="klavyeBtn" title="Ekran klavyesi">⌨️</button>
+    </div>
+  </div>
+  <div class="klavye" id="klavye" hidden>
+    <button class="takim-sec" id="takimSec">Mavi</button>
+    <div class="tuslar" id="tuslar"></div>
+  </div>
+</section>
+
+<!-- BİTİŞ -->
+<section id="bitis" class="ekran">
+  <div class="bitis-kart">
+    <div class="kupa">🏆</div>
+    <h2 id="bitisBaslik">Tebrikler!</h2>
+    <p id="bitisMetin"></p>
+    <div class="bitis-dugmeler">
+      <button id="tekrarBtn" class="buyuk">Tekrar oyna</button>
+      <button data-git="menu" class="buyuk ikincil">Menü</button>
+    </div>
+  </div>
+</section>
+
+<!-- ÖĞRET -->
+<section id="ogret" class="ekran">
+  <div class="ust-cubuk"><button class="geri" data-git="menu">✕</button><h2>Taşları öğret</h2></div>
+  <div class="iki-sutun">
+    <div>
+      <div class="ogret-hedef"><span>Şimdi bu taşı tek başına, dik olarak koy:</span><b id="ogretHarf">A</b></div>
+      <p id="ogretMesaj" class="durum buyuk-durum">Taşı koy</p>
+      <p id="ogretTanilan" class="durum"></p>
+      <div class="harf-izgara" id="ogretIzgara"></div>
+      <div class="satir">
+        <button id="ogretSil">Bu harfi sıfırla</button>
+        <button id="ogretHepsiniSil">Tümünü sıfırla</button>
+        <button id="ogretDisa">Dışa aktar</button>
+        <label class="dugme-gibi">İçe aktar<input type="file" id="ogretIce" accept=".json" hidden></label>
+      </div>
+      <p class="not">Her harfi bir kez göstermek yeterli; iki renk de gösterilirse tanıma daha da güçlenir. Öğrenilenler bu cihazda saklanır.</p>
+    </div>
+    <canvas class="buyuk-kamera" id="ogretKamera" width="640" height="360"></canvas>
+  </div>
+</section>
+
+<!-- KAMERA AYARI -->
+<section id="kamera" class="ekran">
+  <div class="ust-cubuk"><button class="geri" data-git="menu">✕</button><h2>Kamera ayarı</h2></div>
+  <div class="iki-sutun">
+    <div class="ayar-liste">
+      <label>Kamera <select id="kameraSec"><option value="">Ön kamera (varsayılan)</option></select></label>
+      <label>Görüntü yönü
+        <select id="cevirSec">
+          <option value="otomatik">Otomatik (önerilen)</option>
+          <option value="yok">Olduğu gibi (web kamerası)</option>
+          <option value="dikey">Dikey çevir (Osmo aynası)</option>
+          <option value="yatay">Yatay çevir</option>
+          <option value="180">180° döndür</option>
+        </select>
+      </label>
+      <label class="onay"><input type="checkbox" id="otoZoomSec"> Otomatik yakınlaştırma (taşların olduğu bölgeyi büyütüp daha iyi okur)</label>
+      <label>Yakınlaştırma (uzaktaki taşlar için) <input type="range" id="zoomSec" min="1" max="3" step="0.1"><output id="zoomDeger"></output></label>
+      <label>Yakınlaştırılan bölge (yukarı ↔ aşağı) <input type="range" id="zoomYSec" min="0" max="100"></label>
+      <label>Taş tipi
+        <select id="tasTipiSec">
+          <option value="harf">Beyaz taş, renkli harf (Osmo)</option>
+          <option value="zemin">Renkli taş, beyaz harf</option>
+        </select>
+      </label>
+      <label>İşlem çözünürlüğü
+        <select id="cozunurlukSec"><option value="480">Hızlı (480)</option><option value="640">Normal (640)</option><option value="960">Hassas (960)</option></select>
+      </label>
+      <label>En küçük harf boyu <input type="range" id="minKenarSec" min="6" max="40"><output id="minKenarDeger"></output></label>
+      <label>Renk hassasiyeti <input type="range" id="sMinSec" min="15" max="70"><output id="sMinDeger"></output></label>
+      <label class="onay"><input type="checkbox" id="maskeGoster"> Renk maskesini göster</label>
+      <div class="ornekle">
+        <span>Renk öğret: düğmeye bas, sonra görüntüde o renkteki bir harfe dokun</span>
+        <button id="ornekMavi" class="mavi-btn">Mavi taş</button>
+        <button id="ornekKirmizi" class="kirmizi-btn">Kırmızı taş</button>
+        <button id="renkSifirla">Varsayılan</button>
+      </div>
+      <p id="kameraBilgi" class="durum"></p>
+    </div>
+    <canvas class="buyuk-kamera" id="ayarKamera" width="640" height="360"></canvas>
+  </div>
+</section>
+
+<!-- AYARLAR -->
+<section id="ayarlar" class="ekran">
+  <div class="ust-cubuk"><button class="geri" data-git="menu">✕</button><h2>Ayarlar</h2></div>
+  <div class="ayar-liste genis">
+    <label>Turdaki soru sayısı <select id="turSec"><option>5</option><option>10</option><option>15</option><option>20</option></select></label>
+    <label>Kelime başına balon (hak) <select id="canSec"><option>3</option><option>5</option><option>7</option><option value="99">Sınırsız</option></select></label>
+    <label class="onay"><input type="checkbox" id="osmoSec"> Yalnızca orijinal Osmo taşlarıyla yazılabilen kelimeler (Ç Ğ İ Ö Ş Ü içermeyen)</label>
+    <label class="onay"><input type="checkbox" id="konusmaSec"> Sesli okuma (Türkçe ses)</label>
+    <label class="onay"><input type="checkbox" id="sesSec"> Ses efektleri</label>
+    <label class="onay"><input type="checkbox" id="muzikSec"> Arka plan müziği</label>
+    <label class="onay"><input type="checkbox" id="miniSec"> Oyunda küçük kamera görüntüsünü göster</label>
+    <label>Kendi kelimelerim <small>(her satıra: KELİME emoji — örn. <code>OKUL 🏫</code>)</small>
+      <textarea id="ozelKelimeler" rows="6" placeholder="OKUL 🏫&#10;ANNE 👩&#10;BABA 👨"></textarea>
+    </label>
+    <p class="not">Kendi kelimeleriniz "Konu: Kendi kelimelerim" seçilince kullanılır.</p>
+  </div>
+</section>
+
+<script src="js/kelimeler.js?v=8"></script>
+<script src="js/vision.js?v=8"></script>
+<script src="js/oyun.js?v=8"></script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Türkçe Harf Taşları</title>
+<style>
+  :root { --mavi: #2a72dc; --kirmizi: #e5332d; --boy: 3cm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", -apple-system, system-ui, sans-serif; background: #f3efe6; color: #222; }
+  .panel { max-width: 900px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  h1 { margin: 0; }
+  .panel label { font-weight: 700; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .panel input[type=text] { font: inherit; padding: 6px 10px; border-radius: 8px; border: 2px solid #ddd; min-width: 280px; }
+  .panel button { font: inherit; font-weight: 700; padding: 10px 18px; border-radius: 12px; border: 0; background: #2fb86b; color: #fff; cursor: pointer; }
+  .not { color: #555; margin: 0; }
+  .sayfa { background: #fff; max-width: 21cm; margin: 0 auto 24px; padding: 1cm; display: flex; flex-wrap: wrap; gap: 0; }
+  .tas { width: var(--boy); height: var(--boy); padding: 1.5mm; border: 0.2mm dashed #bbb; }
+  .tas div { width: 100%; height: 100%; border-radius: 12%; display: flex; align-items: center; justify-content: center;
+             background: #fff; border: 0.3mm solid #ddd; font-weight: 600; font-size: calc(var(--boy) * 0.52); line-height: 1;
+             padding-top: calc(var(--boy) * 0.03); font-family: Verdana, Tahoma, "Segoe UI", sans-serif;
+             -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .mavi div { color: var(--mavi); } .kirmizi div { color: var(--kirmizi); }
+  @media print { body { background: #fff; } .panel { display: none; } .sayfa { margin: 0; padding: 0; max-width: none; } @page { margin: 1cm; } }
+  @media (prefers-color-scheme: dark) { body:not(.x) { background: #1d1f2b; color: #eee; } .panel input[type=text] { background: #2a2d3d; color: #eee; border-color: #444; } .not { color: #bbb; } }
+</style>
+</head>
+<body>
+<div class="panel">
+  <h1>Türkçe harf taşları</h1>
+  <p class="not">Osmo kutusunda olmayan Türkçe harfleri (Ç Ğ İ Ö Ş Ü) basın, kartona yapıştırıp kesin. İsterseniz tüm alfabeyi de basabilirsiniz. Taşlar Osmo'daki gibi beyaz zemin üstünde mavi/kırmızı harf olarak basılır. Kalın, beyaz bir karton (ör. 250 g) en iyi sonucu verir. Bastıktan sonra oyundaki "Taşları öğret" ekranında bu harfleri bir kez gösterin.</p>
+  <label>Harfler <input type="text" id="harfler" value="ÇĞİÖŞÜ"></label>
+  <label>Hazır seçim
+    <button type="button" data-set="ÇĞİÖŞÜ">Yalnız Türkçe harfler</button>
+    <button type="button" data-set="ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ">Tüm alfabe</button>
+  </label>
+  <label>Renk
+    <select id="renk"><option value="ikisi">Mavi ve kırmızı</option><option value="mavi">Yalnız mavi</option><option value="kirmizi">Yalnız kırmızı</option></select>
+  </label>
+  <label>Her harften <select id="adet"><option>1</option><option selected>2</option><option>3</option></select> adet</label>
+  <label>Taş boyu <input type="range" id="boy" min="2" max="5" step="0.1" value="3"> <output id="boyDeger">3 cm</output>
+    <small>(Osmo taşınızı cetvelle ölçüp aynı boyu seçin)</small></label>
+  <button id="yazdir">🖨️ Yazdır</button>
+</div>
+<div class="sayfa" id="sayfa"></div>
+<script>
+  const $ = s => document.querySelector(s);
+  function ciz() {
+    const harfler = [...$('#harfler').value.toLocaleUpperCase('tr-TR').replace(/\s/g, '')];
+    const renkler = $('#renk').value === 'ikisi' ? ['mavi', 'kirmizi'] : [$('#renk').value];
+    const adet = +$('#adet').value, sayfa = $('#sayfa');
+    sayfa.innerHTML = '';
+    for (const r of renkler) for (const h of harfler) for (let i = 0; i < adet; i++) {
+      const t = document.createElement('div'); t.className = 'tas ' + r;
+      const d = document.createElement('div'); d.textContent = h; t.appendChild(d); sayfa.appendChild(t);
+    }
+  }
+  $('#boy').addEventListener('input', e => { document.documentElement.style.setProperty('--boy', e.target.value + 'cm'); $('#boyDeger').textContent = e.target.value + ' cm'; });
+  ['#harfler', '#renk', '#adet'].forEach(s => $(s).addEventListener('input', ciz));
+  document.querySelectorAll('[data-set]').forEach(b => b.addEventListener('click', () => { $('#harfler').value = b.dataset.set; ciz(); }));
+  $('#yazdir').addEventListener('click', () => window.print());
+  ciz();
+</script>
+</body>
+</html>

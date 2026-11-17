@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fallback icon for Android 7.x (no adaptive icons) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#1F6F5C"
+        android:pathData="M54,6a48,48 0 1 1 0,96a48,48 0 1 1 0,-96z"/>
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M38,30h32a4,4 0 0 1 4,4v40a4,4 0 0 1 -4,4h-32a4,4 0 0 1 -4,-4v-40a4,4 0 0 1 4,-4z"/>
+    <path android:fillColor="#1F6F5C" android:pathData="M42,44h24v3h-24z"/>
+    <path android:fillColor="#1F6F5C" android:pathData="M42,52h24v3h-24z"/>
+    <path android:fillColor="#1F6F5C" android:pathData="M42,60h16v3h-16z"/>
+    <path android:fillColor="#F0B259" android:pathData="M60,30h8v14l-4,-3l-4,3z"/>
+</vector>

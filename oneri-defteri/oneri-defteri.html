@@ -1,0 +1,367 @@
+<title>Öneri Defteri</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&display=swap">
+<style>
+/* Layout: tek sütun defter — üstte özet şeridi, araç çubuğu, altında öneri satırları; düzenleme sağdan açılan panel */
+:root {
+  --bg: #f5f7f6;
+  --surface: #ffffff;
+  --fg: #1b2422;
+  --muted: #5d6b67;
+  --line: #dbe2df;
+  --accent: #1f6f5c;
+  --accent-soft: #e2f0eb;
+  --warn: #a35c00;
+  --warn-soft: #fbefdc;
+  --crit: #b3261e;
+  --crit-soft: #fbe4e2;
+  --ok: #2c7a3f;
+  --shade: rgba(20, 30, 28, .38);
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121816; --surface: #1a2220; --fg: #e4ece9; --muted: #95a59f; --line: #2b3633;
+  --accent: #5cc4a6; --accent-soft: #1d3530; --warn: #f0b259; --warn-soft: #3a2c16;
+  --crit: #f28b82; --crit-soft: #3d1f1d; --ok: #7fd18f; --shade: rgba(0,0,0,.55); color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121816; --surface: #1a2220; --fg: #e4ece9; --muted: #95a59f; --line: #2b3633;
+  --accent: #5cc4a6; --accent-soft: #1d3530; --warn: #f0b259; --warn-soft: #3a2c16;
+  --crit: #f28b82; --crit-soft: #3d1f1d; --ok: #7fd18f; --shade: rgba(0,0,0,.55); color-scheme: dark }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 15px; line-height: 1.5; }
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 28px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 20px; }
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+h1 { font-family: var(--f-display); font-size: 2rem; margin: 0; letter-spacing: -.01em; text-wrap: balance; }
+.sub { color: var(--muted); margin: 2px 0 0; }
+button, input, select, textarea { font: inherit; color: inherit; }
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 600; }
+.btn.danger { color: var(--crit); }
+.btn.danger.armed { background: var(--crit); border-color: var(--crit); color: var(--surface); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; text-align: left; }
+.stat[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.stat b { display: block; font-family: var(--f-display); font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.stat span { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tools input[type=search] { flex: 1 1 240px; min-width: 0; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.tools select { padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: none; padding: 8px 12px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+.note { padding: 10px 14px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); }
+.list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.row { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 14px 16px; border-top: 1px solid var(--line); cursor: pointer; text-align: left; background: none; border-left: 0; border-right: 0; border-bottom: 0; width: 100%; }
+.row:first-child { border-top: 0; }
+.row:hover { background: var(--accent-soft); }
+.row .t { font-weight: 600; font-size: 1.02rem; min-width: 0; overflow-wrap: anywhere; }
+.row .meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: var(--muted); font-size: .85rem; }
+.row .s { color: var(--muted); font-size: .9rem; grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pill { font-size: .75rem; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); white-space: nowrap; }
+.pill.kind { background: var(--accent-soft); color: var(--accent); border-color: transparent; font-weight: 600; }
+.pill.st-aktif { color: var(--accent); border-color: var(--accent); }
+.pill.st-bitti { color: var(--ok); border-color: var(--ok); }
+.pill.st-raf { opacity: .7; }
+.due { font-family: var(--f-mono); font-size: .8rem; white-space: nowrap; }
+.due.soon { color: var(--warn); } .due.late { color: var(--crit); }
+.tag { font-family: var(--f-mono); font-size: .78rem; }
+.empty { padding: 36px 20px; text-align: center; color: var(--muted); display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.empty h2 { font-family: var(--f-display); color: var(--fg); margin: 0; font-size: 1.2rem; }
+
+/* panel */
+.shade { position: fixed; inset: 0; background: var(--shade); z-index: 20; }
+.panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100%); background: var(--surface); z-index: 21;
+  border-left: 1px solid var(--line); display: flex; flex-direction: column;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); padding-right: env(safe-area-inset-right, 0px); }
+.panel-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--line); gap: 8px; }
+.panel-head h2 { margin: 0; font-family: var(--f-display); font-size: 1.25rem; }
+.panel-body { overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; flex: 1; }
+.panel-foot { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; padding: 12px 20px; border-top: 1px solid var(--line); }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.field input, .field select, .field textarea { padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); width: 100%; }
+.field textarea { resize: vertical; min-height: 84px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 480px) { .two { grid-template-columns: 1fr; } }
+.log { display: flex; flex-direction: column; gap: 8px; }
+.log-item { border-left: 2px solid var(--accent); padding: 2px 0 2px 10px; font-size: .9rem; overflow-wrap: anywhere; }
+.log-item time { font-family: var(--f-mono); font-size: .75rem; color: var(--muted); display: block; }
+.log-add { display: flex; gap: 8px; }
+.log-add input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.stamp { font-family: var(--f-mono); font-size: .75rem; color: var(--muted); }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 8px 16px; border-radius: 8px; z-index: 30; }
+@media (prefers-reduced-motion: no-preference) { .panel { animation: slide .18s ease-out; } @keyframes slide { from { transform: translateX(24px); opacity: .6; } } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Öneri Defteri</h1>
+      <p class="sub">Çalışma ve proje önerilerini kaydet, güncelle, ara.</p>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" id="exportBtn" hidden>Yedek indir (JSON)</button>
+      <button class="btn primary" id="newBtn">+ Yeni öneri</button>
+    </div>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="tools">
+    <input type="search" id="q" placeholder="Başlık, özet, not, etiket, ortak içinde ara…" aria-label="Ara">
+    <div class="seg" id="kindSeg" role="group" aria-label="Tür">
+      <button data-k="" aria-pressed="true">Tümü</button>
+      <button data-k="Çalışma" aria-pressed="false">Çalışma</button>
+      <button data-k="Proje" aria-pressed="false">Proje</button>
+    </div>
+    <select id="sort" aria-label="Sıralama">
+      <option value="upd">Son güncellenen</option>
+      <option value="due">Son tarihi yakın</option>
+      <option value="new">Yeni eklenen</option>
+      <option value="pri">Önceliğe göre</option>
+      <option value="az">Başlık A–Z</option>
+    </select>
+  </div>
+
+  <div class="note" id="note" hidden></div>
+  <div class="list" id="list">
+    <div class="empty"><h2>Öneriler yükleniyor…</h2></div>
+  </div>
+</div>
+
+<div id="panelRoot"></div>
+
+<script>
+const STATUSES = ["Fikir", "Taslak", "Başvuruldu", "Devam ediyor", "Tamamlandı", "Rafa kaldırıldı"];
+const ST_CLASS = { "Devam ediyor": "st-aktif", "Başvuruldu": "st-aktif", "Tamamlandı": "st-bitti", "Rafa kaldırıldı": "st-raf" };
+const PRI = ["Yüksek", "Orta", "Düşük"];
+const COL = "oneriler";
+
+let db = null, items = [], loaded = false, readOnly = false;
+const ui = { q: "", kind: "", status: "", sort: "upd" };
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const today = () => new Date().toISOString().slice(0, 10);
+const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "numeric" }) : "";
+const fmtDT = (iso) => iso ? new Date(iso).toLocaleString("tr-TR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+const norm = (s) => String(s ?? "").toLocaleLowerCase("tr-TR");
+
+function toast(msg) {
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2200);
+}
+function showNote(msg) { const n = $("#note"); n.textContent = msg || ""; n.hidden = !msg; }
+
+function dueInfo(d, status) {
+  if (!d || status === "Tamamlandı" || status === "Rafa kaldırıldı") return null;
+  const days = Math.round((new Date(d + "T00:00:00") - new Date(today() + "T00:00:00")) / 864e5);
+  if (days < 0) return { cls: "late", txt: `${-days} gün geçti` };
+  if (days === 0) return { cls: "late", txt: "bugün son gün" };
+  return { cls: days <= 14 ? "soon" : "", txt: `${days} gün kaldı` };
+}
+
+function filtered() {
+  const q = norm(ui.q).trim();
+  let out = items.filter(it => {
+    if (ui.kind && it.tur !== ui.kind) return false;
+    if (ui.status && it.durum !== ui.status) return false;
+    if (!q) return true;
+    const hay = norm([it.baslik, it.ozet, it.notlar, (it.etiketler || []).join(" "), it.ortaklar, it.fon, it.durum, it.tur,
+      (it.gecmis || []).map(g => g.metin).join(" ")].join(" "));
+    return q.split(/\s+/).every(w => hay.includes(w));
+  });
+  const by = {
+    upd: (a, b) => (b.guncelleme || "").localeCompare(a.guncelleme || ""),
+    new: (a, b) => (b.olusturma || "").localeCompare(a.olusturma || ""),
+    az: (a, b) => (a.baslik || "").localeCompare(b.baslik || "", "tr"),
+    pri: (a, b) => PRI.indexOf(a.oncelik || "Orta") - PRI.indexOf(b.oncelik || "Orta"),
+    due: (a, b) => (a.sonTarih || "9999").localeCompare(b.sonTarih || "9999"),
+  };
+  return out.sort(by[ui.sort]);
+}
+
+function renderStats() {
+  const counts = Object.fromEntries(STATUSES.map(s => [s, 0]));
+  items.forEach(it => { if (counts[it.durum] != null) counts[it.durum]++; });
+  const cells = [["", "Tümü", items.length], ...STATUSES.map(s => [s, s, counts[s]])];
+  $("#stats").innerHTML = cells.map(([v, l, n]) =>
+    `<button class="stat" data-s="${esc(v)}" aria-pressed="${ui.status === v}"><b>${n}</b><span>${esc(l)}</span></button>`).join("");
+}
+
+function renderList() {
+  const list = $("#list");
+  if (!loaded) return;
+  if (!items.length) {
+    list.innerHTML = `<div class="empty"><h2>Henüz öneri yok</h2>
+      <p>Aklına gelen ilk çalışma ya da proje fikrini ekle. Başlık yeterli, gerisini sonra doldurursun.</p>
+      ${readOnly ? "" : '<button class="btn primary" data-act="new">+ İlk öneriyi ekle</button>'}</div>`;
+    return;
+  }
+  const rows = filtered();
+  if (!rows.length) { list.innerHTML = `<div class="empty"><h2>Eşleşen öneri yok</h2><p>Aramayı veya filtreleri değiştir.</p></div>`; return; }
+  list.innerHTML = rows.map(it => {
+    const d = dueInfo(it.sonTarih, it.durum);
+    return `<button class="row" data-id="${esc(it.id)}">
+      <span class="t">${esc(it.baslik || "(başlıksız)")}</span>
+      ${d ? `<span class="due ${d.cls}">${esc(fmtDate(it.sonTarih))} · ${d.txt}</span>` : `<span class="stamp">${esc(fmtDate(it.guncelleme))}</span>`}
+      ${it.ozet ? `<span class="s">${esc(it.ozet)}</span>` : ""}
+      <span class="meta">
+        <span class="pill kind">${esc(it.tur || "Çalışma")}</span>
+        <span class="pill ${ST_CLASS[it.durum] || ""}">${esc(it.durum || "Fikir")}</span>
+        ${it.oncelik === "Yüksek" ? '<span class="pill" style="color:var(--crit);border-color:var(--crit)">Öncelik: yüksek</span>' : ""}
+        ${it.fon ? `<span>${esc(it.fon)}</span>` : ""}
+        ${(it.etiketler || []).map(t => `<span class="tag">#${esc(t)}</span>`).join(" ")}
+      </span></button>`;
+  }).join("");
+}
+function render() { renderStats(); renderList(); }
+
+/* ---------- Panel ---------- */
+let editing = null;
+function openPanel(it) {
+  editing = it ? structuredClone(it) : { tur: ui.kind || "Çalışma", durum: "Fikir", oncelik: "Orta", etiketler: [], gecmis: [] };
+  const isNew = !it;
+  const opt = (arr, v) => arr.map(x => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("");
+  $("#panelRoot").innerHTML = `
+    <div class="shade" data-act="close"></div>
+    <aside class="panel" role="dialog" aria-modal="true" aria-labelledby="pTitle">
+      <div class="panel-head"><h2 id="pTitle">${isNew ? "Yeni öneri" : "Öneriyi düzenle"}</h2>
+        <button class="btn" data-act="close" aria-label="Kapat">Kapat</button></div>
+      <form class="panel-body" id="form">
+        <div class="field"><label for="f-baslik">Başlık</label><input id="f-baslik" required value="${esc(editing.baslik)}" placeholder="Örn. Ekran okuma davranışında göz izleme ile dikkat analizi"></div>
+        <div class="two">
+          <div class="field"><label for="f-tur">Tür</label><select id="f-tur">${opt(["Çalışma", "Proje"], editing.tur)}</select></div>
+          <div class="field"><label for="f-durum">Durum</label><select id="f-durum">${opt(STATUSES, editing.durum)}</select></div>
+          <div class="field"><label for="f-oncelik">Öncelik</label><select id="f-oncelik">${opt(PRI, editing.oncelik)}</select></div>
+          <div class="field"><label for="f-son">Son tarih / başvuru</label><input id="f-son" type="date" value="${esc(editing.sonTarih)}"></div>
+        </div>
+        <div class="field"><label for="f-ozet">Özet / amaç</label><textarea id="f-ozet" placeholder="Araştırma sorusu, amaç, yöntem…">${esc(editing.ozet)}</textarea></div>
+        <div class="two">
+          <div class="field"><label for="f-fon">Destek / çağrı</label><input id="f-fon" value="${esc(editing.fon)}" placeholder="TÜBİTAK 1001, BAP, AB…"></div>
+          <div class="field"><label for="f-ortak">Ortaklar / ekip</label><input id="f-ortak" value="${esc(editing.ortaklar)}" placeholder="İsimler, kurumlar"></div>
+        </div>
+        <div class="field"><label for="f-etiket">Etiketler (virgülle)</label><input id="f-etiket" value="${esc((editing.etiketler || []).join(", "))}" placeholder="göz izleme, eğitim, yapay zeka"></div>
+        <div class="field"><label for="f-not">Notlar</label><textarea id="f-not" placeholder="Kaynaklar, fikirler, yapılacaklar…">${esc(editing.notlar)}</textarea></div>
+        <div class="field"><label for="f-log">Güncelleme günlüğü</label>
+          <div class="log-add"><input id="f-log" placeholder="Bugün ne değişti? (Enter ile ekle)"><button type="button" class="btn" data-act="log">Ekle</button></div>
+          <div class="log" id="logList"></div></div>
+        ${isNew ? "" : `<p class="stamp">Eklendi: ${esc(fmtDT(editing.olusturma))} · Son güncelleme: ${esc(fmtDT(editing.guncelleme))}</p>`}
+      </form>
+      <div class="panel-foot">
+        <div>${isNew || readOnly ? "" : '<button class="btn danger" data-act="del" id="delBtn">Sil</button>'}</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" data-act="close">Vazgeç</button>
+          ${readOnly ? "" : '<button class="btn primary" data-act="save" id="saveBtn">Kaydet</button>'}
+        </div>
+      </div>
+    </aside>`;
+  renderLog();
+  $("#f-baslik").focus();
+  $("#form").addEventListener("submit", e => { e.preventDefault(); save(); });
+  $("#f-log").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addLog(); } });
+}
+function renderLog() {
+  const g = (editing.gecmis || []).slice().sort((a, b) => b.tarih.localeCompare(a.tarih));
+  $("#logList").innerHTML = g.length ? g.map(x => `<div class="log-item"><time>${esc(fmtDT(x.tarih))}</time>${esc(x.metin)}</div>`).join("")
+    : '<span class="stamp">Henüz kayıt yok.</span>';
+}
+function addLog() {
+  const inp = $("#f-log"); const v = inp.value.trim(); if (!v) return;
+  editing.gecmis = [...(editing.gecmis || []), { tarih: new Date().toISOString(), metin: v }];
+  inp.value = ""; renderLog();
+}
+function closePanel() { $("#panelRoot").innerHTML = ""; editing = null; }
+
+async function save() {
+  if (!db || readOnly) return;
+  const pending = $("#f-log").value.trim(); if (pending) addLog();
+  const baslik = $("#f-baslik").value.trim();
+  if (!baslik) { $("#f-baslik").focus(); toast("Başlık gerekli"); return; }
+  const now = new Date().toISOString();
+  const prevStatus = editing.durum;
+  const body = {
+    baslik, tur: $("#f-tur").value, durum: $("#f-durum").value, oncelik: $("#f-oncelik").value,
+    sonTarih: $("#f-son").value || "", ozet: $("#f-ozet").value.trim(), fon: $("#f-fon").value.trim(),
+    ortaklar: $("#f-ortak").value.trim(), notlar: $("#f-not").value.trim(),
+    etiketler: $("#f-etiket").value.split(",").map(s => s.trim()).filter(Boolean),
+    gecmis: editing.gecmis || [], olusturma: editing.olusturma || now, guncelleme: now,
+  };
+  if (editing.id && prevStatus !== body.durum) body.gecmis = [...body.gecmis, { tarih: now, metin: `Durum: ${prevStatus} → ${body.durum}` }];
+  const btn = $("#saveBtn"); btn.disabled = true; btn.textContent = "Kaydediliyor…";
+  try {
+    const ref = editing.id ? db.collection(COL).doc(editing.id) : db.collection(COL).doc();
+    await ref.set(body);
+    closePanel(); toast("Kaydedildi");
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "Kaydet";
+    toast(e?.code === "quota_exceeded" ? "Depolama dolu: bazı eski önerileri sil." : "Kaydedilemedi, tekrar dene.");
+    if (e?.code === "invalid_argument" && !editing.id) { readOnly = true; showNote("Bu görünümde kayıt yapma yetkin yok."); }
+  }
+}
+async function del() {
+  const b = $("#delBtn");
+  if (!b.classList.contains("armed")) { b.classList.add("armed"); b.textContent = "Kalıcı olarak sil?"; setTimeout(() => { if (b.isConnected) { b.classList.remove("armed"); b.textContent = "Sil"; } }, 4000); return; }
+  try { await db.collection(COL).doc(editing.id).delete(); closePanel(); toast("Silindi"); }
+  catch { toast("Silinemedi, tekrar dene."); }
+}
+
+/* ---------- Events ---------- */
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-act],[data-id],[data-s],[data-k]");
+  if (!t) return;
+  if (t.dataset.id) { const it = items.find(x => x.id === t.dataset.id); if (it) openPanel(it); return; }
+  if (t.dataset.s !== undefined && t.classList.contains("stat")) { ui.status = ui.status === t.dataset.s ? "" : t.dataset.s; render(); return; }
+  if (t.dataset.k !== undefined && t.closest("#kindSeg")) {
+    ui.kind = t.dataset.k; document.querySelectorAll("#kindSeg button").forEach(b => b.setAttribute("aria-pressed", b === t)); renderList(); return; }
+  const a = t.dataset.act;
+  if (a === "close") closePanel(); else if (a === "save") save(); else if (a === "del") del();
+  else if (a === "log") addLog(); else if (a === "new" && !readOnly) openPanel(null);
+});
+$("#newBtn").addEventListener("click", () => { if (!readOnly) openPanel(null); });
+$("#q").addEventListener("input", e => { ui.q = e.target.value; renderList(); });
+$("#sort").addEventListener("change", e => { ui.sort = e.target.value; renderList(); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && editing) closePanel();
+  if (e.key === "/" && !editing && document.activeElement.tagName !== "INPUT" && document.activeElement.tagName !== "TEXTAREA") { e.preventDefault(); $("#q").focus(); }
+});
+try { const s = localStorage.getItem("oneri-sort"); if (s) { ui.sort = s; $("#sort").value = s; } } catch {}
+$("#sort").addEventListener("change", e => { try { localStorage.setItem("oneri-sort", e.target.value); } catch {} });
+
+/* ---------- Data ---------- */
+(async () => {
+  renderStats();
+  db = await window.claude?.use?.("db");
+  if (!db) { loaded = true; readOnly = true; $("#newBtn").hidden = true;
+    showNote("Veri deposuna ulaşılamadı. Sayfayı claude.ai'da oturum açıkken aç."); items = []; render(); return; }
+  const user = await window.claude.use("user");
+  if (user && (await user.can("data.write")) === false) { readOnly = true; $("#newBtn").hidden = true; }
+  const timer = setTimeout(() => showNote("Veriler henüz gelmedi; bağlantı yavaş olabilir."), 10000);
+  db.collection(COL).onSnapshot(snap => {
+    items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    loaded = true;
+    if (!snap.metadata.fromCache) { clearTimeout(timer); showNote(""); }
+    render();
+  }, err => { clearTimeout(timer); loaded = true; showNote("Veriler okunamadı (" + err.code + "). Sayfayı yeniden açmayı dene."); render(); });
+
+  const dl = await window.claude.use("downloads");
+  if (dl) {
+    const b = $("#exportBtn"); b.hidden = false;
+    b.addEventListener("click", async () => {
+      try { await dl.save({ filename: `oneri-defteri-${today()}.json`, data: JSON.stringify(items, null, 2) }); }
+      catch { toast("İndirme iptal edildi."); }
+    });
+  }
+})();
+</script>

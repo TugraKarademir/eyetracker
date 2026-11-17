@@ -1,0 +1,8 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {"name": "bateri-nota", "runtimeExecutable": "bateri-nota/.venv/Scripts/python.exe", "runtimeArgs": ["bateri-nota/app.py"], "port": 8765},
+    {"name": "gitar-nota", "runtimeExecutable": "gitar-nota/.venv/Scripts/python.exe", "runtimeArgs": ["gitar-nota/app.py"], "port": 8766},
+    {"name": "harf-avcisi", "runtimeExecutable": "py", "runtimeArgs": ["-m", "http.server", "8767", "--directory", "osmo-turkce"], "port": 8767}
+  ]
+}
