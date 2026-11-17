@@ -175,6 +175,9 @@ class GazeSample(models.Model):
     x_norm = models.FloatField("x (normalize)", null=True, blank=True)
     y_norm = models.FloatField("y (normalize)", null=True, blank=True)
     in_material = models.BooleanField("Materyal icinde", default=False)
+    # Iki kamera (Faz 12): ayni ornekte dort tahminci {a,b,late,early: [x_norm,y_norm]|null},
+    # kayma duzeltmesiz; esli dogruluk karsilastirmasi icin. Tek kamerada bos.
+    alt = models.JSONField("Alternatif tahminler", null=True, blank=True)
 
     class Meta:
         verbose_name = "Bakis ornegi"

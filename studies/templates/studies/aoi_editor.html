@@ -37,8 +37,19 @@
 
     <div class="wrap">
         <div class="canvas-box">
+            {% if material.is_video %}
+            <video id="mat" muted playsinline preload="auto"></video>
+            {% else %}
             <img id="mat" src="{{ material.src }}" alt="materyal">
+            {% endif %}
             <canvas id="overlay"></canvas>
+            {% if material.is_video %}
+            <div style="line-height:normal; padding:.5rem; display:flex; gap:.5rem; align-items:center; font-size:.85rem">
+                <span>Kare:</span>
+                <input type="range" id="seek" min="0" max="1000" value="0" style="flex:1">
+                <span id="seek-time">0.0 sn</span>
+            </div>
+            {% endif %}
         </div>
 
         <div class="panel">
@@ -71,6 +82,7 @@
                 <strong>Dikdörtgen:</strong> sürükleyerek çiz.<br>
                 <strong>Çokgen:</strong> köşelere tıkla, "Tamamla" ile kapat.<br>
                 Önce ad ve renk seç, sonra çiz. Koordinatlar 0–1 normalize saklanır.
+                {% if material.is_video %}<br><strong>Video:</strong> kaydırıcıyla kare seç; AOI'ler tüm video boyunca sabittir.{% endif %}
             </p>
         </div>
     </div>
@@ -79,6 +91,6 @@
     {{ material|json_script:"material-data" }}
     {{ aois_json|json_script:"aois-data" }}
     <script>window.SAVE_URL = "{{ save_url }}";</script>
-    <script src="{% static 'studies/js/aoi_editor.js' %}"></script>
+    <script src="{% static 'studies/js/aoi_editor.js' %}?v=11b"></script>
 </body>
 </html>

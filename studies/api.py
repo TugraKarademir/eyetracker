@@ -54,6 +54,21 @@ def session_start(request):
     return JsonResponse({"session_id": session.id, "participant_code": session.participant_code})
 
 
+def _clean_alt(alt):
+    """Iki kamera alternatif tahminleri: yalniz bilinen anahtarlar ve [x, y] sayilar."""
+    if not isinstance(alt, dict):
+        return None
+    out = {}
+    for k in ("a", "b", "late", "early"):
+        v = alt.get(k)
+        if isinstance(v, (list, tuple)) and len(v) == 2:
+            x, y = _as_float(v[0]), _as_float(v[1])
+            out[k] = [x, y] if x is not None and y is not None else None
+        else:
+            out[k] = None
+    return out
+
+
 @require_POST
 def session_data(request, session_id):
     """Oturumun kalibrasyon sonuclarini ve bakis orneklerini toplu kaydeder."""
@@ -107,6 +122,7 @@ def session_data(request, session_id):
                 x_norm=_as_float(s.get("x_norm")),
                 y_norm=_as_float(s.get("y_norm")),
                 in_material=bool(s.get("in_material")),
+                alt=_clean_alt(s.get("alt")),
             )
         )
 
@@ -223,13 +239,24 @@ def aoi_save(request, material_id):
             "shape": shape,
             "coords": a.get("coords") or {},
             "color": (a.get("color") or "#e53935")[:9],
+            "is_relevant": a.get("is_relevant", True) is not False,
         })
+
+    # Video materyalde ozgun boyut yuklemede bilinmez; editor videodan okuyup gonderir
+    if not material.natural_width or not material.natural_height:
+        try:
+            nw, nh = int(data.get("natural_width") or 0), int(data.get("natural_height") or 0)
+        except (TypeError, ValueError):
+            nw = nh = 0
+        if nw > 0 and nh > 0:
+            material.natural_width, material.natural_height = nw, nh
+            material.save(update_fields=["natural_width", "natural_height"])
 
     with transaction.atomic():
         material.aois.all().delete()
         AOI.objects.bulk_create([
             AOI(material=material, name=c["name"], shape=c["shape"],
-                coords=c["coords"], color=c["color"])
+                coords=c["coords"], color=c["color"], is_relevant=c["is_relevant"])
             for c in cleaned
         ])
 

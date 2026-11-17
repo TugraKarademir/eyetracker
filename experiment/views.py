@@ -150,6 +150,8 @@ def run_study(request, code):
             "max_calibration_attempts": int(settings.get("max_calibration_attempts", 3)),
             # Varsayilan tek iris motoru; ayarlarda {"ensemble": true} ile acilir
             "ensemble": bool(settings.get("ensemble", False)),
+            # Faz 12: iki kamera (ust+alt) fuzyonu; {"dual_camera": true}
+            "dual_camera": bool(settings.get("dual_camera", False)),
             # Sira sunucu tarafinda belirlendi; istemci materials_json'u OLDUGU GIBI
             # kullanir (yeniden karistirmaz).
             "order_scheme": scheme,

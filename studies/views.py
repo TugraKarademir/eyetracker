@@ -31,13 +31,15 @@ def aoi_editor(request, material_id):
         return redirect("studies:dashboard")
 
     aois = [
-        {"id": a.id, "name": a.name, "shape": a.shape, "coords": a.coords, "color": a.color}
+        {"id": a.id, "name": a.name, "shape": a.shape, "coords": a.coords, "color": a.color,
+         "is_relevant": a.is_relevant}
         for a in material.aois.all()
     ]
     context = {
         "material": {
             "id": material.id,
-            "src": material.image.url,
+            "src": material.image.url if material.image else (material.video.url if material.video else ""),
+            "is_video": not material.image and bool(material.video),
             "natural_width": material.natural_width,
             "natural_height": material.natural_height,
             "study_name": material.study.name,

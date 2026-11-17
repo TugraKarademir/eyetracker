@@ -476,3 +476,73 @@ class PresentationOrderTests(TestCase):
                                       x_norm=0.2, y_norm=0.5, in_material=True)
         r = run_study_analysis(study)
         self.assertEqual(r["rq2"][0]["presentation_order"], 3)
+
+
+class DualCameraTests(TestCase):
+    """Faz 12: iki kamera — alt tahminlerin kaydi, runner bayragi, esli dogruluk raporu."""
+
+    def setUp(self):
+        self.teacher = User.objects.create_user("ogretmen", password="x")
+
+    def _post(self, url, body):
+        return self.client.post(url, data=json.dumps(body), content_type="application/json")
+
+    @override_settings(MEDIA_ROOT=MEDIA)
+    def test_alt_kaydedilir_ve_temizlenir(self):
+        study = Study.objects.create(name="D", teacher=self.teacher, status=Study.Status.ACTIVE)
+        m = Material.objects.create(study=study, order=1, image=_upload())
+        se = Session.objects.create(study=study, participant_code="d1")
+        alt = {"a": [0.1, 0.2], "b": None, "late": [0.3, "x"], "early": [0.4, 0.5], "kotu": [1, 1]}
+        r = self._post(reverse("studies:session_data", args=[se.id]), {"samples": [
+            {"material_id": m.id, "t": 1, "x_px": 1, "y_px": 1, "x_norm": 0.4, "y_norm": 0.5,
+             "in_material": True, "alt": alt},
+            {"material_id": m.id, "t": 2, "x_px": 1, "y_px": 1, "x_norm": 0.4, "y_norm": 0.5,
+             "in_material": True},
+        ]})
+        self.assertEqual(r.status_code, 200)
+        s1, s2 = GazeSample.objects.filter(session=se).order_by("t")
+        self.assertEqual(s1.alt, {"a": [0.1, 0.2], "b": None, "late": None, "early": [0.4, 0.5]})
+        self.assertIsNone(s2.alt)
+
+    @override_settings(MEDIA_ROOT=MEDIA)
+    def test_runner_iki_kamera_bayragi(self):
+        study = Study.objects.create(name="D", teacher=self.teacher, status=Study.Status.ACTIVE,
+                                     settings={"gaze_engine": "mediapipe", "dual_camera": True})
+        Material.objects.create(study=study, order=1, image=_upload())
+        url = reverse("experiment:run_study", args=[study.participation_code])
+        html = self.client.get(url, SERVER_NAME="localhost").content.decode()
+        self.assertIn("study_mp.js", html)
+        self.assertIn('"dual_camera": true', html)
+
+    @override_settings(MEDIA_ROOT=MEDIA)
+    def test_esli_dogruluk_raporu(self):
+        from django.core.management import call_command
+        from gaze_analysis.accuracy import EIGHT_POINT_TARGETS
+
+        call_command("dogruluk_testi", "kur", "--iki-kamera", stdout=io.StringIO())
+        study = Study.objects.get(name__endswith="(iki kamera)")
+        self.assertTrue(study.settings["dual_camera"])
+        targets = {m.order: m for m in study.materials.filter(order__gte=1)}
+        se = Session.objects.create(study=study, participant_code="d2", viewport_width=1536,
+                                    client_meta={"cameras": {"a": "Integrated", "b": "C920"}})
+        objs = []
+        for i, (_, tx, ty) in enumerate(EIGHT_POINT_TARGETS, start=1):
+            for t in range(0, 2000, 40):
+                # ust kamera saga 0.05 kayik, alt kamera 0.05 asagi, fuzyonlar hatasiz
+                alt = {"a": [tx + 0.05, ty], "b": [tx, ty + 0.05], "late": [tx, ty], "early": [tx, ty]}
+                objs.append(GazeSample(session=se, material=targets[i], t=t, x_px=int(100 + tx * 1350),
+                                       y_px=0, x_norm=tx, y_norm=ty, in_material=True, alt=alt))
+        GazeSample.objects.bulk_create(objs)
+
+        out = io.StringIO()
+        call_command("dogruluk_testi", "rapor", "--iki-kamera", stdout=out)
+        text = out.getvalue()
+        self.assertIn("Esli karsilastirma", text)
+        self.assertIn("ust = Integrated, alt = C920", text)
+        lines = {l.split()[0] + " " + l.split()[1]: l for l in text.splitlines()
+                 if l.strip().startswith(("Ust kamera", "Alt kamera", "Gec fuzyon", "Erken fuzyon"))
+                 and "/8" in l}  # oturum satirlari (ozet degil)
+        # 0.05 x 1350 px = 67.5 px yatay; 0.05 * (1080/1920) * 1350 = 38 px dikey
+        self.assertRegex(lines["Ust kamera"], r" 6[78] px")
+        self.assertIn(" 38 px", lines["Alt kamera"])
+        self.assertIn(" 0 px", lines["Erken fuzyon"])

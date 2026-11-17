@@ -61,14 +61,21 @@ def _equalized_weights(fixations):
     return weights
 
 
-def render_overlay_png(density, image_path, alpha=0.55, cmap="turbo"):
-    """Yogunlugu materyal gorseli uzerine bindirip PNG bayt dizisi dondurur."""
+def render_overlay_png(density, image_path, alpha=0.55, cmap="turbo", aspect=None):
+    """Yogunlugu materyal gorseli uzerine bindirip PNG bayt dizisi dondurur.
+
+    image_path None ise (video materyal) gri zemin uzerine cizilir; oran `aspect` (h/w).
+    """
     import io
     import matplotlib
     matplotlib.use("Agg")  # sunucu tarafi, ekransiz
     import matplotlib.pyplot as plt
 
-    img = plt.imread(image_path)
+    if image_path is None:
+        r = aspect or 1.0
+        img = np.full((max(1, int(round(400 * r))), 400, 3), 0.2)
+    else:
+        img = plt.imread(image_path)
     h, w = img.shape[0], img.shape[1]
     fig_w = 8.0
     fig_h = fig_w * (h / w)

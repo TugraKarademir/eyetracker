@@ -8,10 +8,11 @@
  * KURAL (spec §6/§15): kamera goruntusu tarayicidan cikmaz; yalniz bakis
  * koordinatlari sunucuya gider.
  */
-import * as singleEngine from "./gaze/mediapipe_engine.js";   // tek iris gorunumu (bu donanimda en iyi: ~107px)
-import * as ensembleEngine from "./gaze/ensemble_engine.js";  // cok gorunum + fuzyon (opsiyonel)
+import * as singleEngine from "./gaze/mediapipe_engine.js?v=12";   // tek iris gorunumu (bu donanimda en iyi: ~107px)
+import * as ensembleEngine from "./gaze/ensemble_engine.js?v=12";  // cok gorunum + fuzyon (opsiyonel)
+import * as dualEngine from "./gaze/dual_engine.js?v=12";          // iki kamera (ust+alt), Faz 12
 
-const APP_VERSION = "0.9.5-faz11-qual";
+const APP_VERSION = "0.9.6-faz12-dual";
 const MIN_W = 1280, MIN_H = 720;
 
 const study = JSON.parse(document.getElementById("study-data").textContent);
@@ -29,8 +30,10 @@ ordered.forEach((m, i) => { presentationOrder[m.id] = i + 1; });
 
 // Motor secimi: varsayilan TEK iris (kanitlanmis en iyi); calisma ayarlarindan
 // ensemble acilabilir (cok kisi/donanimda robustluk denemek icin).
-const USE_ENSEMBLE = !!study.ensemble;
-const ENGINE = USE_ENSEMBLE ? ensembleEngine : singleEngine;
+const USE_DUAL = !!study.dual_camera;
+const USE_ENSEMBLE = !USE_DUAL && !!study.ensemble;
+const ENGINE = USE_DUAL ? dualEngine : USE_ENSEMBLE ? ensembleEngine : singleEngine;
+const DUAL_CAMS_KEY = "dual_cams_v1";   // bu PC'de secilen ust/alt kamera
 const { start: startEngine, latestFeatures, faceOk, fit, predict, lastWeights } = ENGINE;
 
 const app = document.getElementById("app");
@@ -135,9 +138,14 @@ function instructions() {
 }
 
 async function loadEngine() {
+  let opts;
+  if (USE_DUAL) {
+    opts = await chooseCameras();
+    if (!opts) return;
+  }
   screen("<h2>Kamera hazirlaniyor…</h2><p>Model yukleniyor, kamera izni verin.</p>");
   try {
-    await startEngine(video);
+    await startEngine(video, opts);
   } catch (e) {
     screen("<h2>Kamera/model hatasi</h2><p>" + esc(e.message) + "</p>");
     return;
@@ -145,6 +153,39 @@ async function loadEngine() {
   // NOT: Oturum, veri toplamaya hak kazanilinca (dogrulama gecince) baslatilir;
   // boylece basarisiz kalibrasyonlardan bos oturum olusmaz.
   facePositioning();
+}
+
+// Iki kamera: ust (A) ve alt (B) kamerayi sec; secim bu PC'de hatirlanir.
+async function chooseCameras() {
+  screen("<h2>Kameralar</h2><p>Kamera izni verin…</p>");
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: true });  // etiketler icin izin
+    s.getTracks().forEach((t) => t.stop());
+  } catch (e) { screen("<h2>Kamera izni yok</h2><p>" + esc(e.message) + "</p>"); return null; }
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+  if (devs.length < 2) {
+    screen("<h2>İki kamera gerekli</h2><p>Bu çalışma ekranın üstünde ve altında birer kamera ister; " +
+      devs.length + " kamera bulundu. Kameraları takıp sayfayı yenileyin.</p>");
+    return null;
+  }
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(DUAL_CAMS_KEY) || "{}"); } catch (e) {}
+  const opt = (sel) => devs.map((d, i) => '<option value="' + esc(d.deviceId) + '"' + (d.deviceId === sel ? " selected" : "") +
+    ">" + esc(d.label || ("Kamera " + (i + 1))) + "</option>").join("");
+  const defA = saved.a && devs.some((d) => d.deviceId === saved.a) ? saved.a : devs[0].deviceId;
+  const defB = saved.b && devs.some((d) => d.deviceId === saved.b) ? saved.b : devs[1].deviceId;
+  screen("<h2>Kameraları seçin</h2>" +
+    "<p style='text-align:left'><label>Ekranın <b>ÜSTÜNDEKİ</b> kamera<br><select id='ca' style='width:100%'>" + opt(defA) + "</select></label></p>" +
+    "<p style='text-align:left'><label>Ekranın <b>ALTINDAKİ</b> kamera<br><select id='cb' style='width:100%'>" + opt(defB) + "</select></label></p>" +
+    "<p id='cerr' style='color:#f88'></p><button id='cok'>Devam</button>");
+  return new Promise((resolve) => {
+    document.getElementById("cok").onclick = () => {
+      const a = document.getElementById("ca").value, b = document.getElementById("cb").value;
+      if (a === b) { document.getElementById("cerr").textContent = "Üst ve alt kamera farklı olmalı."; return; }
+      try { localStorage.setItem(DUAL_CAMS_KEY, JSON.stringify({ a, b })); } catch (e) {}
+      resolve({ deviceA: a, deviceB: b });
+    };
+  });
 }
 
 function startSession() {
@@ -164,6 +205,11 @@ function facePositioning() {
   const btn = document.getElementById("cal");
   const iv = setInterval(() => {
     if (faceOk()) { btn.disabled = false; btn.textContent = "Yuz bulundu — Kalibrasyona gec"; }
+    else if (USE_DUAL) {
+      const s = ENGINE.faceStatus();
+      btn.disabled = true;
+      btn.textContent = "Üst kamera " + (s.a ? "✓" : "✗") + "  ·  Alt kamera " + (s.b ? "✓" : "✗");
+    }
     else { btn.disabled = true; btn.textContent = "Yuz araniyor…"; }
   }, 200);
   btn.onclick = () => { clearInterval(iv); calibrationCycle(); };
@@ -220,10 +266,16 @@ async function doCalibrate() {
   const rows = [];
   for (let i = 0; i < CALIB_POINTS.length; i++) {
     const [cx, cy] = CALIB_POINTS[i];
+    if (USE_DUAL) {
+      // Iki kamera: kare-bazli satirlar (pid ile); ozellik sayisi 2 kat -> nokta medyani yetmez
+      const buf = await collectAt(cx, cy, String(i + 1), 800);
+      for (const f of buf.slice(Math.floor(buf.length * 0.25))) rows.push({ f, x: cx, y: cy, pid: i });
+      continue;
+    }
     const buf = await collectAt(cx, cy, String(i + 1), 500);
     if (buf.length) { const D = buf[0].length; rows.push({ f: Array.from({ length: D }, (_, k) => median(buf.map((v) => v[k]))), x: cx, y: cy }); }
   }
-  if (rows.length < 6) return false;
+  if (USE_DUAL ? new Set(rows.map((r) => r.pid)).size < 6 : rows.length < 6) return false;
   W = fit(rows);
   console.log("Ensemble gorunum agirliklari (A/B/C):", lastWeights(W));
   return true;
@@ -367,12 +419,20 @@ function showMaterial(mat) {
       const gx = gx0 - gazeOffset[0], gy = gy0 - gazeOffset[1];
       const xpx = gx * window.innerWidth, ypx = gy * window.innerHeight;
       let xn = null, yn = null, inm = false;
+      const toMat = (vx, vy) => [+((vx * window.innerWidth - box.left) / box.width).toFixed(4),
+                                 +((vy * window.innerHeight - box.top) / box.height).toFixed(4)];
       if (box && box.width > 0) {
-        xn = +((xpx - box.left) / box.width).toFixed(4);
-        yn = +((ypx - box.top) / box.height).toFixed(4);
+        [xn, yn] = toMat(gx, gy);
         inm = xn >= 0 && xn <= 1 && yn >= 0 && yn <= 1;
       }
-      samples.push({ material_id: mat.id, t: Math.round(performance.now() - start), x_px: Math.round(xpx), y_px: Math.round(ypx), x_norm: xn, y_norm: yn, in_material: inm });
+      const sample = { material_id: mat.id, t: Math.round(performance.now() - start), x_px: Math.round(xpx), y_px: Math.round(ypx), x_norm: xn, y_norm: yn, in_material: inm };
+      if (USE_DUAL && box && box.width > 0) {
+        // Esli karsilastirma: dort tahminci, kayma duzeltmesiz, materyale gore normalize
+        const all = ENGINE.predictAll(W, f), alt = {};
+        for (const k of ["a", "b", "late", "early"]) alt[k] = all[k] ? toMat(all[k][0], all[k][1]) : null;
+        sample.alt = alt;
+      }
+      samples.push(sample);
     }, 40);
 
     if (!isVideo) {
@@ -431,7 +491,8 @@ function finishAndUpload() {
     samples: allSamples,
     meta: {
       app_version: APP_VERSION,
-      gaze_engine: USE_ENSEMBLE ? "ensemble" : "mediapipe",
+      gaze_engine: USE_DUAL ? "dual" : USE_ENSEMBLE ? "ensemble" : "mediapipe",
+      cameras: USE_DUAL ? ENGINE.cameraLabels() : null,
       view_weights: W ? lastWeights(W) : null,   // ensemble'da [A,B,C], tekte null
       validation_px: validationResult ? validationResult.avg_error_px : null,
       calib_attempts: calibAttempt,

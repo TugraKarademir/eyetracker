@@ -27,7 +27,7 @@ let running = false;
 const featBuf = [];
 
 // ---- ozellik cikarimi (bas-pozu normalize) ----
-function features(lm) {
+export function features(lm) {
   const p = (i) => lm[i];
   const faceW = Math.hypot(p(FACE_R).x - p(FACE_L).x, p(FACE_R).y - p(FACE_L).y) || 1e-6;
   const faceH = Math.hypot(p(CHIN).x - p(FORE).x, p(CHIN).y - p(FORE).y) || 1e-6;
@@ -73,10 +73,10 @@ function solve(M, b) {
   }
   return A.map((r) => r[D]);
 }
-function ridgeFit(X, y) {
+export function ridgeFit(X, y, lambda = RIDGE_LAMBDA) {
   const D = X[0].length;
   const M = matMulT(X);
-  for (let i = 0; i < D - 1; i++) M[i][i] += RIDGE_LAMBDA;
+  for (let i = 0; i < D - 1; i++) M[i][i] += lambda;
   return solve(M, matTvec(X, y));
 }
 function median(arr) { const a = [...arr].sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }

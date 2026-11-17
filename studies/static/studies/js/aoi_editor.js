@@ -35,10 +35,14 @@
     redraw();
   }
 
+  const isVideo = !!material.is_video;
+  function srcW() { return isVideo ? img.videoWidth : img.naturalWidth; }
+  function srcH() { return isVideo ? img.videoHeight : img.naturalHeight; }
+
   function sizeCanvas() {
-    const scale = Math.min(1, MAX_W / (material.natural_width || img.naturalWidth || MAX_W));
-    dispW = Math.round((material.natural_width || img.naturalWidth) * scale);
-    dispH = Math.round((material.natural_height || img.naturalHeight) * scale);
+    const scale = Math.min(1, MAX_W / (material.natural_width || srcW() || MAX_W));
+    dispW = Math.round((material.natural_width || srcW()) * scale);
+    dispH = Math.round((material.natural_height || srcH()) * scale);
     img.style.width = dispW + "px";
     img.style.height = dispH + "px";
     canvas.width = dispW;
@@ -200,7 +204,7 @@
     fetch(window.SAVE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF },
-      body: JSON.stringify({ aois: aois }),
+      body: JSON.stringify({ aois: aois, natural_width: srcW() || 0, natural_height: srcH() || 0 }),
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
       .then(function (res) {
         if (!res.ok) { durumEl.textContent = ""; showUyari([res.j.error || "Kaydedilemedi"]); return; }
@@ -215,7 +219,30 @@
   }
 
   // --- baslat ---
-  if (img.complete && img.naturalWidth) sizeCanvas();
+  if (isVideo) {
+    const seek = document.getElementById("seek");
+    const seekTime = document.getElementById("seek-time");
+    seek.addEventListener("input", function () {
+      if (!img.duration || !isFinite(img.duration)) return;
+      img.currentTime = img.duration * (seek.value / 1000);
+      seekTime.textContent = img.currentTime.toFixed(1) + " sn";
+    });
+    img.addEventListener("loadedmetadata", sizeCanvas);
+    // Gelistirme sunucusu (static serve) HTTP Range desteklemez -> Chrome ileri saramaz.
+    // Videoyu tamamen indirip blob URL ile oynat: ileri sarma bellekte yapilir.
+    durumEl.textContent = "Video yükleniyor…";
+    fetch(material.src).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.blob();
+    }).then(function (b) {
+      img.src = URL.createObjectURL(b);
+      durumEl.textContent = "";
+    }).catch(function (e) {
+      img.src = material.src;  // yedek: en azindan ilk kare
+      durumEl.textContent = "";
+      showUyari(["Video tam yüklenemedi, ileri sarma çalışmayabilir: " + e.message]);
+    });
+  } else if (img.complete && img.naturalWidth) sizeCanvas();
   else img.addEventListener("load", sizeCanvas);
   window.addEventListener("resize", sizeCanvas);
   renderList();

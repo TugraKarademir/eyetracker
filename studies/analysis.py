@@ -270,7 +270,7 @@ def build_study_report(study, config=None):
                 fixations, sigma=config.heatmap_sigma, aspect=aspect, equalize=True
             )
             try:
-                png = render_overlay_png(density, m.image.path)
+                png = render_overlay_png(density, m.image.path if m.image else None, aspect=aspect)
                 heatmap_uri = "data:image/png;base64," + base64.b64encode(png).decode()
             except Exception as e:  # gorsel okunamazsa harita atlanir
                 heatmap_uri = None
@@ -279,7 +279,8 @@ def build_study_report(study, config=None):
         ranking = report_mod.rank_aois(summary_by_order.get(m.order, []))
 
         materials_ctx.append({
-            "id": m.id, "order": m.order, "src": m.image.url,
+            "id": m.id, "order": m.order,
+            "src": m.image.url if m.image else (m.video.url if m.video else ""),
             "n_sessions": n_sessions, "n_fixations": len(fixations),
             "heatmap_uri": heatmap_uri, "hotspots": hotspots,
             "ranking": ranking, "aois": aois,
