@@ -49,8 +49,9 @@
   background: rgba(127, 29, 29, .95); color: #fff; border: 2px solid #f87171; border-radius: 12px; padding: 12px 22px;
   font: 20px system-ui; text-align: center; box-shadow: 0 6px 24px rgba(0,0,0,.4); }
 #basUyari small { display: block; font-size: 15px; opacity: .9; margin-top: 4px; }
-/* Adım çubuğu: üst kenarda ince, yarı saydam, tıklamayı engellemez (kalibrasyon noktaları kenardan en az 40 px içeride) */
-#adimCubuk { position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 20; display: none; pointer-events: none; white-space: nowrap;
+/* Adım çubuğu: üst kenarda ince, yarı saydam, tıklamayı engellemez. z-index 3: hedeflerin (.tgt 4, GazeLab/yüz noktası 9) ALTINDA kalır;
+   hazır kartları (19) kendi "Adım N / M" satırını gösterir. */
+#adimCubuk { position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 3; display: none; pointer-events: none; white-space: nowrap;
   max-width: 96vw; overflow: hidden; text-overflow: ellipsis; font: 11px/16px system-ui; padding: 1px 10px; border-radius: 0 0 8px 8px;
   background: rgba(20,27,36,.6); color: #cbd5e1; }
 #adimCubuk b { color: #facc15; }
@@ -166,7 +167,7 @@ function wgPencere(blinkT) {
   const acik = w.filter((b) => !blinkT.some((t) => Math.abs(t - b.t) < 0.05));
   const xy = (A, f) => A.length ? [ortalama(A, (b) => f(b)?.[0]), ortalama(A, (b) => f(b)?.[1])] : null;
   return { wg: xy(w, (b) => [b.x, b.y]), wgA: w.some((b) => b.a) ? xy(w.filter((b) => b.a), (b) => b.a) : null, wgK: xy(acik, (b) => [b.x, b.y]),
-           atilan: w.length - acik.length };
+           atilan: w.length - acik.length, n: w.length, nK: acik.length };
 }
 const WG_ORNEK_MS = [0, 60, 120];
 // Yakın göz ham vektörü: [rx, ry, lx, ly] yakın gözden, gerisi (açıklık, baş) aynı
@@ -276,31 +277,44 @@ function wgyEkle(win, sx, sy, tekrar = 1) {
 }
 // RealEye Light (re_yama.js): 15 nokta + 22 katsayı + iki 40×20 göz kesiti, çift ridge. Öznitelik kare başına pahalı olduğu için
 // yalnız toplama aşamalarında hesaplanır: bakarak ve düzeltme (öğretim, ±1 px 9 kopya), GazeLab doğrulaması ve kontrol (yalnız ölçüm).
-// Model yalnız bakarak sonunda ve düzeltme turu bitince kurulur (her tıklamada değil). Satır en çok EN_COK (eşit aralıklı seçilir).
-// λ = 1: README 1e-5 diyor; z-skorlu 1.652 sütun ve birkaç yüz satırda (9 kopya neredeyse aynı) çözüm kararlı kalsın diye büyütüldü.
-const RE = { LAM: 1, EN_COK: 900, MIN: 30, FAZ_ART: ["bakarak", "duzeltme"], FAZ_TEK: ["gazelab_dogrulama", "kontrol"],
-  F: [], Y: [], model: null, kurulum: [], sure: { tek: { n: 0, ms: 0 }, art: { n: 0, ms: 0 } } };
-function reKanca(p) {   // gaze.js onLandmarks: aynı karenin piksel yüz noktaları; kaynak kare video ya da yakınlaştırma tuvali
+// Model yalnız bakarak sonunda ve düzeltme turu bitince kurulur (her tıklamada değil). Önce en çok EN_COK_KARE kare eşit aralıklı
+// seçilir, SONRA her biri 9 kopyaya açılır (≤900 satır). λ oturum başına seçilir: p_eff × {1e-3, 1e-2, 1e-1, 1, 10} ızgarasında
+// gruplu birini-dışarıda-bırak (grup = bir bakarak noktası / bir düzeltme tıklaması, tüm kareleri ve kopyalarıyla). Yalnız
+// kalibrasyon verisi kullanılır; kontrol ve GazeLab sonuçları seçime hiç girmez.
+const RE = { EN_COK_KARE: 100, MIN_KARE: 10, FAZ_ART: ["bakarak", "duzeltme"], FAZ_TEK: ["gazelab_dogrulama", "kontrol"],
+  kareler: [], model: null, kurulum: [], hata: 0, sonHata: null, sure: { tek: { n: 0, ms: 0 }, art: { n: 0, ms: 0 } } };
+function reKanca(p) {   // gaze.js onLandmarks: aynı karenin piksel yüz noktaları
   const l = gaze?.latest, faz = GLK.cur?.stimulus_id; if (!l || typeof reOznitelik !== "function") return;
   const mod = RE.FAZ_ART.includes(faz) ? "art" : RE.FAZ_TEK.includes(faz) ? "tek" : null; if (!mod) return;
-  const src = gaze.kirp && gaze._kirpCv ? gaze._kirpCv : gaze.video, t0 = performance.now();
-  if (mod === "art") { const A = reArtir(src, p, l.bs); if (A) { l.reArt = A; l.re = A[4]; } }   // A[4]: kaydırmasız
-  else l.re = reOznitelik(src, p, l.bs);
+  // Noktaların alındığı kare: işçi (worker) yolunda gaze.kareKaynak (video o arada ilerlemiş olur); eski yolda yakınlaştırma tuvali
+  // (yalnız kırpma etkinken: zoom 1'e dönünce eski tuval bayat kalır) ya da video. p bu karenin pikselinde, ayrıca boyut gerekmez.
+  const src = gaze.kareKaynak || (gaze.kirp && gaze._kirpCv) || gaze.video, t0 = performance.now();
+  try {
+    if (mod === "art") { const A = reArtir(src, p, l.bs); if (A) { l.reArt = A; l.re = A[4]; } }   // A[4]: kaydırmasız
+    else l.re = reOznitelik(src, p, l.bs);
+  } catch (e) { RE.hata++; RE.sonHata = String(e?.message || e).slice(0, 120); return; }
   const s = RE.sure[mod]; s.n++; s.ms += performance.now() - t0;
 }
-function reEkle(win, sx, sy) { for (const b of win) for (const f of b.reArt || (b.re ? [b.re] : [])) { RE.F.push(f); RE.Y.push([sx, sy]); } }
-function reKur(neden) {
-  const N = RE.F.length;
-  if (N < RE.MIN) { tlog(`RealEye Light modeli kurulamadı (${neden}): ${N} satır`); return; }
-  const m = Math.min(N, RE.EN_COK), idx = m === N ? [...Array(N).keys()] : Array.from({ length: m }, (_, i) => Math.round(i * (N - 1) / (m - 1)));
+// g: grup anahtarı (λ seçiminde birlikte dışarıda bırakılır)
+function reEkle(win, sx, sy, g) { for (const b of win) if (b.re) RE.kareler.push({ art: b.reArt || [b.re], y: [sx, sy], g }); }
+async function reKur(neden) {
+  const N = RE.kareler.length;
+  if (N < RE.MIN_KARE) { tlog(`RealEye Light modeli kurulamadı (${neden}): ${N} kare`); return; }
+  const m = Math.min(N, RE.EN_COK_KARE), K = Array.from({ length: m }, (_, i) => RE.kareler[m === N ? i : Math.round(i * (N - 1) / (m - 1))]);
+  const F = [], Yr = [], G = [];
+  for (const k of K) for (const f of k.art) { F.push(f); Yr.push(k.y); G.push(k.g); }
+  const msg = $("#camMsg"); msg.innerHTML = "<div>RealEye Light modeli kuruluyor…</div>"; msg.style.display = "flex";
   const t0 = performance.now();
-  try { RE.model = new ReRidge().fit(idx.map((i) => RE.F[i]), idx.map((i) => RE.Y[i]), RE.LAM); }
+  try { RE.model = await new ReRidge().fitSec(F, Yr, G, undefined, () => sleep(16)); }
   catch (e) { tlog(`RealEye Light modeli kurulamadı (${neden}): ${e.message}`); return; }
-  const k = { neden, aday: N, satir: m, oznitelik: RE.model.p, lam: RE.LAM, ms: Math.round(performance.now() - t0) };
+  finally { msg.style.display = "none"; }
+  const sc = RE.model.secim;
+  const k = { neden, kareAday: N, kare: m, satir: F.length, grup: sc.grup, oznitelik: RE.model.p, peff: sc.peff, lam: RE.model.lam,
+              izgara: sc.tablo.map((t) => ({ carpan: t.carpan, lam: +t.lam.toFixed(3), medyan: Math.round(t.medyan), ort: Math.round(t.ort) })), ms: Math.round(performance.now() - t0) };
   RE.kurulum.push(k);
-  tlog(`RealEye Light modeli kuruldu (${neden}): ${m} satır (${N} adaydan eşit aralıklı), ${k.oznitelik} öznitelik, çift ridge λ ${RE.LAM}, kurulum ${k.ms} ms`, k);
+  tlog(`RealEye Light modeli kuruldu (${neden}): ${m} kare (${N} kareden eşit aralıklı) × kopya = ${F.length} satır, ${sc.grup} grup, ${k.oznitelik} öznitelik (sabit olmayan ${sc.peff}) | λ seçimi (gruplu birini-dışarıda-bırak, medyan/ortalama px): ${k.izgara.map((t) => `${t.carpan}×p=${t.lam}: ${t.medyan}/${t.ort}`).join(" · ")} → λ ${+k.lam.toFixed(3)} | ${k.ms} ms`, k);
 }
-const reSure = () => ["tek", "art"].map((m) => { const s = RE.sure[m]; return `${m === "tek" ? "tek kesit" : "9 kopya"} ${s.n ? (s.ms / s.n).toFixed(2) + " ms/kare" : "-"} (${s.n} kare)`; }).join(", ");
+const reSure = () => ["tek", "art"].map((m) => { const s = RE.sure[m]; return `${m === "tek" ? "tek kesit" : "9 kopya"} ${s.n ? (s.ms / s.n).toFixed(2) + " ms/kare" : "-"} (${s.n} kare)`; }).join(", ") + `, hata ${RE.hata}${RE.sonHata ? ` (son: ${RE.sonHata})` : ""}`;
 function wgyKur() {
   if (FW.length >= 30) { modelW = new GazeModel(); modelW.fit(FW, YW); modelM = new GazeModel(); modelM.fit(FM, YW); }
   if (FK.length >= 30) { modelK = new GazeModel(); modelK.fit(FK, YK); modelKM = new GazeModel(); modelKM.fit(FKM, YK); }
@@ -329,16 +343,16 @@ function aciK() {   // önceki tıklamalarda medyan hatası en küçük k
 // Bu tıklamanın penceresi için her k'nın tahmini (ekran pikseli); geçmişe hata yazılır
 function aciOlc(win, sx, sy) {
   if (!Object.keys(aciModel).length) return null;
-  const sec = aciK(), out = {};
+  const sec = aciK(), out = {}, nk = {};
   for (const k of ACI.K) {
     const Q = win.map((b) => { const d = aciD(b); return d ? aciPx(aciModel[k].predict(ozB(b)), d, k) : null; }).filter(Boolean);
     if (!Q.length) continue;
-    out[k] = [Q.reduce((t, q) => t + q[0], 0) / Q.length, Q.reduce((t, q) => t + q[1], 0) / Q.length];
+    nk[k] = Q.length; out[k] = [Q.reduce((t, q) => t + q[0], 0) / Q.length, Q.reduce((t, q) => t + q[1], 0) / Q.length];
   }
   if (!out[sec.k]) return null;
   for (const k of Object.keys(out)) (aciHata[k] ||= []).push(Math.hypot(out[k][0] - sx, out[k][1] - sy));
   aciSecim.push(sec.k);
-  return { px: out[sec.k], k: sec.k, secildi: sec.secildi };
+  return { px: out[sec.k], k: sec.k, secildi: sec.secildi, n: nk[sec.k] };
 }
 const aciInc = (k) => (k * Math.hypot(screen.width, screen.height) / 2.54).toFixed(1);
 // Her ölçülen tıklamanın ortalama öznitelikleri + hedef: farklı modeller kayıttan bilgisayarda denenebilsin
@@ -467,7 +481,7 @@ document.addEventListener("pointerdown", (e) => {
     tlog(`tıklama atlandı: önceki bir tıklamaya ${TEST.NEAR} px'ten yakın (ölçüme sayılmaz${near >= TEST.MAX_SAME ? ", öğretilmez" : ""}) — ekranın başka yerlerine tıklayın`);
     if (near < TEST.MAX_SAME) { for (const f of feats) { F.push(f); Y.push([cx + gaze._off().x, cy + gaze._off().y]); }
       for (const b of win) FB.push(ozB(b));
-      aciEkle(win, cx + gaze._off().x, cy + gaze._off().y); reEkle(win, cx + gaze._off().x, cy + gaze._off().y);
+      aciEkle(win, cx + gaze._off().x, cy + gaze._off().y); reEkle(win, cx + gaze._off().x, cy + gaze._off().y, `t${clicks.length}y`);
       model = new GazeModel(); model.fit(F, Y); modelB = new GazeModel(); modelB.fit(FB, Y); if (model) aciKur(); wgOgret(cx, cy); }
     if (tgt) guideDone(tgt);
     return;
@@ -477,8 +491,8 @@ document.addEventListener("pointerdown", (e) => {
     pred = [P.reduce((s, p) => s + p[0], 0) / P.length - o.x, P.reduce((s, p) => s + p[1], 0) / P.length - o.y];
     err = Math.round(Math.hypot(pred[0] - cx, pred[1] - cy));
     ok = err <= TEST.HIT_PX; cellOk = cell(pred[0], pred[1]) === cell(cx, cy);
-    line(cx, cy, pred[0], pred[1], ok ? "#22c55e" : "#f59e0b");
-    mark(pred[0], pred[1], "#ff3b3b");
+    // Ölçüm (kontrol / depo kontrolü) sırasında tahmin çizilmez: anlık geri bildirim sonraki tıklamaları etkilemesin
+    if (!guide?.dogrula) { line(cx, cy, pred[0], pred[1], ok ? "#22c55e" : "#f59e0b"); mark(pred[0], pred[1], "#ff3b3b"); }
   }
   // --- diğer yöntemler (hepsi öğretmeden önce)
   const blinkT = buf.filter((b) => b.blink && b.t >= now - TEST.WIN[0] - 0.1).map((b) => b.t);
@@ -512,12 +526,18 @@ document.addEventListener("pointerdown", (e) => {
   if (fuzModel && ef) { const q = fuzModel.predict([...fbiz, ...ef]); P.fuzyon = [q[0] - o.x, q[1] - o.y]; }
   // GazeLab doğrulamasında bulunan doğrusal kayma düzeltmesi, kontrol noktalarında her yönteme ayrı uygulanır (dürüst: bu noktalar GL'de yoktu)
   if (guide?.dogrula === "kontrol" && GLK.dog) for (const [k, s] of Object.entries(GLK.dog.yontem)) if (s.corr && P[k] && YONTEM[k + "GL"]) P[k + "GL"] = GL.apply(s.corr, P[k]);
+  // Her yöntemin bu tıklamada gerçekten kullandığı örnek sayısı (birleşik tahminlerde null: tek bir kare kümesi yok)
+  const nSay = (f) => win.filter(f).length;
+  const NY = { biz: win.length, bizBk: win.length, depo: win.length, bizBBk: win.length, bizH: win.length, bizBH: win.length, bizB: win.length,
+    kureMH: nSay((b) => b.kure), bizK: nSay((b) => b.kure), kureM: nSay((b) => b.kure), bizW: nSay((b) => b.wgp), wgMP: nSay((b) => b.wgp),
+    reL: nSay((b) => b.re), aci: AO?.n ?? null, wg: W?.n ?? null, wgK: W?.nK ?? null, karisim: null, karisim70: null, fuzyon: null };
+  const nOf = (k) => (k.endsWith("GL") && YONTEM[k] && !(k in NY) ? NY[k.slice(0, -2)] ?? null : NY[k] ?? null);
   const v = {};
-  for (const [k, q] of Object.entries(P)) if (q && q.every(Number.isFinite)) v[k] = { err: Math.round(Math.hypot(q[0] - cx, q[1] - cy)), cellOk: cell(q[0], q[1]) === cell(cx, cy), x: Math.round(q[0]), y: Math.round(q[1]) };
-  if (P.wg) mark(P.wg[0], P.wg[1], "#3b82f6");
+  for (const [k, q] of Object.entries(P)) if (q && q.every(Number.isFinite)) v[k] = { err: Math.round(Math.hypot(q[0] - cx, q[1] - cy)), cellOk: cell(q[0], q[1]) === cell(cx, cy), x: Math.round(q[0]), y: Math.round(q[1]), n: nOf(k) };
   const dogrula = guide?.dogrula || false;
+  if (P.wg && !dogrula) mark(P.wg[0], P.wg[1], "#3b82f6");
   if (pred && W?.wg && !dogrula) karisimGecmis.push({ biz: pred, wg: W.wg, x: cx, y: cy });
-  mark(cx, cy, ok === false ? "#f59e0b" : "#22c55e");
+  if (!dogrula) mark(cx, cy, ok === false ? "#f59e0b" : "#22c55e");
   const avg = (f) => { const v = win.map(f).filter((z) => z != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
   const goz = { acik: avg((b) => (b.raw[4] + b.raw[5]) / 2), kirpma: avg((b) => b.eyes?.blink), asagi: avg((b) => b.eyes?.down),
                 basYaw: avg((b) => b.raw[6]), basPitch: avg((b) => b.raw[7]),
@@ -533,7 +553,7 @@ document.addEventListener("pointerdown", (e) => {
   if (!dogrula) {
     for (let r = 0; r < tekrar; r++) { for (const f of feats) { F.push(f); Y.push([sx, sy]); } for (const b of win) FB.push(ozB(b)); }
     wgyEkle(win, sx, sy, tekrar);
-    aciEkle(win, sx, sy); reEkle(win, sx, sy);
+    aciEkle(win, sx, sy); reEkle(win, sx, sy, `t${clicks.length}`);   // her düzeltme tıklaması ayrı λ grubu
     wgOgret(cx, cy);
     if (ef) { fuzF.push([...fbiz, ...ef]); fuzY.push([sx, sy]); if (fuzF.length >= TEST.MIN_CLICKS) { fuzModel = new GazeModel(); fuzModel.fit(fuzF, fuzY); } }
   }
@@ -879,12 +899,13 @@ const dogrulamaNoktalari = () => DOGRULAMA_NOKTA.map(([a, b]) => ({ x: Math.roun
 // ?bakarak=0 ile atlanır.
 const BAKIS = { TUR: 1, BEKLE: 1.0, TOPLA: 1.2, ACIK: new URLSearchParams(location.search).get("bakarak") !== "0" };
 let bakarakSuruyor = false, modelBk = null, modelBBk = null, bakisNokta = [];
-// ?nokta=17: bakarak kalibrasyon RealEye Light deseniyle (0.05/0.25/0.5/0.75/0.95 ızgarası). README metni "17 nokta" diyor ama
+// ?nokta=19 (eski adı ?nokta=17, hâlâ kabul edilir ve 19'a eşlenir): bakarak kalibrasyon RealEye Light deseniyle (0.05/0.25/0.5/0.75/0.95 ızgarası). README metni "17 nokta" diyor ama
 // diyagramında 19 nokta etiketli; hangi ikisinin düştüğü yazılmadığı için diyagramdaki 19 noktanın hepsi kullanılır (uydurma yok).
-const RE17 = new URLSearchParams(location.search).get("nokta") === "17";
+const NOKTA_QS = new URLSearchParams(location.search).get("nokta"), RE19 = NOKTA_QS === "19" || NOKTA_QS === "17";
+const DESEN = RE19 ? "realeye-19" : "3x3-9";   // kayda girer (glPaket oturum meta, testLog)
 const RE_DESEN = [[.05, .05], [.5, .05], [.95, .05], [.05, .25], [.25, .25], [.5, .25], [.75, .25], [.95, .25], [.05, .5], [.5, .5], [.95, .5],
   [.05, .75], [.25, .75], [.5, .75], [.75, .75], [.95, .75], [.05, .95], [.5, .95], [.95, .95]];
-const bakisDesen = () => (RE17 ? RE_DESEN.map(([a, b]) => ({ x: Math.round(a * innerWidth), y: Math.round(b * innerHeight) })) : guidePoints(1));
+const bakisDesen = () => (RE19 ? RE_DESEN.map(([a, b]) => ({ x: Math.round(a * innerWidth), y: Math.round(b * innerHeight) })) : guidePoints(1));
 function uzakNoktalar(kullanilan, n) {   // kullanılanlardan en uzak n aday (60 px ızgara)
   const cand = [], step = 60, m = GUIDE.M, used = kullanilan.map((q) => ({ ...q })), pts = [];
   for (let y = m; y <= innerHeight - m; y += step) for (let x = m; x <= innerWidth - m; x += step) cand.push({ x, y });
@@ -911,7 +932,7 @@ const ADIM_AD = {
   kontrol: ["Kontrol (5 nokta)", "5 yeni noktaya bakıp birer kez tıklayacaksınız (yalnız ölçüm)."],
   sonuc: ["Sonuç", "hata ve noktalar ekranda gösterilecek."],
 };
-const bakisNoktaSayisi = () => (RE17 ? RE_DESEN.length : 9) + (BAKIS.TUR - 1) * 9;
+const bakisNoktaSayisi = () => (RE19 ? RE_DESEN.length : 9) + (BAKIS.TUR - 1) * 9;
 let ADIMLAR = [], adimSimdi = null, adimGecilen = new Set();
 const adimAd = (k) => { const a = ADIM_AD[k]?.[0]; return typeof a === "function" ? a() : a || k; };
 const adimAcik = (k) => { const a = ADIM_AD[k]?.[1]; return typeof a === "function" ? a() : a || ""; };
@@ -968,7 +989,7 @@ async function bakarakKalibrasyon() {
   glFazBasla("bakarak"); GLK.baz = true; GLK.bazOrnek = [];   // gazelab: kalibrasyondaki ortalama baş pozu = referans
   const Fk = [], Yk = [], FBk = [];
   $("#guide").style.display = "block";
-  tlog(`BAKARAK kalibrasyon başladı: ${RE17 ? `RealEye deseni (?nokta=17; README diyagramındaki ${RE_DESEN.length} nokta)` : "9 nokta (3×3)"}, ${BAKIS.TUR} tur, nokta başına ${BAKIS.BEKLE} sn bekleme + ${BAKIS.TOPLA} sn toplama (tıklama yok)`);
+  tlog(`BAKARAK kalibrasyon başladı: ${RE19 ? `RealEye deseni (${NOKTA_QS === "17" ? "?nokta=17 eski ad, ?nokta=19'a eşlendi" : "?nokta=19"}; README diyagramındaki ${RE_DESEN.length} nokta)` : "9 nokta (3×3)"}, ${BAKIS.TUR} tur, nokta başına ${BAKIS.BEKLE} sn bekleme + ${BAKIS.TOPLA} sn toplama (tıklama yok)`, { desen: DESEN });
   try {
     for (let tur = 1; tur <= BAKIS.TUR; tur++) {
       const pts = tur === 1 ? bakisDesen() : uzakNoktalar(bakisNokta, 9), once = tur === 1 ? 0 : bakisNoktaSayisi() - (BAKIS.TUR - tur + 1) * 9;
@@ -990,7 +1011,7 @@ async function bakarakKalibrasyon() {
         const tut = S.filter((_, k) => temiz.includes(rows[k]));
         const o = gaze._off(), sx = q.x + o.x, sy = q.y + o.y;
         for (const b of tut) { Fk.push(gzModelFeatures(b.raw)); FBk.push(ozB(b)); Yk.push([sx, sy]); }
-        aciEkle(tut, sx, sy); wgyEkle(tut, sx, sy); reEkle(tut, sx, sy);
+        aciEkle(tut, sx, sy); wgyEkle(tut, sx, sy); reEkle(tut, sx, sy, `b${tur}.${i}`);   // bir bakarak noktası = bir λ grubu
         bakisNokta.push({ x: q.x, y: q.y });
         tlog(`  bakarak nokta ${tur}.${i + 1} (x ${q.x}, y ${q.y}): ${S.length} kare, ${tut.length} tutuldu`, { x: q.x, y: q.y, kare: S.length, tut: tut.length });
       }
@@ -1003,8 +1024,8 @@ async function bakarakKalibrasyon() {
     model = new GazeModel(); model.fit(F, Y); modelB = new GazeModel(); modelB.fit(FB, Y); aciKur(); wgyKur();
     tlog(`WebGazer göz yaması: ${FW.length}/${Fk.length} karede var${modelW ? "; bizW ve wgMP kuruldu" : " — model kurulamadı"}`);
     tlog(`3B göz küresi: ${FK.length}/${Fk.length} karede var${modelK ? "; bizK ve kureM kuruldu" : " — model kurulamadı"}`);
-    tlog(`RealEye Light: bakarak sonunda ${RE.F.length} aday satır (±1 px kaydırmalı 9 kopya dahil); öznitelik süresi ${reSure()}`);
-    reKur("bakarak sonu");
+    tlog(`RealEye Light: bakarak sonunda ${RE.kareler.length} kare (her biri ±1 px kaydırmalı 9 kopyalı); öznitelik süresi ${reSure()}`);
+    await reKur("bakarak sonu");
     tlog(`BAKARAK modeller kuruldu: ${bakisNokta.length} nokta, ${Fk.length} kare; WebGazer ${wgN} noktadan öğrendi. Düzeltme tıklamaları ana modele eklenir, "yalnız bakarak" model sabit kalır`);
   } else tlog(`BAKARAK modeller kurulamadı: yalnız ${Fk.length} kare toplandı`);
   await sleep(600);
@@ -1064,7 +1085,7 @@ async function basTuru() {
 async function guideStart() {
   F = []; Y = []; clicks = []; model = null; depoModel = null; camHist = []; camPos = null; tiklamaOz.length = 0; modelBk = null; modelBBk = null;
   fuzF = []; fuzY = []; fuzModel = null; karisimGecmis = []; FB = []; modelB = null; FW = []; YW = []; FM = []; modelW = null; modelM = null; FK = []; YK = []; FKM = []; modelK = null; modelKM = null; FH = []; YH = []; FBH = []; FKH = []; YKH = []; modelH = null; modelBH = null; modelKH = null; basOzet = null; aciS = []; aciModel = {}; aciHata = {}; aciSecim = [];
-  RE.F = []; RE.Y = []; RE.model = null; RE.kurulum = []; RE.sure = { tek: { n: 0, ms: 0 }, art: { n: 0, ms: 0 } };
+  RE.kareler = []; RE.model = null; RE.kurulum = []; RE.hata = 0; RE.sonHata = null; RE.sure = { tek: { n: 0, ms: 0 }, art: { n: 0, ms: 0 } };
   if (wg) { await wg.clearData(); wgN = 0; wgBuf = []; wgYuzYok = 0; wgYuzSon = null; }
   YT.sayac = { ikisi: 0, mp: 0, wg: 0, hicbiri: 0 }; YT.ayrisma = null;
   glReset();
@@ -1182,9 +1203,9 @@ async function guideFinish(neden) {
         `[yaw ${r.yaw ?? "-"}° pitch ${r.pitch ?? "-"}°] bizim ${r.biz}/${r.bizH} · göz kats. ${r.bizB}/${r.bizBH} · küre ${r.kureM}/${r.kureMH}`).join(" | ")}${basOzet ? ` || baş turu: ${basOzet.kare} kare, yaw aralığı ${basOzet.yawAralik}°, pitch aralığı ${basOzet.pitchAralik}°` : " || baş turu yapılmadı"}`, { basEtkisi: satir, basOzet });
     }
     if (KD.length) tlog(`DEPO KARŞILAŞTIRMA (aynı 5 kontrol noktası): depo kalibrasyonu hemen ardından ${md(KD, "depo")} | bizim akıştan sonra: bizim ${md(K, "biz")} · depo (kaymış, ~1 dk sonra) ${md(K, "depo")}`, { KD: KD.map((c) => c.v) });
-    if (modelBk) tlog(`KARŞILAŞTIRMA | KONTROL (yeni noktalar, öğretilmedi): bakarak+düzeltme bizim ${md(K, "biz")} · bizim+WebGazer yaması ${md(K, "bizW")} · WebGazer yöntemi (MediaPipe) ${md(K, "wgMP")} · bizim+göz küresi ${md(K, "bizK")} · göz küresi yöntemi ${md(K, "kureM")} · RealEye Light ${md(K, "reL")} · göz katsayıları ${md(K, "bizB")} · karışım %70 ${md(K, "karisim70")} · WebGazer ${md(K, "wg")} · yalnız bakarak bizim ${md(K, "bizBk")} · yalnız bakarak göz katsayıları ${md(K, "bizBBk")} · BAŞ TURLU: bizim ${md(K, "bizH")} · göz katsayıları ${md(K, "bizBH")} · göz küresi ${md(K, "kureMH")} | DÜZELTME tıklamaları (öğretmeden önce): bizim ${md(D, "biz")} · bizim+WebGazer yaması ${md(D, "bizW")} · WebGazer yöntemi (MediaPipe) ${md(D, "wgMP")} · bizim+göz küresi ${md(D, "bizK")} · göz küresi yöntemi ${md(D, "kureM")} · RealEye Light ${md(D, "reL")} · göz katsayıları ${md(D, "bizB")} · karışım %70 ${md(D, "karisim70")} · WebGazer ${md(D, "wg")}`,
+    if (modelBk) tlog(`KARŞILAŞTIRMA | KONTROL (yeni noktalar, öğretilmedi): bakarak+düzeltme bizim ${md(K, "biz")} · bizim+WebGazer yaması ${md(K, "bizW")} · WebGazer yöntemi (MediaPipe) ${md(K, "wgMP")} · bizim+göz küresi ${md(K, "bizK")} · göz küresi yöntemi ${md(K, "kureM")} · RealEye Light ${md(K, "reL")} · göz katsayıları ${md(K, "bizB")} · karışım %70 ${md(K, "karisim70")} · WebGazer ${md(K, "wg")} · yalnız bakarak bizim ${md(K, "bizBk")} · yalnız bakarak göz katsayıları ${md(K, "bizBBk")} · BAŞ TURLU: bizim ${md(K, "bizH")} · göz katsayıları ${md(K, "bizBH")} · göz küresi ${md(K, "kureMH")} | DÜZELTME tıklamaları (öğretmeden önce): bizim ${md(D, "biz")} · bizim+WebGazer yaması ${md(D, "bizW")} · WebGazer yöntemi (MediaPipe) ${md(D, "wgMP")} · bizim+göz küresi ${md(D, "bizK")} · göz küresi yöntemi ${md(D, "kureM")} · RealEye Light (yalnız bakarak modeliyle; düzeltme sonunda yeniden kurulur) ${md(D, "reL")} · göz katsayıları ${md(D, "bizB")} · karışım %70 ${md(D, "karisim70")} · WebGazer ${md(D, "wg")}`,
       { K: K.map((c) => c.v), D: D.map((c) => c.v) });
-    tlog(`RealEye Light: kurulumlar ${RE.kurulum.map((k) => `${k.neden} ${k.satir}/${k.aday} satır ${k.ms} ms`).join(" · ") || "yok"} | öznitelik süresi ${reSure()} | GazeLab ${GLK.dog?.yontem?.reL ? Math.round(GLK.dog.yontem.reL.acc) + " px" : "veri yok"}`, { reKurulum: RE.kurulum, reSure: RE.sure });
+    tlog(`RealEye Light: kurulumlar ${RE.kurulum.map((k) => `${k.neden}: ${k.kare}/${k.kareAday} kare, ${k.satir} satır, ${k.grup} grup, λ ${+k.lam.toFixed(3)}, ${k.ms} ms`).join(" · ") || "yok"} | öznitelik süresi ${reSure()} | GazeLab ${GLK.dog?.yontem?.reL ? Math.round(GLK.dog.yontem.reL.acc) + " px" : "veri yok"}`, { reKurulum: RE.kurulum, reSure: RE.sure });
   }
   const acc = last.length ? Math.round(med(last.map((c) => c.err))) : null;
   const hit = last.length ? Math.round(100 * last.filter((c) => c.ok).length / last.length) : null;
@@ -1366,7 +1387,7 @@ async function guideDone(t) {
   if (guide.dogrula) { await guideFinish(`kontrol tamam (${clicks.filter((c) => c.dogrulama === "kontrol").length} yeni nokta, öğretilmeden ölçüldü)`); return; }
   if (guide.round === "düzeltme" || guide.round >= AKIS.TUR) {
     glFazBitir();
-    if (guide.round === "düzeltme") reKur("düzeltme sonu");
+    if (guide.round === "düzeltme") await reKur("düzeltme sonu");
     if (GLAB && model && !guide.glBitti) {
       guide.glBitti = true; $("#guide").style.display = "none";
       await gazelabDogrulama();
@@ -1842,7 +1863,7 @@ function glRaporGoster() {
 const SONUC = { yontem: "biz", kaynak: "kontrol" };
 function sonucNoktalar(kaynak, k) {
   if (kaynak === "kontrol") return clicks.filter((c) => c.dogrulama === "kontrol").map((c) => {
-    const v = c.v?.[k]; return { tx: c.x, ty: c.y, px: v ? v.x : null, py: v ? v.y : null, err: v ? v.err : null, n: v ? c.ornek ?? null : null }; });
+    const v = c.v?.[k]; return { tx: c.x, ty: c.y, px: v ? v.x : null, py: v ? v.y : null, err: v ? v.err : null, n: v ? v.n ?? null : null }; });   // yöntemin kendi örnek sayısı
   const P = GLK.dog?.yontem?.[k]?.points || [];
   return (GLK.dog?.noktalar || []).map((q) => { const p = P.find((z) => z.tx === q.x && z.ty === q.y);
     return { tx: q.x, ty: q.y, px: p ? p.mx : null, py: p ? p.my : null, err: p ? p.err : null, n: p ? p.n : null }; });
@@ -1872,7 +1893,9 @@ function sonucGoster() {
     const boyut = pw && (pw.viewW !== W || pw.viewH !== H) ? ` · ⚠ pencere ölçümde ${pw.viewW}×${pw.viewH}, şimdi ${W}×${H} (yerler kayık)` : "";
     S.querySelector("#snOzet").innerHTML = !L.length ? "bu kaynakta nokta yok (aşama yapılmadı)"
       : E.length ? `ortalama <b>${ort} px</b> · medyan <b>${Math.round(med(E))} px</b> · n = ${E.length} / ${L.length} nokta${boyut}` : `veri yok (${L.length} noktanın hiçbirinde bu yöntem ölçülmedi)${boyut}`;
-    const kl = (v, a, b) => Math.min(Math.max(v, a), b), birim = SONUC.kaynak === "kontrol" ? "kare" : "örnek";
+    const kl = (v, a, b) => Math.min(Math.max(v, a), b), wgMi = k === "wg" || k === "wgK" || k === "wgGL";
+    const birim = wgMi ? "WebGazer tahmini" : SONUC.kaynak === "kontrol" ? "kare" : "örnek";
+    const nYazi = (q) => (q.n == null ? "birleşik tahmin" : `${q.n} ${birim}`);
     S.querySelector("#snSvg").innerHTML = L.map((q) => {
       let s = `<circle cx="${q.tx}" cy="${q.ty}" r="9" fill="#3b82f6" stroke="#fff" stroke-width="2"/>`;
       const ly = q.ty > H - 90 ? q.ty - 16 : q.ty + 26, anc = q.tx > W - 160 ? "end" : q.tx < 160 ? "start" : "middle";
@@ -1880,7 +1903,7 @@ function sonucGoster() {
       const px = kl(q.px, 6, W - 6), py = kl(q.py, 6, H - 6), disarida = px !== q.px || py !== q.py;
       s = `<line x1="${q.tx}" y1="${q.ty}" x2="${px}" y2="${py}" stroke="#f59e0b" stroke-width="1.5" opacity=".8"/>` + s +
         `<circle cx="${px}" cy="${py}" r="7" fill="#f97316"${disarida ? ' stroke="#fff" stroke-dasharray="2 2"' : ""}/>`;
-      return s + `<text x="${q.tx}" y="${ly}" fill="#e6edf3" font-size="13" text-anchor="${anc}">${q.n ?? "?"} ${birim} · ${q.err} px${disarida ? " (tahmin ekran dışı)" : ""}</text>`;
+      return s + `<text x="${q.tx}" y="${ly}" fill="#e6edf3" font-size="13" text-anchor="${anc}">${nYazi(q)} · ${q.err} px${disarida ? " (tahmin ekran dışı)" : ""}</text>`;
     }).join("");
   };
   S.querySelector("#snY").onchange = (e) => { SONUC.yontem = e.target.value; ciz(); };
@@ -1895,7 +1918,7 @@ function glPaket() {
   return {
     session: { id: GLK.oturumId || null, participant: null, status: GLK.bitti ? "completed" : "started", device: d, accuracy_px: b ? r1(b.acc) : null, precision_px: b ? r1(b.prec) : null,
       created_at: GLK.basEpoch, completed_at: GLK.bitti ? Date.now() / 1000 : null,
-      meta: { camera: GLK.kamera, wgCamera: wgKameraBilgi(), kameraAyari: GLK.ayar, head: { base: GLK.headBase, limits: GL.LIMITS }, dogrulama: GLK.dog,
+      meta: { desen: DESEN, camera: GLK.kamera, wgCamera: wgKameraBilgi(), kameraAyari: GLK.ayar, head: { base: GLK.headBase, limits: GL.LIMITS }, dogrulama: GLK.dog,
               sure: Object.fromEntries(Object.entries(GLK.sure).map(([k, v]) => [k, Math.round(v - (GLK.sure.basla || 0))])), diag: gaze?.diag || null } },
     recordings: [...GLK.recs, ...(GLK.cur ? [{ ...GLK.cur, head: [], acik: true }] : [])].map((r) => ({ stimulus_id: r.stimulus_id, order_idx: r.order_idx, started_at: r.started_at,
       rect: r.rect, gaze: r.gaze, mouse: r.mouse, head: r.head })),

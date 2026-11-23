@@ -98,52 +98,112 @@ function reArtir(src, p, bs) {
 
 // Çift (dual) ridge: β = Xᵀ(XXᵀ + λI)⁻¹ y. X z-skorlu, sabit terim y ortalaması (cezalandırılmaz).
 // p (1.652) ≫ n (≤900) olduğu için p×p normal denklem yerine n×n çözülür (Cholesky).
+// λ oturum başına kalibrasyon verisinden seçilir (fitSec): gruplu birini-dışarıda-bırak (grup = bir kalibrasyon noktası ya da bir
+// düzeltme tıklaması: tüm kareleri ve 9 kopyası birlikte). Çekirdek ridge özdeşliği: C = (K + λI)⁻¹, α = C·y ise grup G dışarıda
+// bırakılınca G'deki artıklar r_G = (C_GG)⁻¹ α_G. K bir kez, her λ için bir Cholesky. Ortalama/z-skor tüm kalibrasyon satırlarından
+// (dışarıda bırakılan grup dahil) — özdeşliğin varsaydığı sabit ön işlem; kontrol/GazeLab verisi hiç kullanılmaz.
+const RER_CARPAN = [1e-3, 1e-2, 1e-1, 1, 10];   // λ = p_eff × çarpan (p_eff: sabit olmayan sütun sayısı)
+function rerHazirla(F) {
+  const n = F.length, p = F[0].length;
+  const mu = new Float64Array(p), sd = new Float64Array(p);
+  for (const f of F) for (let j = 0; j < p; j++) mu[j] += f[j] / n;
+  for (const f of F) for (let j = 0; j < p; j++) sd[j] += (f[j] - mu[j]) ** 2 / n;
+  let peff = 0;
+  for (let j = 0; j < p; j++) { sd[j] = Math.sqrt(sd[j]); if (sd[j] > 1e-6) peff++; }
+  const X = new Float64Array(n * p);   // z-skor; sabit sütun (sd≈0) 0 kalır
+  for (let i = 0; i < n; i++) for (let j = 0; j < p; j++) X[i * p + j] = sd[j] > 1e-6 ? (F[i][j] - mu[j]) / sd[j] : 0;
+  return { n, p, mu, sd, X, peff };
+}
+function rerCekirdek(X, n, p) {   // K = X Xᵀ (900×1652: Node'da ~1 sn, 4 satır bloklu iç çarpım)
+  const K = new Float64Array(n * n);
+  for (let i = 0; i < n; i++) {
+    const oi = i * p; let k = 0;
+    for (; k + 3 <= i; k += 4) {
+      const o0 = k * p, o1 = o0 + p, o2 = o1 + p, o3 = o2 + p; let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+      for (let j = 0; j < p; j++) { const x = X[oi + j]; s0 += x * X[o0 + j]; s1 += x * X[o1 + j]; s2 += x * X[o2 + j]; s3 += x * X[o3 + j]; }
+      K[i * n + k] = K[k * n + i] = s0; K[i * n + k + 1] = K[(k + 1) * n + i] = s1; K[i * n + k + 2] = K[(k + 2) * n + i] = s2; K[i * n + k + 3] = K[(k + 3) * n + i] = s3;
+    }
+    for (; k <= i; k++) { const ok = k * p; let s = 0; for (let j = 0; j < p; j++) s += X[oi + j] * X[ok + j]; K[i * n + k] = s; K[k * n + i] = s; }
+  }
+  return K;
+}
+function rerCholesky(A, n) {   // yerinde: alt üçgen L (A = L Lᵀ)
+  for (let j = 0; j < n; j++) {
+    let s = A[j * n + j];
+    for (let k = 0; k < j; k++) s -= A[j * n + k] ** 2;
+    const d = Math.sqrt(Math.max(s, 1e-12)); A[j * n + j] = d;
+    for (let i = j + 1; i < n; i++) { let t = A[i * n + j]; for (let k = 0; k < j; k++) t -= A[i * n + k] * A[j * n + k]; A[i * n + j] = t / d; }
+  }
+  return A;
+}
+function rerCoz(L, n, y) {   // L Lᵀ z = y
+  const z = new Float64Array(n);
+  for (let i = 0; i < n; i++) { let t = y[i]; for (let k = 0; k < i; k++) t -= L[i * n + k] * z[k]; z[i] = t / L[i * n + i]; }
+  for (let i = n - 1; i >= 0; i--) { let t = z[i]; for (let k = i + 1; k < n; k++) t -= L[k * n + i] * z[k]; z[i] = t / L[i * n + i]; }
+  return z;
+}
+// Bir λ için: α (2 sütun) ve her grubun dışarıda-bırakma artıkları. Yc: ortalaması çıkarılmış hedefler [[x,y],...].
+function rerGrupLOO(K, n, Yc, gruplar, lam) {
+  const L = K.slice(); for (let i = 0; i < n; i++) L[i * n + i] += lam;
+  rerCholesky(L, n);
+  const a = [0, 1].map((c) => rerCoz(L, n, Yc.map((y) => y[c])));
+  const M = new Float64Array(n * n);   // M = L⁻¹ (alt üçgen), satır satır (bellekte ardışık erişim); C = Mᵀ M
+  for (let i = 0; i < n; i++) {
+    const oi = i * n;
+    for (let k = 0; k < i; k++) { const l = L[oi + k]; if (!l) continue; const ok = k * n; for (let j = 0; j <= k; j++) M[oi + j] -= l * M[ok + j]; }
+    M[oi + i] += 1;
+    const d = L[oi + i]; for (let j = 0; j <= i; j++) M[oi + j] /= d;
+  }
+  const artik = new Array(n);
+  for (const G of gruplar) {
+    const g = G.length, C = new Float64Array(g * g), m = new Float64Array(g);
+    for (let k = Math.min(...G); k < n; k++) {   // C_GG = Σ_k M[k,G]ᵀ M[k,G]
+      const ok = k * n; for (let u = 0; u < g; u++) m[u] = M[ok + G[u]];
+      for (let u = 0; u < g; u++) { const x = m[u]; if (!x) continue; for (let v = 0; v <= u; v++) C[u * g + v] += x * m[v]; }
+    }
+    for (let u = 0; u < g; u++) for (let v = 0; v < u; v++) C[v * g + u] = C[u * g + v];
+    rerCholesky(C, g);
+    const r = [0, 1].map((c) => rerCoz(C, g, G.map((i) => a[c][i])));
+    G.forEach((i, u) => (artik[i] = [r[0][u], r[1][u]]));
+  }
+  return { a, artik };
+}
 class ReRidge {
+  _bitir(H, my, a, lam) {   // β = Xᵀ α
+    const { n, p, X } = H;
+    this.b = a.map((z) => { const b = new Float64Array(p); for (let i = 0; i < n; i++) { const v = z[i], oi = i * p; for (let j = 0; j < p; j++) b[j] += X[oi + j] * v; } return b; });
+    Object.assign(this, { mu: H.mu, sd: H.sd, my, n, p, lam, peff: H.peff });
+    return this;
+  }
   fit(F, Y, lam = 1) {
-    const n = F.length, p = F[0].length;
-    const mu = new Float64Array(p), sd = new Float64Array(p);
-    for (const f of F) for (let j = 0; j < p; j++) mu[j] += f[j] / n;
-    for (const f of F) for (let j = 0; j < p; j++) sd[j] += (f[j] - mu[j]) ** 2 / n;
-    for (let j = 0; j < p; j++) sd[j] = Math.sqrt(sd[j]);
-    const X = new Float64Array(n * p);   // z-skor; sabit sütun (sd≈0) 0 kalır. 900×1652 kurulum Node'da ~1 sn (4 satır bloklu iç çarpım)
-    for (let i = 0; i < n; i++) for (let j = 0; j < p; j++) X[i * p + j] = sd[j] > 1e-6 ? (F[i][j] - mu[j]) / sd[j] : 0;
-    const K = new Float64Array(n * n);
-    for (let i = 0; i < n; i++) {
-      const oi = i * p;
-      let k = 0;
-      for (; k + 3 <= i; k += 4) {   // 4 satır birlikte: X[i] bir kez okunur
-        const o0 = k * p, o1 = o0 + p, o2 = o1 + p, o3 = o2 + p; let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
-        for (let j = 0; j < p; j++) { const x = X[oi + j]; s0 += x * X[o0 + j]; s1 += x * X[o1 + j]; s2 += x * X[o2 + j]; s3 += x * X[o3 + j]; }
-        K[i * n + k] = K[k * n + i] = s0; K[i * n + k + 1] = K[(k + 1) * n + i] = s1; K[i * n + k + 2] = K[(k + 2) * n + i] = s2; K[i * n + k + 3] = K[(k + 3) * n + i] = s3;
-      }
-      for (; k <= i; k++) {
-        const ok = k * p; let s = 0;
-        for (let j = 0; j < p; j++) s += X[oi + j] * X[ok + j];
-        K[i * n + k] = s; K[k * n + i] = s;
-      }
-      K[i * n + i] += lam;
+    const H = rerHazirla(F), K = rerCekirdek(H.X, H.n, H.p);
+    const my = [0, 1].map((c) => Y.reduce((s, y) => s + y[c], 0) / H.n);
+    for (let i = 0; i < H.n; i++) K[i * H.n + i] += lam;
+    rerCholesky(K, H.n);
+    return this._bitir(H, my, [0, 1].map((c) => rerCoz(K, H.n, Y.map((y) => y[c] - my[c]))), lam);
+  }
+  // grup: her satırın grup anahtarı. Hata = grubun ortalama dışarıda-bırakma tahmininin hedefe uzaklığı (px);
+  // seçim: gruplar üzerinden medyanı en küçük λ. tablo: her λ için medyan/ortalama.
+  // bekle: her λ arasında çağrılır (sayfa donmasın; kurulum 900×1652'de Node'da ~4 sn, λ başına ~0,65 sn)
+  async fitSec(F, Y, grup, carpanlar = RER_CARPAN, bekle = null) {
+    const H = rerHazirla(F), n = H.n, K = rerCekirdek(H.X, n, H.p);
+    const my = [0, 1].map((c) => Y.reduce((s, y) => s + y[c], 0) / n), Yc = Y.map((y) => [y[0] - my[0], y[1] - my[1]]);
+    const harita = new Map(); grup.forEach((g, i) => { if (!harita.has(g)) harita.set(g, []); harita.get(g).push(i); });
+    const gruplar = [...harita.values()];
+    if (gruplar.length < 3) throw new Error(`λ seçimi için en az 3 grup gerekli (${gruplar.length})`);
+    const med = (A) => { const s = [...A].sort((x, y) => x - y), k = s.length >> 1; return s.length % 2 ? s[k] : (s[k - 1] + s[k]) / 2; };
+    let en = null; const tablo = [];
+    for (const c of carpanlar) {
+      if (bekle) await bekle();
+      const lam = H.peff * c, { a, artik } = rerGrupLOO(K, n, Yc, gruplar, lam);
+      const E = gruplar.map((G) => Math.hypot(G.reduce((s, i) => s + artik[i][0], 0) / G.length, G.reduce((s, i) => s + artik[i][1], 0) / G.length));
+      const sat = { carpan: c, lam, medyan: med(E), ort: E.reduce((s, e) => s + e, 0) / E.length };
+      tablo.push(sat);
+      if (Number.isFinite(sat.medyan) && (!en || sat.medyan < en.sat.medyan)) en = { sat, a };
     }
-    // Cholesky (K = L Lᵀ, alt üçgen K'nın içine)
-    for (let j = 0; j < n; j++) {
-      let s = K[j * n + j];
-      for (let k = 0; k < j; k++) s -= K[j * n + k] ** 2;
-      const d = Math.sqrt(Math.max(s, 1e-12)); K[j * n + j] = d;
-      for (let i = j + 1; i < n; i++) {
-        let t = K[i * n + j];
-        for (let k = 0; k < j; k++) t -= K[i * n + k] * K[j * n + k];
-        K[i * n + j] = t / d;
-      }
-    }
-    const my = [0, 1].map((c) => Y.reduce((a, y) => a + y[c], 0) / n);
-    this.b = [0, 1].map((c) => {
-      const z = new Float64Array(n);
-      for (let i = 0; i < n; i++) { let t = Y[i][c] - my[c]; for (let k = 0; k < i; k++) t -= K[i * n + k] * z[k]; z[i] = t / K[i * n + i]; }
-      for (let i = n - 1; i >= 0; i--) { let t = z[i]; for (let k = i + 1; k < n; k++) t -= K[k * n + i] * z[k]; z[i] = t / K[i * n + i]; }
-      const b = new Float64Array(p);   // β = Xᵀ α
-      for (let i = 0; i < n; i++) { const a = z[i], oi = i * p; for (let j = 0; j < p; j++) b[j] += X[oi + j] * a; }
-      return b;
-    });
-    Object.assign(this, { mu, sd, my, n, p, lam });
+    if (!en) throw new Error("λ seçilemedi (hata hesaplanamadı)");
+    this._bitir(H, my, en.a, en.sat.lam);
+    this.secim = { tablo, grup: gruplar.length, peff: H.peff };
     return this;
   }
   predict(f) {
