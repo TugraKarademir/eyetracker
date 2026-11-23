@@ -239,8 +239,11 @@ class GazeTracker {
   async load() {
     this.onStatus("Bakış modeli yükleniyor…");
     // Tanı sayaçları: işlenen kare, yüz bulunan kare, hata (telefonda yüz bulunamıyordu; hata sessizce yutuluyordu)
-    // isci: yüz bulucu Web Worker'da mı; atlanan: worker meşgulken atlanan kare; isciMs/isciN: worker içindeki detect süresi
-    this.diag = { kare: 0, yuz: 0, hata: 0, sonHata: null, delegate: null, video: null, isci: false, atlanan: 0, isciMs: 0, isciN: 0 };
+    // islemeMs/islemeN: saf MediaPipe detect süresi (worker yolunda worker'ın ölçtüğü); toplamMs: karenin ana iş parçacığındaki
+    // işleme maliyeti (ana yol: detect + öznitelik/kancalar; worker yolu: yalnız öznitelik/kancalar, bekleme hariç).
+    // isci: yüz bulucu Web Worker'da mı; atlanan: worker meşgulken atlanan kare; gecikmeMs/gecikmeN: worker yolunda kare yakalama → sonuç;
+    // isciZamanAsimi: 2 sn'de yanıt gelmeyen kare (3 olunca ana yola geçilir)
+    this.diag = { kare: 0, yuz: 0, hata: 0, sonHata: null, delegate: null, video: null, isci: false, atlanan: 0, gecikmeMs: 0, gecikmeN: 0, isciZamanAsimi: 0 };
     // Worker yolu (ana iş parçacığı serbest kalır). ?isci=0 ya da gereken özellik yoksa / kurulum başarısızsa eski yol.
     const kapali = new URLSearchParams(location.search).get("isci") === "0";
     if (!kapali && typeof Worker === "function" && typeof OffscreenCanvas !== "undefined" && typeof createImageBitmap === "function") {
@@ -273,8 +276,8 @@ class GazeTracker {
       const w = new Worker(GZ_ISCI_URL);   // klasik worker (bkz. gaze_worker.js başı)
       this._isci = w;
       const sure = setTimeout(() => red(new Error("worker kurulumu 15 sn içinde bitmedi")), 15000);
-      w.onerror = (e) => {
-        const m = `worker hatası: ${e.message || e}`;
+      w.onerror = w.onmessageerror = (e) => {
+        const m = `worker hatası: ${e.message || e.type || e}`;
         if (!this.diag.isci) { clearTimeout(sure); red(new Error(m)); return; }
         this._anaYolaGec(m);
       };
@@ -298,13 +301,19 @@ class GazeTracker {
     this._anaKur().catch((e) => { this.diag.sonHata = String(e?.message || e).slice(0, 160); });
   }
   // Worker yanıtı: kare yakalandığı anın t'si ve kırpma bilgisiyle ortak işleme
+  // Bayat yanıt (bekçi zaten bırakmış ya da başka kare uçuşta) kimlikten tanınır ve atılır.
   _isciSonuc(m) {
-    const u = this._ucus; this._ucus = null;
-    if (!u) { m.bmp?.close?.(); return; }
+    const u = this._ucus;
+    if (!u || u.id !== m.id) { m.bmp?.close?.(); return; }
+    this._ucus = null;
     if (m.tip === "hata") { this.diag.hata++; this.diag.sonHata = m.e; m.bmp?.close?.(); return; }
-    this.diag.isciMs += m.ms; this.diag.isciN++;
-    this.diag.islemeMs = (this.diag.islemeMs || 0) + (performance.now() - u.t0); this.diag.islemeN = (this.diag.islemeN || 0) + 1;
-    try { this._isle(m.res, u.t, m.bmp, u.t0, u.kirp, u.zoom); }
+    const t1 = performance.now();
+    this.diag.gecikmeMs += t1 - u.t0; this.diag.gecikmeN++;
+    // Duraklatılmışsa ya da kare yakalandıktan sonra yeni bir kayıt (kalibrasyon noktası/tıklama penceresi) başladıysa kare atılır:
+    // kayıt, başlangıcından önce yakalanmış kare almasın.
+    if (this.paused || (this.rec && this.rec !== u.rec)) { m.bmp.close(); return; }
+    this.diag.islemeMs = (this.diag.islemeMs || 0) + m.ms; this.diag.islemeN = (this.diag.islemeN || 0) + 1;
+    try { this._isle(m.res, u.t, m.bmp, t1, u.kirp, u.zoom); }
     finally { m.bmp.close(); }
   }
 
@@ -338,13 +347,21 @@ class GazeTracker {
     if (this.diag && this._meta?.presentedFrames != null) this.diag.kameraKare = this._meta.presentedFrames;
     // Worker yolu: aynı anda en çok 1 kare uçuşta; meşgulse bu kare atlanır. Zaman damgası kare yakalandığı an.
     if (this._isci) {
-      if (this._ucus) { this.diag.atlanan++; next(); return; }
+      if (this._ucus) {
+        // Bekçi: 2 sn'den uzun uçuşta kalan kare bırakılır; 3. kez olursa worker kapatılıp ana yola geçilir
+        if (performance.now() - this._ucus.t0 > 2000) {
+          this._ucus = null; this.diag.isciZamanAsimi++; this.diag.hata++; this.diag.sonHata = "işçi yanıt vermedi (2 sn)";
+          if (this.diag.isciZamanAsimi >= 3) { this._anaYolaGec("işçi yanıt vermedi (3 kez 2 sn)"); setTimeout(next, 200); return; }
+        } else { this.diag.atlanan++; next(); return; }
+      }
       const t = performance.now() / 1000, src = this._kaynak(), t0 = performance.now();
-      const u = this._ucus = { t, t0, kirp: this.kirp, zoom: this.zoom };
+      const u = this._ucus = { id: (this._kareNo = (this._kareNo || 0) + 1), t, t0, kirp: this.kirp, zoom: this.zoom, rec: this.rec };
+      const birak = (e) => { if (this._ucus === u) this._ucus = null; this.diag.hata++; this.diag.sonHata = String(e?.message || e).slice(0, 160); };
       createImageBitmap(src).then((bmp) => {
-        if (this._ucus !== u || !this._isci) { bmp.close(); return; }   // bu arada worker kapandı
-        this._isci.postMessage({ tip: "kare", bmp, ts: t0 }, [bmp]);
-      }).catch((e) => { if (this._ucus === u) this._ucus = null; this.diag.hata++; this.diag.sonHata = String(e?.message || e).slice(0, 160); });
+        if (this._ucus !== u || !this._isci) { bmp.close(); return; }   // bu arada worker kapandı ya da bekçi bıraktı
+        try { this._isci.postMessage({ tip: "kare", id: u.id, bmp }, [bmp]); }
+        catch (e) { bmp.close(); birak(e); }
+      }).catch(birak);
       next(); return;
     }
     if (!this.mesh) { setTimeout(next, 200); return; }   // worker çöktü, ana yol henüz kuruluyor
@@ -372,7 +389,7 @@ class GazeTracker {
     this.kareKaynak = src;
     try { this._isleYuz(res, lm, t, src, w, h, kirp, zoom); }
     finally { this.kareKaynak = null; }
-    if (this.diag) this.diag.toplamMs = (this.diag.toplamMs || 0) + (performance.now() - t0);   // MediaPipe + göz yaması + küre + kancalar
+    if (this.diag) this.diag.toplamMs = (this.diag.toplamMs || 0) + (performance.now() - t0);   // ana yol: MediaPipe + göz yaması + küre + kancalar; worker yolu: sonuç geldikten sonraki ana iş parçacığı işi
   }
   _isleYuz(res, lm, t, src, w, h, kirp, zoom) {
     if (lm && lm.length >= 478) {

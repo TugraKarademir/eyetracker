@@ -4,9 +4,12 @@
 //
 // Mesajlar:
 //   gelen  {tip:"kur", base, model}                → giden {tip:"hazir", delegate, gpuHata} | {tip:"kurHata", e}
-//   gelen  {tip:"kare", bmp: ImageBitmap, ts (ms)} → giden {tip:"sonuc", res, ms, bmp} | {tip:"hata", e, bmp}
-//   bmp her durumda ana iş parçacığına geri aktarılır (göz yamaları aynı kareden kesilir).
-let isaretci = null;
+//   gelen  {tip:"kare", id, bmp: ImageBitmap} → giden {tip:"sonuc", id, res, ms, bmp} | {tip:"hata", id, e, bmp}
+//   bmp her durumda ana iş parçacığına geri aktarılır (göz yamaları aynı kareden kesilir); id bayat yanıtı ayırmak için.
+// detectForVideo zaman damgası worker'ın kendi saatinden, kesin artan (ana yol da detect anının performance.now()'unu verir;
+// worker'ın saat başlangıcı ana iş parçacığınınkinden farklı olduğu için ana saatten gelen değer kullanılmaz).
+let isaretci = null, sonTs = 0;
+const ts = () => (sonTs = Math.max(performance.now(), sonTs + 0.001));
 
 async function kur({ base, model }) {
   const v = await import(`${base}/vision_bundle.mjs`);
@@ -18,6 +21,12 @@ async function kur({ base, model }) {
   let delegate = "GPU", gpuHata = null;
   try { isaretci = await mk("GPU"); }
   catch (e) { gpuHata = String(e?.message || e).slice(0, 160); isaretci = await mk("CPU"); delegate = "CPU"; }
+  // Isınma: ilk detect GPU'da birkaç saniye sürebilir (gölgelendirici derleme); "hazir"dan önce yapılır ki ilk gerçek kare
+  // ana iş parçacığındaki 2 sn bekçisine takılmasın. Sonucu kullanılmaz.
+  try {
+    const oc = new OffscreenCanvas(64, 64); oc.getContext("2d").fillRect(0, 0, 64, 64);
+    const b = oc.transferToImageBitmap(); isaretci.detectForVideo(b, ts()); b.close();
+  } catch {}
   return { delegate, gpuHata };
 }
 
@@ -38,10 +47,10 @@ onmessage = async (e) => {
   if (m.tip === "kare") {
     const t0 = performance.now();
     try {
-      const res = yalin(isaretci.detectForVideo(m.bmp, m.ts));
-      postMessage({ tip: "sonuc", res, ms: performance.now() - t0, bmp: m.bmp }, [m.bmp]);
+      const r = isaretci.detectForVideo(m.bmp, ts()), ms = performance.now() - t0;   // ms: saf detect (ana yoldaki islemeMs ile aynı anlam)
+      postMessage({ tip: "sonuc", id: m.id, res: yalin(r), ms, bmp: m.bmp }, [m.bmp]);
     } catch (x) {
-      postMessage({ tip: "hata", e: String(x?.message || x).slice(0, 160), bmp: m.bmp }, [m.bmp]);
+      postMessage({ tip: "hata", id: m.id, e: String(x?.message || x).slice(0, 160), bmp: m.bmp }, [m.bmp]);
     }
   }
 };

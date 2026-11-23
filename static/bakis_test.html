@@ -1263,13 +1263,16 @@ async function guideFinish(neden) {
 let tanıOnce = null;
 function tanı() {
   const d = gaze?.diag; if (!d) return null;
-  const o = tanıOnce || { kare: 0, yuz: 0, hata: 0, kameraKare: d.kameraKare, islemeMs: 0, islemeN: 0, toplamMs: 0 }; tanıOnce = { ...d };
+  const o = tanıOnce || { kare: 0, yuz: 0, hata: 0, kameraKare: d.kameraKare, islemeMs: 0, islemeN: 0, toplamMs: 0, gecikmeMs: 0, gecikmeN: 0, atlanan: 0 }; tanıOnce = { ...d };
   if (o.kameraKare == null) o.kameraKare = d.kameraKare;   // ilk karelerden önce alınan tanıda sayaç henüz yoktu
   const n = (d.islemeN || 0) - (o.islemeN || 0);
   return { ...d, araKare: d.kare - o.kare, araYuz: d.yuz - o.yuz, araHata: d.hata - o.hata,
            araKamera: d.kameraKare != null && o.kameraKare != null ? d.kameraKare - o.kameraKare : null,   // kameranın gönderdiği (gerçek)
            araIslemeMs: n ? Math.round(((d.islemeMs || 0) - (o.islemeMs || 0)) / n) : null,                // MediaPipe, kare başına
-           araToplamMs: n ? Math.round(((d.toplamMs || 0) - (o.toplamMs || 0)) / n) : null };              // tüm kare işleme, kare başına
+           araToplamMs: n ? Math.round(((d.toplamMs || 0) - (o.toplamMs || 0)) / n) : null,                // ana iş parçacığında kare işleme, kare başına
+           // yalnız işçi (Web Worker) yolunda: kare yakalama → sonuç gecikmesi ve işçi meşgulken atlanan kare
+           araGecikmeMs: d.isci && (d.gecikmeN || 0) > (o.gecikmeN || 0) ? Math.round(((d.gecikmeMs || 0) - (o.gecikmeMs || 0)) / ((d.gecikmeN || 0) - (o.gecikmeN || 0))) : null,
+           araAtlanan: d.isci ? (d.atlanan || 0) - (o.atlanan || 0) : null };
 }
 // Kamera karesinin ortalama parlaklığı (0-255): yüz bulunamıyorsa en sık sebep karanlık
 const parlakCv = document.createElement("canvas"); parlakCv.width = 32; parlakCv.height = 18;
@@ -1301,7 +1304,7 @@ function tanıBaslat() {
     const parlak = kareParlakligi(), oran = x.araKare ? x.araYuz / x.araKare : 0;
     const ilk = performance.now() - t0 < 30000, kotu = !x.araKare || oran < 0.5 || x.araKare < 50;   // < 10 kare/sn de yazılır
     if (ilk || kotu || x.araHata)
-      tlog(`[tanı] son 5 sn: ${x.araKare} kare işlendi (kamera ${x.araKamera ?? "?"} kare gönderdi), yüz ${x.araYuz}, hata ${x.araHata}${x.sonHata ? ` (son hata: ${x.sonHata})` : ""} | işleme ${x.araIslemeMs ?? "-"} ms MediaPipe / ${x.araToplamMs ?? "-"} ms toplam | ${x.delegate}${x.gpuHata ? ` (GPU açılamadı: ${x.gpuHata})` : ""}, video ${x.video}, parlaklık ${parlak ?? "-"}/255${kamYavasMi(x) ? " | ⚠ KAMERA YAVAŞ" : ""}${islemYavasMi(x) ? ((x.araToplamMs ?? 99) < 40 ? " | ⚠ KARE ATLANIYOR (işleme hızlı: sayfa arka planda ya da tarayıcı kısıyor)" : " | ⚠ İŞLEME YAVAŞ") : ""} | sayfa ${document.visibilityState}${document.hasFocus() ? "" : ", odak yok"}${kamAyarMetni()}`, { ...x, parlak, kameraAyar: kamAyar() });
+      tlog(`[tanı] son 5 sn: ${x.araKare} kare işlendi (kamera ${x.araKamera ?? "?"} kare gönderdi), yüz ${x.araYuz}, hata ${x.araHata}${x.sonHata ? ` (son hata: ${x.sonHata})` : ""} | işleme ${x.araIslemeMs ?? "-"} ms MediaPipe / ${x.araToplamMs ?? "-"} ms toplam${x.isci ? ` / işçi gecikmesi ${x.araGecikmeMs ?? "-"} ms, atlanan ${x.araAtlanan}` : ""} | ${x.delegate} (${x.isci ? "İşçi" : "Ana"})${x.gpuHata ? ` (GPU açılamadı: ${x.gpuHata})` : ""}, video ${x.video}, parlaklık ${parlak ?? "-"}/255${kamYavasMi(x) ? " | ⚠ KAMERA YAVAŞ" : ""}${islemYavasMi(x) ? ((x.isci ? Math.max(x.araIslemeMs ?? 99, x.araToplamMs ?? 99) : x.araToplamMs ?? 99) < 40 ? " | ⚠ KARE ATLANIYOR (işleme hızlı: sayfa arka planda ya da tarayıcı kısıyor)" : " | ⚠ İŞLEME YAVAŞ") : ""} | sayfa ${document.visibilityState}${document.hasFocus() ? "" : ", odak yok"}${kamAyarMetni()}`, { ...x, parlak, kameraAyar: kamAyar() });
     kotuSay = (!x.araKare || oran < 0.3) ? kotuSay + 1 : 0;
     if (kotuSay >= 2) {
       yuzUyari.innerHTML = !x.araKare ? "📷 Kameradan görüntü gelmiyor.<br><small>Kamera başka bir programda (Zoom, OBS, Teams) ya da başka sekmede açık olabilir.</small>"
@@ -1532,7 +1535,7 @@ function glFazBasla(ad) {
   const d = gaze?.diag || {};
   GLK.cur = { stimulus_id: ad, order_idx: GLK.recs.length, started_at: Date.now() / 1000, t0: simdi(),
     rect: { left: 0, top: 0, scale: 1, viewW: innerWidth, viewH: innerHeight, width: innerWidth, height: innerHeight },
-    gaze: {}, headRaw: [], mouse: [], d0: { kare: d.kare || 0, yuz: d.yuz || 0, kameraKare: d.kameraKare ?? null, islemeMs: d.islemeMs || 0, toplamMs: d.toplamMs || 0, islemeN: d.islemeN || 0 },
+    gaze: {}, headRaw: [], mouse: [], d0: { kare: d.kare || 0, yuz: d.yuz || 0, kameraKare: d.kameraKare ?? null, islemeMs: d.islemeMs || 0, toplamMs: d.toplamMs || 0, islemeN: d.islemeN || 0, gecikmeMs: d.gecikmeMs || 0, gecikmeN: d.gecikmeN || 0, isci: d.isci ?? null },
     kirpma: 0, lastHead: -1e9, lastMove: -1e9, raf: 0, uzunN: 0, uzunMs: 0, uzunMax: 0, wgGecis: 0 };
   GLK.sure[ad + "Bas"] = simdi();
 }
@@ -1548,7 +1551,10 @@ function glFazBitir() {
   if (bu.gorunur) { c.basUyariMs = (c.basUyariMs || 0) + (simdi() - bu.basla); bu.gorunur = false; bu.disari = bu.iceri = null; basUyariGoster(false); }
   c.rect.basUyari = { n: c.basUyariN || 0, sn: +((c.basUyariMs || 0) / 1000).toFixed(1) };
   { const n = (d.islemeN || 0) - c.d0.islemeN;
-    c.rect.islemeMs = n ? Math.round(((d.islemeMs || 0) - c.d0.islemeMs) / n) : null; c.rect.toplamMs = n ? Math.round(((d.toplamMs || 0) - c.d0.toplamMs) / n) : null; }
+    c.rect.islemeMs = n ? Math.round(((d.islemeMs || 0) - c.d0.islemeMs) / n) : null; c.rect.toplamMs = n ? Math.round(((d.toplamMs || 0) - c.d0.toplamMs) / n) : null;
+    // İşleme yeri (aşama içinde işçi çökerse ana yola geçmiş olabilir) ve işçi gecikmesi (yalnız işçi yolunda ölçülür)
+    c.rect.isci = c.d0.isci == null && d.isci == null ? null : c.d0.isci === d.isci ? !!d.isci : "gecis";
+    const gn = (d.gecikmeN || 0) - c.d0.gecikmeN; c.rect.gecikmeMs = gn ? Math.round(((d.gecikmeMs || 0) - c.d0.gecikmeMs) / gn) : null; }
   c.head = c.headRaw.map(([t, s]) => { const h = GL.headDelta(s, GLK.headBase);
     return h ? [t, +h.yaw.toFixed(1), +h.pitch.toFixed(1), +h.roll.toFixed(1), +h.scale.toFixed(1), +h.shift.toFixed(1)] : null; }).filter(Boolean);
   for (const k of ["headRaw", "d0", "lastHead", "lastMove", "kirpma", "t0", "raf", "uzunN", "uzunMs", "uzunMax", "wgGecis"]) delete c[k];
@@ -1786,6 +1792,8 @@ function glFazTablosu() {
     const span = biz.length > 1 ? (biz.at(-1)[0] - biz[0][0]) / 1000 : 0;
     return { "Aşama": ad[r.stimulus_id] || r.stimulus_id, "Süre sn": r1(sn), "Kamera fps (gerçek)": sn && r.rect.kameraKare != null ? r1(r.rect.kameraKare / sn) : null,
       "İşlenen kare": r.rect.kare, "İşleme fps": sn ? r1(r.rect.kare / sn) : null, "MediaPipe ms/kare": r.rect.islemeMs ?? null, "Toplam ms/kare": r.rect.toplamMs ?? null,
+      "İşleme yeri": r.rect.isci === "gecis" ? "İşçi→Ana" : r.rect.isci == null ? null : r.rect.isci ? "İşçi" : "Ana",
+      "İşçi gecikmesi ms/kare": r.rect.isci === false ? "veri yok" : r.rect.gecikmeMs ?? null,
       "Ekran çizim Hz (rAF)": r.rect.rafHz ?? null, "Uzun görev adet": r.rect.uzunGorevDestek ? r.rect.uzunGorev?.n ?? null : "ölçülemedi",
       "Uzun görev toplam ms": r.rect.uzunGorevDestek ? r.rect.uzunGorev?.ms ?? null : null, "En uzun görev ms": r.rect.uzunGorevDestek ? r.rect.uzunGorev?.enUzun ?? null : null,
       "WebGazer aç/kapa": r.rect.wgGecis ?? null,
@@ -1814,7 +1822,7 @@ function glOturumTablosu() {
     ["Kamera", "Yakınlaştırma (ayar)", GLK.ayar ? `${GLK.ayar.zoom}× (${GLK.ayar.mod})` : `${gaze?.zoom || 1}×`], ["Kamera", "Modele giden kare (MediaPipe)", x.islenen || null],
     ["Kamera", "Göz köşeleri arası (ayar)", GLK.ayar?.gozPx != null ? `${GLK.ayar.gozPx} px` : null], ["Kamera", "Yüz genişliği (ayar)", GLK.ayar?.yuzPay != null ? `%${Math.round(100 * GLK.ayar.yuzPay)}` : null],
     ["Kamera", "Uzaklık (MediaPipe tahmini)", GLK.ayar?.uzaklik != null ? `${GLK.ayar.uzaklik} cm` : null],
-    ["Kamera", "İşleme ortamı", x.delegate || null], ["Kamera", "Toplam işlenen kare / yüz", x.kare != null ? `${x.kare} / ${x.yuz}` : null],
+    ["Kamera", "İşleme ortamı", x.delegate ? `${x.delegate} / ${x.isci ? "İşçi (Web Worker)" : "Ana iş parçacığı"}` : null], ["Kamera", "Toplam işlenen kare / yüz", x.kare != null ? `${x.kare} / ${x.yuz}` : null],
     ["WebGazer", "Kamera", w?.width ? `${w.width}×${w.height}${w.frameRate ? ` @ ${w.frameRate} fps` : ""}${w.paylasilan ? " (sayfanın akışı)" : ""}` : "yok"],
     ["WebGazer", "Öğretilen nokta", wg ? wgN : null], ["WebGazer", "Yüz bulamadı (kare)", wg ? wgYuzYok : null],
     ["Cihaz", "Tarayıcı / tür", `${d.browser} / ${d.type}`], ["Cihaz", "Dil", d.lang],
