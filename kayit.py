@@ -116,10 +116,10 @@ def ornek_ekle(con, lesson, sid, t, row):
 
 
 def kurulum_ekle(con, lesson, sid, t, setup):
-    s = _js(setup)
+    s = json.dumps(setup, ensure_ascii=False, sort_keys=True)
     son = con.execute("SELECT setup FROM setups WHERE lesson_code=? AND sid=?"
                       " ORDER BY rowid DESC LIMIT 1", (lesson, sid)).fetchone()
-    if son and son[0] == s:
+    if son and json.dumps(json.loads(son[0]), ensure_ascii=False, sort_keys=True) == s:
         return False
     with con:
         con.execute("INSERT INTO setups VALUES(?,?,?,?)", (lesson, sid, t, s))

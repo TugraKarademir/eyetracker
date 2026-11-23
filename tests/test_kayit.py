@@ -55,6 +55,11 @@ class KayitTest(unittest.TestCase):
         self.assertIsNone(sp[m2])
         self.assertEqual(aktif_materyal(con, "D1"), m2)
 
+    def test_kurulum_anahtar_sirasi_onemsiz(self):
+        con = ac(":memory:")
+        self.assertTrue(kurulum_ekle(con, "D1", "s1", 1, {"a": 1, "b": 2}))
+        self.assertFalse(kurulum_ekle(con, "D1", "s1", 2, {"b": 2, "a": 1}))
+
     def test_kurulum_degismezse_yazilmaz(self):
         con = kur()
         self.assertTrue(kurulum_ekle(con, "D1", "s1", 1, {"a": 1}))

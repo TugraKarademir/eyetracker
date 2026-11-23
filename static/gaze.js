@@ -224,7 +224,7 @@ class GazeTracker {
     this.wgModel = null; this.wgClickF = []; this.wgClickY = []; this.wgPoint = null;
     this.wfx = new OneEuro(); this.wfy = new OneEuro(); this.wgAssigner = new RegionAssigner();
     this.point = null; this.region = null; this.stale = false;
-    this.win = { n: 0, counts: {}, pts: [], wgN: 0, wgCounts: {} };
+    this.win = { n: 0, counts: {}, pts: [], scr: [], wgN: 0, wgCounts: {} };
     this.dot = null; this.showDot = false;
     this._onClick = (e) => this.learnClick(e);
     // Model EKRAN koordinatında çalışır: kalibrasyon tam ekranda yapılsa da ders normal pencerede
@@ -420,12 +420,13 @@ class GazeTracker {
     this.win.n++;
     this.win.counts[name] = (this.win.counts[name] || 0) + 1;
     if (uv && this.win.n % 3 === 0) this.win.pts.push(uv);  // ~10 nokta/sn
+    if (x != null && !document.hidden && this.win.n % 3 === 0) this.win.scr.push([performance.now(), x / innerWidth, y / innerHeight]);  // tam ekran izi (sayfa oranı, ekran dışı dahil)
   }
 
   /** Son gönderimden bu yana özet: {cal, region, share, pts} ya da kalibre değilse {cal:false} */
   flush() {
     const w = this.win;
-    this.win = { n: 0, counts: {}, pts: [], wgN: 0, wgCounts: {} };
+    this.win = { n: 0, counts: {}, pts: [], scr: [], wgN: 0, wgCounts: {} };
     if (!this.model || this.stale || !this.tracking) return { cal: false };
     if (this.coarse) {   // zayıf kalibrasyon: öğretmene bölge gitmez; yalnız ekran dışı oranı (öğrencinin kendi "ekrana bakmıyor" kararı için)
       const tot = w.n || 0;
@@ -438,9 +439,11 @@ class GazeTracker {
     for (const k in w.counts) share[k] = +(w.counts[k] / w.n).toFixed(3);
     const region = Object.entries(w.counts).sort((a, b) => b[1] - a[1])[0][0];
     const pts = w.pts.slice(-30).map(([u, v]) => [+u.toFixed(3), +v.toFixed(3)]);
+    const now = performance.now(), kir = (v) => +Math.max(-0.2, Math.min(1.2, v)).toFixed(3);
+    const scr = w.scr.slice(-30).map(([t, x, y]) => [Math.round(t - now), kir(x), kir(y)]);
     const wgShare = {};   // WebGazer yöntemiyle aynı pencerede bölge payları (yalnız kayıt; öğretmen paneli bizim modeli gösterir)
     for (const k in w.wgCounts) wgShare[k] = +(w.wgCounts[k] / w.wgN).toFixed(3);
-    return { cal: true, region, share, pts, ...(w.wgN ? { wgShare } : {}) };
+    return { cal: true, region, share, pts, scr, ...(w.wgN ? { wgShare } : {}) };
   }
 
   // Kalibrasyon sırasındaki pencere/ekran geometrisi değişirse model geçersizdir

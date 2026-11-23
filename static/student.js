@@ -69,8 +69,26 @@ async function sendMetrics() {
   const away = s.lookingAway || !!(g && (g.cal || g.coarse) && (g.share?.disari || 0) >= 0.6);
   try {
     await api("/api/metrics", { code: CODE, sid: SID, attention: s.attention, energy: s.energy, emotion: s.emotion,
-      face: s.face, lookingAway: away, eyesClosed: s.eyesClosed, tabHidden: document.hidden, gaze: g, ekran: ekranBilgi() });
+      face: s.face, lookingAway: away, eyesClosed: s.eyesClosed, tabHidden: document.hidden, gaze: g, ekran: ekranBilgi(), kurulum: kurulumBilgi(), ...kalYeni() });
   } catch (err) { if (/aktif değil/.test(err.message)) finish(); }
+}
+// Kalıcı kayıt için kurulum özeti (sunucu doğrular/kırpar) ve yalnız yeni kalibrasyon raporu
+let sonKalAt = null;
+function kalYeni() {
+  const r = gaze?.report;
+  if (!r || r.at == null || r.at === sonKalAt) return {};
+  sonKalAt = r.at;
+  return { kal: r };
+}
+function kurulumBilgi() {
+  const st = $("#video").srcObject?.getVideoTracks?.()[0]?.getSettings?.() || {};
+  const m = (navigator.userAgent.match(/(Edg|OPR|Firefox|Chrome|Version)\/(\d+)/) || []);
+  const ad = { Edg: "Edge", OPR: "Opera", Version: "Safari" }[m[1]] || m[1];
+  const d = gaze?.diag, fps = d?.islemeN && d.toplamMs ? Math.round(1000 * d.islemeN / d.toplamMs) : null;
+  const dist = gaze?.latest?.pose3?.dist;
+  return { kamera: st.width ? `${st.width}x${st.height}` : null, fps: st.frameRate ? Math.round(st.frameRate) : null,
+    ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, dpr: +(devicePixelRatio || 1).toFixed(2),
+    fs: !!document.fullscreenElement, tarayici: ad ? `${ad} ${m[2]}` : "", uzaklikCm: Number.isFinite(dist) ? Math.round(dist) : null, islemeFps: fps };
 }
 // Tarayıcı / ekran boyutu: öğretmene gider ve değiştikçe konsola yazılır ([PENCERE ...], window.pencereLog)
 function ekranBilgi() {

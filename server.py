@@ -328,6 +328,8 @@ def add_alert(cls, kind, text, key, t, cooldown=60, demo=False):
     if demo:
         alert["demo"] = True
     cls["alerts"].append(alert)
+    if not demo:
+        kayit.olay_ekle(KAYIT, cls["code"], None, t, "alert", {"kind": kind, "text": text})
     push(cls, {"type": "alert", "alert": alert}, role="teacher")
 
 
@@ -358,6 +360,7 @@ def simulate_demo(cls, t):
         if not s["hand"] and random.random() < 0.004:
             s["hand"] = True
             s["hand_count"] += 1
+            kayit.olay_ekle(KAYIT, cls["code"], s["id"], t, "hand", {"up": s["hand"]})
             push(cls, {"type": "hand", "id": s["id"], "name": s["name"], "up": True}, role="teacher")
 
 
@@ -543,6 +546,10 @@ def restore_active():
             if st.get("demo"):
                 st["sim"] = make_sim()
         CLASSES[cls["code"]] = cls
+        kayit.ders_ekle(KAYIT, cls["code"], cls.get("name"), cls.get("topic"), cls.get("created"))
+        for sid, st in cls["students"].items():
+            kayit.ogrenci_ekle(KAYIT, cls["code"], sid, st.get("name"), None,
+                               st.get("joined"), bool(st.get("demo")))
         restored.append(f"{cls['code']} ({cls['name']})")
     if restored:
         print("Geri yüklenen aktif dersler:", ", ".join(restored))
@@ -573,10 +580,49 @@ def parse_gaze(g):
         if isinstance(q, (list, tuple)) and len(q) == 2:
             pts.append((clamp(q[0], 0, 0.999), clamp(q[1], 0, 0.999)))
     region = g.get("region") if g.get("region") in AOI_KEYS else None
+    scr = []
+    for q in (g.get("scr") or [])[:40]:
+        if isinstance(q, (list, tuple)) and len(q) == 3:
+            scr.append([round(clamp(q[0], -60000, 0)), round(clamp(q[1], -0.2, 1.2), 3), round(clamp(q[2], -0.2, 1.2), 3)])
     wg_share = {}   # WebGazer yöntemi (aynı kalibrasyon, ikinci model): yalnız ders kaydında karşılaştırma için
     if isinstance(g.get("wgShare"), dict):
         wg_share = {k: clamp(v, 0, 1) for k, v in g["wgShare"].items() if k in AOI_KEYS}
-    return {"region": region, "share": share, "pts": pts, "wgShare": wg_share}
+    return {"region": region, "share": share, "pts": pts, "wgShare": wg_share, "scr": scr}
+
+
+_KURULUM_SAYI = {"fps": (0, 1000), "dpr": (0.25, 8), "uzaklikCm": (0, 1000), "islemeFps": (0, 1000)}
+_KURULUM_METIN = ("kamera", "ekran", "pencere", "tarayici")
+
+
+def temiz_kurulum(k):
+    """Öğrenci kurulum özetini doğrula: bilinen alanlar, sayılar kırpılı, metinler ≤40 karakter."""
+    if not isinstance(k, dict):
+        return None
+    out = {}
+    for a in _KURULUM_METIN:
+        if isinstance(k.get(a), str):
+            out[a] = k[a][:40]
+    for a, (lo, hi) in _KURULUM_SAYI.items():
+        v = k.get(a)
+        out[a] = None if isinstance(v, bool) or not isinstance(v, (int, float)) else round(clamp(v, lo, hi), 2)
+    out["fs"] = bool(k.get("fs"))
+    return out
+
+
+def kayit_bakis(g, parsed):
+    """Ham bakış yükünden ornek_ekle alanları. Kaba/kalibresiz: nokta ve ekran izi saklanmaz."""
+    g = g if isinstance(g, dict) else {}
+    if parsed is None:
+        share = {}
+        if g.get("coarse") and isinstance(g.get("share"), dict):
+            share = {k: clamp(v, 0, 1) for k, v in g["share"].items() if k in AOI_KEYS}
+        return {"gaze_cal": 0, "coarse": 1 if g.get("coarse") else 0, "share": share or None,
+                "mat_pts": None, "gaze": None, "wg_share": None}
+    if g.get("coarse"):
+        return {"gaze_cal": 0, "coarse": 1, "share": parsed["share"] or None,
+                "mat_pts": None, "gaze": None, "wg_share": None}
+    return {"gaze_cal": 1, "coarse": 0, "share": parsed["share"], "mat_pts": [list(p) for p in parsed["pts"]],
+            "gaze": parsed["scr"] or None, "wg_share": parsed["wgShare"] or None}
 
 
 def build_report(cls):
@@ -982,7 +1028,20 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(e, dict):   # tarayıcı/ekran boyutu (yalnızca sayılar, sınırlı)
             s["ekran"] = {k: int(clamp(e.get(k) or 0, 0, 20000)) for k in ("sw", "sh", "vw", "vh")}
             s["ekran"].update(dpr=round(clamp(e.get("dpr") or 1, 0.25, 8), 2), fs=bool(e.get("fs")), mobil=bool(e.get("mobil")))
-        record_metrics(cls, s, m, now(), parse_gaze(b.get("gaze")))
+        t = now()
+        parsed = parse_gaze(b.get("gaze"))
+        record_metrics(cls, s, m, t, parsed)
+        row = {"attention": m["attention"], "energy": m["energy"], "emotion": emotion, "face": int(m["face"]),
+               "away": int(m["lookingAway"]), "eyes_closed": int(m["eyesClosed"]), "tab_hidden": int(m["tabHidden"])}
+        row.update(kayit_bakis(b.get("gaze"), parsed))
+        kayit.ornek_ekle(KAYIT, cls["code"], s["id"], t, row)
+        kur = temiz_kurulum(b.get("kurulum"))
+        if kur:
+            kayit.kurulum_ekle(KAYIT, cls["code"], s["id"], t, kur)
+        kal = b.get("kal")
+        if isinstance(kal, dict) and len(json.dumps(kal)) <= 20000 and (
+                kal.get("at") is None or (isinstance(kal["at"], (int, float)) and not isinstance(kal["at"], bool))):
+            kayit.kalibrasyon_ekle(KAYIT, cls["code"], s["id"], t, kal)
         self.send_json({"ok": True})
 
     def event(self, b):
@@ -1007,11 +1066,13 @@ class Handler(BaseHTTPRequestHandler):
             cls["chat"].append(msg)
             if s:
                 s["chat_count"] += 1
+            kayit.olay_ekle(KAYIT, cls["code"], s["id"] if s else None, t, "chat", {"text": text})
             push(cls, {"type": "chat", "msg": msg})
         elif typ == "hand" and s:
             s["hand"] = bool(b.get("up"))
             if s["hand"]:
                 s["hand_count"] += 1
+            kayit.olay_ekle(KAYIT, cls["code"], s["id"], t, "hand", {"up": s["hand"]})
             push(cls, {"type": "hand", "id": s["id"], "name": s["name"], "up": s["hand"]}, role="teacher")
         elif typ == "reaction" and s:
             r = str(b.get("emoji") or "")[:8]
@@ -1019,6 +1080,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.err("Geçersiz tepki")
             s["reactions"] += 1
             cls["reaction_counts"][r] = cls["reaction_counts"].get(r, 0) + 1
+            kayit.olay_ekle(KAYIT, cls["code"], s["id"], t, "reaction", {"emoji": r})
             push(cls, {"type": "reaction", "emoji": r, "name": s["name"]}, role="teacher")
         elif typ == "signal":
             # WebRTC sinyalleşmesi (offer/answer/ICE/ready). İçerik sunucuda yorumlanmaz.
@@ -1041,10 +1103,12 @@ class Handler(BaseHTTPRequestHandler):
             st = cls["students"].get(b.get("id"))
             if st:
                 st["hand"] = False
+                kayit.olay_ekle(KAYIT, cls["code"], st["id"], t, "lower_hand", None)
                 push(cls, {"type": "hand_lowered"}, role="student", sid=st["id"])
         elif typ == "topic":
             cls["topic"] = str(b.get("topic") or "").strip()[:120]
             cls.setdefault("topic_log", []).append({"t": t, "topic": cls["topic"]})
+            kayit.olay_ekle(KAYIT, cls["code"], None, t, "topic", {"topic": cls["topic"]})
             push(cls, {"type": "topic", "topic": cls["topic"]})
         elif typ == "announce":
             cls["announce"] = {"t": t, "text": str(b.get("text") or "").strip()[:300]}
@@ -1064,6 +1128,7 @@ class Handler(BaseHTTPRequestHandler):
             push(cls, {"type": "ended"})
             persist(cls)
             kayit.ders_bitir(KAYIT, cls["code"], t)
+            kayit.olay_ekle(KAYIT, cls["code"], None, t, "end", None)
         else:
             return self.err("Bilinmeyen olay")
         self.send_json({"ok": True})
