@@ -44,10 +44,10 @@ def _isi(rows):
         for p in _j(r["mat_pts"], []) or []:
             try:
                 u, v = float(p[0]), float(p[1])
-            except (TypeError, ValueError, IndexError):
+                y = min(max(int(v * _SATIR), 0), _SATIR - 1)
+                x = min(max(int(u * _SUTUN), 0), _SUTUN - 1)
+            except (TypeError, ValueError, IndexError, OverflowError):
                 continue
-            y = min(max(int(v * _SATIR), 0), _SATIR - 1)
-            x = min(max(int(u * _SUTUN), 0), _SUTUN - 1)
             g[y][x] += 1
     m = max(max(s) for s in g)
     return [[c / m if m else 0.0 for c in s] for s in g]
@@ -56,9 +56,15 @@ def _isi(rows):
 def _ozet(rows):
     """Örnek satırlarından ortak özet alanları."""
     kal = [r for r in rows if r["gaze_cal"] == 1]
-    bak = [((_j(r["share"], {}) or {}).get("materyal")) or 0 for r in kal]
+    # share boş/None: pencerede bakış sayılmamış, ölçüm değil; atlanır.
+    # Dolu share'de "materyal" yoksa o bölgeye bakılmamıştır (0).
+    bak = []
+    for r in kal:
+        sh = _j(r["share"], {})
+        if isinstance(sh, dict) and sh:
+            bak.append(sh.get("materyal") or 0)
     return {
-        "bakma_pct": round(100 * sum(bak) / len(bak)) if bak else 0,
+        "bakma_pct": round(100 * sum(bak) / len(bak)) if bak else None,
         "ort_dikkat": _yuv(_ort(r["attention"] for r in rows)),
         "ort_enerji": _yuv(_ort(r["energy"] for r in rows)),
         "baskin_duygu": _baskin(r["emotion"] for r in rows),
@@ -116,7 +122,7 @@ def dersler(con, ara=None, bas=None, bit=None):
                  " GROUP BY kind", c)}
         row = {"code": c, "name": d["name"], "topic": d["topic"],
                "created": d["created"], "ended": d["ended"],
-               "sure_dk": round(max(0, son - d["created"]) / 60, 1) if ok else 0,
+               "sure_dk": round(max(0, son - d["created"]) / 60, 1) if ok else None,
                "n_ogrenci": _sorgu(
                    con, "SELECT COUNT(*) FROM students WHERE lesson_code=?", c)[0][0],
                "n_materyal": sum(tur.values()),
@@ -294,11 +300,19 @@ def karsilastirma(con, dersler=None):
     return {"tur": tur, "eslesik": esl, "kodsuz_n": len(kodsuz)}
 
 
+def _hucre(v):
+    if v is None:
+        return ""
+    if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + v   # tablo programı formül enjeksiyonuna karşı
+    return v
+
+
 def _csv(satirlar):
     b = io.StringIO()
     w = csv.writer(b, lineterminator="\n")
     for s in satirlar:
-        w.writerow(["" if v is None else v for v in s])
+        w.writerow([_hucre(v) for v in s])
     return b.getvalue()
 
 

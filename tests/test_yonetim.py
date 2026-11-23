@@ -59,13 +59,39 @@ class YonetimTest(unittest.TestCase):
         self.assertEqual(r["bakma_pct"], 75)
         self.assertEqual(r["baskin_duygu"], "notr")
 
+    def test_bos_share_olcum_sayilmaz_dolu_share_materyalsiz_sifir(self):
+        con = ac(":memory:")
+        ders_ekle(con, "D1", "D", "K", 1)
+        ogrenci_ekle(con, "D1", "s1", "A", None, 1, False)
+        m = materyal_ekle(con, "D1", "I", "insan")
+        materyal_sec(con, "D1", m, 2)
+        ornek_ekle(con, "D1", "s1", 3, satir(share=None))
+        ornek_ekle(con, "D1", "s1", 5, satir(share={}))
+        r = yonetim.ders(con, "D1")["materyaller"][0]
+        self.assertIsNone(r["bakma_pct"])
+        ornek_ekle(con, "D1", "s1", 7, satir(share={"materyal": 1.0}))
+        ornek_ekle(con, "D1", "s1", 9, satir(share={"konu": 1.0}))
+        r = yonetim.ders(con, "D1")["materyaller"][0]
+        self.assertEqual(r["bakma_pct"], 50)
+
+    def test_csv_formul_enjeksiyonu(self):
+        con = ac(":memory:")
+        ders_ekle(con, "D1", "D", "K", 1)
+        ogrenci_ekle(con, "D1", "s1", "=CMD()", None, 1, False)
+        m = materyal_ekle(con, "D1", "@x", "insan")
+        materyal_sec(con, "D1", m, 2)
+        ornek_ekle(con, "D1", "s1", 3, satir(mat_pts=[[float("nan"), 0.5]]))
+        s = yonetim.csv_uzun(con).splitlines()[1]
+        self.assertIn(",'=CMD(),'@x,", s)
+        self.assertEqual(len(yonetim.ders(con, "D1")["materyaller"][0]["isi"]), 18)
+
     def test_kalibresiz_ogrenci_veri_yok(self):
         con, _, _ = kur(kalibreli=False)
         o = yonetim.ogrenci(con, "D1", "s1")
         self.assertEqual(o["bakis"], [])
         self.assertIn(o["kalite"]["not"], ("veri yok", "düşük"))
         m = yonetim.ders(con, "D1")["materyaller"][0]
-        self.assertEqual(m["bakma_pct"], 0)
+        self.assertIsNone(m["bakma_pct"])
         self.assertEqual(m["n_kalibreli"], 0)
 
     def test_ogrenci_bakis_ve_kalite(self):
