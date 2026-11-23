@@ -29,6 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import kayit
+import yonetim
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
@@ -187,6 +188,31 @@ HX, HY = 32, 18             # materyal ısı haritası çözünürlüğü (16:9)
 HEAT_DECAY = 0.92           # canlı ısı haritası saniyelik sönüm (~8 sn yarı ömür)
 
 LOCK = threading.RLock()
+
+_ADMIN_KEY = None
+
+
+def yonetici_anahtari():
+    """Sıra: DERSNABZI_ADMIN_KEY ortam değişkeni, data/yonetici_anahtari.txt, yoksa üretip dosyaya yaz. Tembel + önbellekli."""
+    global _ADMIN_KEY
+    if _ADMIN_KEY:
+        return _ADMIN_KEY
+    anahtar = os.environ.get("DERSNABZI_ADMIN_KEY", "").strip()
+    if not anahtar:
+        yol = os.path.join(DATA, "yonetici_anahtari.txt")
+        try:
+            with open(yol, encoding="utf-8") as f:
+                anahtar = f.read().strip()
+        except OSError:
+            anahtar = ""
+        if not anahtar:
+            anahtar = secrets.token_urlsafe(18)
+            os.makedirs(DATA, exist_ok=True)
+            with open(yol, "w", encoding="utf-8") as f:
+                f.write(anahtar)
+            print(f"Yönetici anahtarı (yönetim ekranı): {anahtar}  (data/yonetici_anahtari.txt)")
+    _ADMIN_KEY = anahtar
+    return anahtar
 CLASSES = {}
 MATERYAL_MAX = 10 * 1024 * 1024   # yüklenen materyal görseli üst sınırı
 
@@ -698,7 +724,7 @@ class Handler(BaseHTTPRequestHandler):
         if args and "/api/metrics" in str(args[0]):
             return
         # Öğretmen anahtarı URL'de taşınıyor; log dosyasına düz yazılmasın
-        args = tuple(re.sub(r"(key=)[^&\s]+", r"\1***", a) if isinstance(a, str) else a for a in args)
+        args = tuple(re.sub(r"((?:key|admin)=)[^&\s]+", r"\1***", a) if isinstance(a, str) else a for a in args)
         super().log_message(fmt, *args)
 
     # yardımcılar
@@ -753,10 +779,68 @@ class Handler(BaseHTTPRequestHandler):
     def teacher_ok(self, cls, key):
         return bool(key) and secrets.compare_digest(str(key).encode("utf-8"), cls["teacher_key"].encode("utf-8"))
 
+    def admin_ok(self, q):
+        """Yönetici erişimi: yerel istemci VE doğru anahtar (X-Admin-Key başlığı ya da ?admin=)."""
+        if self.client_address[0] not in ("127.0.0.1", "::1"):
+            return False
+        anahtar = self.headers.get("X-Admin-Key") or q.get("admin") or ""
+        return bool(anahtar) and secrets.compare_digest(anahtar.encode("utf-8"), yonetici_anahtari().encode("utf-8"))
+
     def gorsel_yetkili(self, cls_code, q):
-        """Materyal görseli okuma yetkisi. Şimdilik yalnız öğretmen anahtarı; yönetici anahtarı+yerel erişim eklenecek."""
+        """Materyal görseli okuma yetkisi: öğretmen anahtarı ya da yerel yönetici anahtarı (?admin=)."""
+        if self.admin_ok(q):
+            return True
         cls = load_class(cls_code)
         return bool(cls) and self.teacher_ok(cls, q.get("key"))
+
+    def admin_get(self, yol, q):
+        if not self.admin_ok(q):
+            return self.err("Yetkisiz", 403)
+        with LOCK:
+            if yol == "dersler":
+                return self.send_json(yonetim.dersler(KAYIT, q.get("ara") or None, q.get("bas") or None, q.get("bit") or None))
+            if yol == "ders":
+                r = yonetim.ders(KAYIT, q.get("code", "").upper())
+                return self.send_json(r) if r is not None else self.err("Ders bulunamadı", 404)
+            if yol == "ogrenci":
+                r = yonetim.ogrenci(KAYIT, q.get("code", "").upper(), q.get("sid", ""))
+                return self.send_json(r) if r is not None else self.err("Öğrenci bulunamadı", 404)
+            if yol == "karsilastirma":
+                d = [x.strip().upper() for x in q.get("dersler", "").split(",") if x.strip()]
+                return self.send_json(yonetim.karsilastirma(KAYIT, d or None))
+            if yol == "katilimcilar":
+                return self.send_json(kayit.katilimcilar(KAYIT))
+            if yol == "kalite_esik":
+                return self.send_json(yonetim.KALITE_ESIK)
+            if yol == "csv":
+                tur, code = q.get("tur", "uzun"), q.get("code", "").upper()
+                if tur == "ham":
+                    if not code:
+                        return self.err("ham CSV için code gerekli")
+                    metin = yonetim.csv_ham(KAYIT, code)
+                elif tur == "uzun":
+                    metin = yonetim.csv_uzun(KAYIT, [code] if code else None)
+                else:
+                    return self.err("Geçersiz tur")
+                veri = ("﻿" + metin).encode("utf-8")
+                ad = "dersnabzi_%s%s.csv" % (tur, "_" + re.sub(r"[^A-Z0-9_-]", "", code) if code else "")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Disposition", 'attachment; filename="%s"' % ad)
+                self.send_header("Content-Length", str(len(veri)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return self.wfile.write(veri)
+        return self.err("Bulunamadı", 404)
+
+    def admin_katilimci(self, b):
+        if not self.admin_ok({}):
+            return self.err("Yetkisiz", 403)
+        try:
+            kod = kayit.katilimci_ekle(KAYIT, str(b.get("kod") or ""))
+        except ValueError as e:
+            return self.err(str(e), 400)
+        return self.send_json({"kod": kod})
 
     def materials_list(self, q):
         with LOCK:
@@ -843,6 +927,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.teacher_ok(cls, q.get("key")):
                     return self.err("Yetkisiz", 403)
                 return self.send_json(build_report(cls))
+        if u.path.startswith("/api/admin/"):
+            return self.admin_get(u.path[len("/api/admin/"):], q)
         if u.path == "/api/testlog/export.csv":
             # Yalnız bu bilgisayardan (test kayıtları cihaz/yüz ölçüleri içerir)
             if self.client_address[0] not in ("127.0.0.1", "::1"):
@@ -965,7 +1051,8 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, UnicodeDecodeError, RecursionError):
             return self.err("Geçersiz JSON")
         routes = {"/api/class": self.create_class, "/api/join": self.join,
-                  "/api/metrics": self.metrics, "/api/event": self.event}
+                  "/api/metrics": self.metrics, "/api/event": self.event,
+                  "/api/admin/katilimci": self.admin_katilimci}
         fn = routes.get(u.path)
         if not fn:
             return self.err("Bulunamadı", 404)

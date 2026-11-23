@@ -276,3 +276,100 @@ class SunucuOrnek(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SunucuYonetim(unittest.TestCase):
+    ANAHTAR = "test-anahtar"
+
+    def setUp(self):
+        self.base, self.kapat = basla()
+        self.addCleanup(self.kapat)
+        p = unittest.mock.patch.dict(os.environ, {"DERSNABZI_ADMIN_KEY": self.ANAHTAR})
+        p.start()
+        self.addCleanup(p.stop)
+        server._ADMIN_KEY = None
+        self.addCleanup(setattr, server, "_ADMIN_KEY", None)
+
+    def get(self, yol, anahtar=ANAHTAR):
+        r = urllib.request.Request(self.base + yol, headers={"X-Admin-Key": anahtar} if anahtar else {})
+        try:
+            with urllib.request.urlopen(r) as f:
+                return f.status, f.read(), f.headers
+        except urllib.error.HTTPError as e:
+            return e.code, e.read(), e.headers
+
+    def test_admin_anahtarsiz_403(self):
+        self.assertEqual(self.get("/api/admin/dersler", None)[0], 403)
+        self.assertEqual(self.get("/api/admin/dersler", "yanlis")[0], 403)
+        st, b = post(self.base, "/api/admin/katilimci", {"kod": "P01"})
+        self.assertEqual((st, b["error"]), (403, "Yetkisiz"))
+
+    def test_admin_yerel_olmayan_403(self):
+        h = object.__new__(server.Handler)
+        h.headers = {"X-Admin-Key": self.ANAHTAR}
+        h.client_address = ("192.168.1.5", 5555)
+        self.assertFalse(h.admin_ok({}))
+        h.client_address = ("127.0.0.1", 5555)
+        self.assertTrue(h.admin_ok({}))
+        h.headers = {}
+        self.assertFalse(h.admin_ok({"admin": "x"}))
+        self.assertTrue(h.admin_ok({"admin": self.ANAHTAR}))
+        self.assertFalse(h.admin_ok({}))
+
+    def test_admin_dersler_200(self):
+        _, r = post(self.base, "/api/class", {"name": "T"})
+        st, b, _ = self.get("/api/admin/dersler")
+        self.assertEqual(st, 200)
+        self.assertEqual([d["code"] for d in json.loads(b)], [r["code"]])
+
+    def test_admin_404_ve_400(self):
+        self.assertEqual(self.get("/api/admin/ders?code=ZZZZ")[0], 404)
+        self.assertEqual(self.get("/api/admin/ogrenci?code=ZZZZ&sid=x")[0], 404)
+        self.assertEqual(self.get("/api/admin/csv?tur=ham")[0], 400)
+        st, b = post(self.base, "/api/admin/katilimci", {"kod": "!!"})
+        self.assertEqual(st, 403)
+
+    def test_admin_katilimci_ekle(self):
+        r = urllib.request.Request(self.base + "/api/admin/katilimci", json.dumps({"kod": "P07"}).encode(),
+                                   {"Content-Type": "application/json", "X-Admin-Key": self.ANAHTAR})
+        with urllib.request.urlopen(r) as f:
+            self.assertEqual(json.loads(f.read())["kod"], "P07")
+        r = urllib.request.Request(self.base + "/api/admin/katilimci", json.dumps({"kod": "!!"}).encode(),
+                                   {"Content-Type": "application/json", "X-Admin-Key": self.ANAHTAR})
+        with self.assertRaises(urllib.error.HTTPError) as c:
+            urllib.request.urlopen(r)
+        self.assertEqual(c.exception.code, 400)
+        st, b, _ = self.get("/api/admin/katilimcilar")
+        self.assertEqual(st, 200)
+        self.assertIn("P07", b.decode())
+
+    def test_admin_csv_bom(self):
+        st, b, h = self.get("/api/admin/csv?tur=uzun")
+        self.assertEqual(st, 200)
+        self.assertTrue(b.startswith("﻿".encode("utf-8")))
+        self.assertEqual(h["Content-Type"], "text/csv; charset=utf-8")
+        self.assertIn('filename="dersnabzi_uzun.csv"', h["Content-Disposition"])
+
+    def test_admin_kalite_esik(self):
+        st, b, _ = self.get("/api/admin/kalite_esik")
+        self.assertEqual((st, "iyi" in json.loads(b)), (200, True))
+
+    def test_yonetici_anahtari_uretilir_ve_kalir(self):
+        with unittest.mock.patch.dict(os.environ, {"DERSNABZI_ADMIN_KEY": ""}):
+            server._ADMIN_KEY = None
+            k = server.yonetici_anahtari()
+            with open(os.path.join(server.DATA, "yonetici_anahtari.txt"), encoding="utf-8") as f:
+                self.assertEqual(f.read().strip(), k)
+            server._ADMIN_KEY = None
+            self.assertEqual(server.yonetici_anahtari(), k)
+
+    def test_gorsel_yonetici_anahtariyla(self):
+        _, r = post(self.base, "/api/class", {"name": "T"})
+        kod, key = r["code"], r["key"]
+        _, b, _ = ham(self.base, "/api/material?code=%s&key=%s&name=S&kind=insan" % (kod, key), PNG1)
+        mid = json.loads(b)["id"]
+        yol = "/api/material/image?code=%s&id=%d" % (kod, mid)
+        self.assertEqual(ham(self.base, yol, None, "GET")[0], 403)
+        self.assertEqual(ham(self.base, yol + "&admin=yanlis", None, "GET")[0], 403)
+        st, b, _ = ham(self.base, yol + "&admin=" + self.ANAHTAR, None, "GET")
+        self.assertEqual((st, b), (200, PNG1))
