@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Yönetim — DersNabzı</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  :root { --k-insan: #2f6fdb; --k-yz: #e8790c; --k-diger: #8a94a3; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 20px 24px 48px; display: flex; flex-direction: column; gap: 16px; }
+  .topbar nav { display: flex; gap: 4px; }
+  .topbar nav a { padding: 6px 10px; border-radius: 8px; color: var(--muted); font-weight: 600; font-size: 14px; }
+  .topbar nav a.on, .topbar nav a:hover { background: var(--surface-2); color: var(--text); }
+  .topbar select { width: auto; max-width: 240px; padding: 6px 10px; font-size: 13px; }
+  .topbar .chk { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+  .topbar .chk input { width: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
+  td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.click { cursor: pointer; } tr.click:hover td { background: var(--surface-2); }
+  .tbl { overflow-x: auto; }
+  .n { color: var(--muted); font-size: 11px; font-weight: 500; margin-left: 4px; white-space: nowrap; }
+  .yok { color: var(--muted); font-style: italic; font-size: 13px; }
+  .kind { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; padding: 2px 8px; border-radius: 99px; color: #fff; background: var(--c); white-space: nowrap; }
+  .filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+  .filters label { margin: 0 0 4px; }
+  .filters > div { min-width: 150px; }
+  .filters .grow { flex: 1; min-width: 200px; }
+  #tl { width: 100%; height: 300px; display: block; }
+  .mini { width: 128px; height: 72px; display: block; border-radius: 6px; }
+  .big { width: 100%; aspect-ratio: 16/9; display: block; border-radius: 10px; }
+  .mat-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+  .opts { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; margin-bottom: 12px; font-size: 14px; }
+  .opts label { display: inline-flex; gap: 6px; align-items: center; margin: 0; font-weight: 500; }
+  .opts input[type=radio] { width: auto; }
+  .opts select { width: auto; padding: 6px 10px; }
+  .range { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 10px; align-items: center; font-size: 13px; margin-top: 12px; }
+  .range input { padding: 0; }
+  dl.ozet { display: grid; grid-template-columns: 1fr auto; gap: 8px 10px; margin: 0; font-size: 14px; }
+  dl.ozet dt { color: var(--muted); } dl.ozet dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .tip { position: fixed; pointer-events: none; background: var(--text); color: var(--bg); font-size: 12px; padding: 6px 8px; border-radius: 8px; z-index: 40; white-space: nowrap; }
+  .head h1 { margin: 2px 0 4px; }
+  body.anahtarsiz .topbar > :not(.brand):not(.spacer) { display: none; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  @media (max-width: 900px) { .mat-grid { grid-template-columns: 1fr; } .wrap { padding: 16px; } .topbar { flex-wrap: wrap; } }
+</style>
+</head>
+<body>
+<header class="topbar" id="bar">
+  <span data-brand></span>
+  <nav id="nav"><a href="#dersler" data-r="dersler">Dersler</a><a href="#karsilastirma" data-r="karsilastirma">Karşılaştırma</a><a href="#katilimcilar" data-r="katilimcilar">Katılımcılar</a></nav>
+  <span class="spacer"></span>
+  <select id="dersSec" title="Ders seç"><option value="">Ders seç…</option></select>
+  <label class="chk" title="Ad yerine katılımcı kodu (kodsuz öğrenciler: kodsuz-N)"><input type="checkbox" id="gizle"> Adları gizle</label>
+  <button class="btn sm" id="csvUzun" title="Uzun biçim: ders × öğrenci × materyal × ölçü">CSV</button>
+  <button class="btn sm hidden" id="csvHam" title="Bu dersin ham örnekleri">Ham CSV</button>
+  <button class="btn sm" id="cikis" title="Anahtarı bu sekmeden sil">Çıkış</button>
+</header>
+<main class="wrap" id="app"><div class="card">Yükleniyor…</div></main>
+<script src="/common.js"></script>
+<script src="/gazelab_stats.js"></script>
+<script src="/admin.js"></script>
+</body>
+</html>
