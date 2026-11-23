@@ -17,6 +17,7 @@ import math
 import os
 import queue
 import random
+import re
 import secrets
 import sys
 import threading
@@ -27,6 +28,7 @@ from urllib.parse import parse_qs, urlparse
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
 DATA = os.path.join(ROOT, "data")
+TEST_DIR = os.path.join(ROOT, "test_kayitlari")   # bakış testi kayıtları (telefondan da gelir)
 os.makedirs(DATA, exist_ok=True)
 
 EMOTIONS = ["mutlu", "notr", "kafa_karisik", "zorlaniyor"]
@@ -99,6 +101,7 @@ def public_student(s, t):
         "lowFor": round(t - s["low_since"]) if s["low_since"] else 0,
         "gazeCal": m.get("gazeCal", False), "gazeRegion": m.get("gazeRegion"),
         "materialPct": material_pct(s["samples"][-30:]),
+        "ekran": s.get("ekran"),
     }
 
 
@@ -109,18 +112,25 @@ def material_pct(samples):
 
 
 def aggregate(cls, t):
-    online = [s for s in cls["students"].values() if (t - s["last_seen"]) < OFFLINE_AFTER]
+    # Demo öğrenciler gerçek verilerle ASLA karışmaz. Sınıfta çevrim içi gerçek öğrenci yoksa
+    # (yalnızca tanıtım için) demo öğrencilerden ayrı bir özet üretilir ve "demo": True ile işaretlenir.
+    alive = [s for s in cls["students"].values() if (t - s["last_seen"]) < OFFLINE_AFTER]
+    real = [s for s in alive if not s["demo"]]
+    demo = not real and any(s["demo"] for s in alive)
+    online = [s for s in alive if s["demo"]] if demo else real
+    pool = [s for s in cls["students"].values() if s["demo"] == demo]
     emo = {e: 0 for e in EMOTIONS}
     for s in online:
         emo[s["metrics"].get("emotion", "notr")] = emo.get(s["metrics"].get("emotion", "notr"), 0) + 1
     n = len(online)
     return {
+        "demo": demo,
         "present": n,
-        "total": len(cls["students"]),
+        "total": len(pool),
         "attention": round(sum(s["metrics"].get("attention", 0) for s in online) / n) if n else None,
         "energy": round(sum(s["metrics"].get("energy", 0) for s in online) / n) if n else None,
         "emotions": emo,
-        "hands": sum(1 for s in cls["students"].values() if s["hand"]),
+        "hands": sum(1 for s in pool if s["hand"]),
         "gaze": gaze_agg(online),
     }
 
@@ -138,16 +148,17 @@ def gaze_agg(online):
 
 
 def snapshot(cls, t):
+    agg = aggregate(cls, t)
     return {
         "type": "state",
         "cls": {"code": cls["code"], "name": cls["name"], "topic": cls["topic"],
                 "created": cls["created"], "ended": cls["ended"], "live": cls.get("live", False)},
-        "agg": aggregate(cls, t),
+        "agg": agg,
         "students": sorted((public_student(s, t) for s in cls["students"].values()),
                            key=lambda x: (not x["online"], x["attention"])),
         "timeline": cls["timeline"][-120:],
         "reactions": cls["reaction_counts"],
-        "heat": norm_heat(cls["heat_live"]),
+        "heat": norm_heat(cls["heat_demo"] if agg["demo"] else cls["heat_live"]),
     }
 
 
@@ -156,19 +167,24 @@ def norm_heat(grid):
     return [round(100 * v / mx) for v in grid] if mx > 0.05 else None
 
 
-def add_heat(cls, pts):
+def add_heat(cls, pts, demo=False):
     for u, v in pts:
         i = min(HY - 1, int(v * HY)) * HX + min(HX - 1, int(u * HX))
-        cls["heat_live"][i] += 1
-        cls["heat_total"][i] += 1
+        if demo:
+            cls["heat_demo"][i] += 1
+        else:
+            cls["heat_live"][i] += 1
+            cls["heat_total"][i] += 1
 
 
-def add_alert(cls, kind, text, key, t, cooldown=60):
+def add_alert(cls, kind, text, key, t, cooldown=60, demo=False):
     last = cls["alert_marks"].get(key, 0)
     if t - last < cooldown:
         return
     cls["alert_marks"][key] = t
-    alert = {"t": t, "kind": kind, "text": text}
+    alert = {"t": t, "kind": kind, "text": ("[Demo] " + text) if demo else text}
+    if demo:
+        alert["demo"] = True
     cls["alerts"].append(alert)
     push(cls, {"type": "alert", "alert": alert}, role="teacher")
 
@@ -255,6 +271,11 @@ def make_student(sid, name, demo=False):
 
 
 def record_metrics(cls, s, m, t, gaze=None):
+    # Öğrenci bir süre veri göndermediyse (duraklatma, bağlantı kopması) düşük dikkat sayacı
+    # aradaki boşluğu "dikkatsizlik" saymasın (önceden 10 dk sonra "600 sn'dir" uyarısı çıkıyordu).
+    if t - s["last_seen"] >= OFFLINE_AFTER:
+        s["low_since"] = None
+        s["low_alerted"] = False
     m["gazeCal"] = gaze is not None
     m["gazeRegion"] = gaze["region"] if gaze else None
     s["metrics"] = m
@@ -263,9 +284,13 @@ def record_metrics(cls, s, m, t, gaze=None):
     if gaze:
         for k, v in gaze["share"].items():
             s["gaze_time"][k] = s["gaze_time"].get(k, 0) + v
+        if gaze.get("wgShare"):
+            wg = s.setdefault("gaze_time_wg", {})
+            for k, v in gaze["wgShare"].items():
+                wg[k] = wg.get(k, 0) + v
         if gaze["share"]:
             mat = round(gaze["share"].get("materyal", 0), 2)
-        add_heat(cls, gaze["pts"])
+        add_heat(cls, gaze["pts"], demo=s["demo"])
     s["samples"].append([round(t, 1), round(m["attention"]), round(m["energy"]), m["emotion"], mat])
     if m["attention"] < LOW_ATT:
         if not s["low_since"]:
@@ -277,28 +302,28 @@ def record_metrics(cls, s, m, t, gaze=None):
             if m.get("tabHidden"):
                 reason = "başka bir sekmede"
             add_alert(cls, "attention", f"{s['name']} {int(t - s['low_since'])} sn'dir {reason}.",
-                      "att_" + s["id"], t, cooldown=90)
+                      "att_" + s["id"], t, cooldown=90, demo=s["demo"])
     else:
         s["low_since"] = None
         s["low_alerted"] = False
     if m["energy"] < LOW_ENERGY:
         add_alert(cls, "energy", f"{s['name']} yorgun görünüyor (enerji %{round(m['energy'])}).",
-                  "en_" + s["id"], t, cooldown=180)
+                  "en_" + s["id"], t, cooldown=180, demo=s["demo"])
 
 
 def class_alerts(cls, agg, t):
-    n = agg["present"]
+    n, d = agg["present"], agg["demo"]
     if n >= 3:
         confused = agg["emotions"].get("kafa_karisik", 0) + agg["emotions"].get("zorlaniyor", 0)
         if confused / n >= 0.35:
             add_alert(cls, "class", f"Sınıfın %{round(100 * confused / n)}'i zorlanıyor ya da kafası "
-                      "karışık görünüyor. Konuyu bir örnekle tekrar açıklamayı düşünün.", "cls_conf", t, 120)
+                      "karışık görünüyor. Konuyu bir örnekle tekrar açıklamayı düşünün.", "cls_conf", t, 120, demo=d)
         if agg["attention"] is not None and agg["attention"] < 50:
             add_alert(cls, "class", f"Sınıf dikkati %{agg['attention']} seviyesine düştü. "
-                      "Kısa bir soru ya da etkinlik iyi gelebilir.", "cls_att", t, 120)
+                      "Kısa bir soru ya da etkinlik iyi gelebilir.", "cls_att", t, 120, demo=d)
         if agg["energy"] is not None and agg["energy"] < 45:
             add_alert(cls, "class", "Sınıfın enerjisi düşük. 2-3 dakikalık bir mola önerilir.",
-                      "cls_en", t, 300)
+                      "cls_en", t, 300, demo=d)
 
 
 def ticker():
@@ -324,13 +349,15 @@ def ticker():
                 move_focus(cls)
                 simulate_demo(cls, t)
                 cls["heat_live"] = [v * HEAT_DECAY for v in cls["heat_live"]]
+                cls["heat_demo"] = [v * HEAT_DECAY for v in cls["heat_demo"]]
                 agg = aggregate(cls, t)
                 if take_tl and agg["present"]:
+                    class_alerts(cls, agg, t)
+                if take_tl and agg["present"] and not agg["demo"]:   # zaman çizgisine yalnız gerçek veri
                     cls["timeline"].append({"t": round(t), "attention": agg["attention"],
                                             "energy": agg["energy"], "present": agg["present"],
                                             "emotions": agg["emotions"],
                                             "material": agg["gaze"]["onMaterial"]})
-                    class_alerts(cls, agg, t)
                 push(cls, snapshot(cls, t), role="teacher")
 
 
@@ -348,6 +375,7 @@ def ensure_gaze_fields(cls):
     cls.setdefault("alert_marks", {})
     cls.setdefault("heat_live", [0.0] * (HX * HY))
     cls.setdefault("heat_total", [0.0] * (HX * HY))
+    cls.setdefault("heat_demo", [0.0] * (HX * HY))
     cls.setdefault("sim_focus", [0.15, 0.25])
     for st in cls["students"].values():
         st.setdefault("gaze_time", {})
@@ -403,13 +431,17 @@ def parse_gaze(g):
         if isinstance(q, (list, tuple)) and len(q) == 2:
             pts.append((clamp(q[0], 0, 0.999), clamp(q[1], 0, 0.999)))
     region = g.get("region") if g.get("region") in AOI_KEYS else None
-    return {"region": region, "share": share, "pts": pts}
+    wg_share = {}   # WebGazer yöntemi (aynı kalibrasyon, ikinci model): yalnız ders kaydında karşılaştırma için
+    if isinstance(g.get("wgShare"), dict):
+        wg_share = {k: clamp(v, 0, 1) for k, v in g["wgShare"].items() if k in AOI_KEYS}
+    return {"region": region, "share": share, "pts": pts, "wgShare": wg_share}
 
 
 def build_report(cls):
     end = cls["ended"] or now()
     students = []
-    for s in cls["students"].values():
+    real = [s for s in cls["students"].values() if not s["demo"]]   # rapora demo veri girmez
+    for s in real:
         smp = s["samples"]
         emo = {e: 0 for e in EMOTIONS}
         for x in smp:
@@ -426,10 +458,12 @@ def build_report(cls):
             "hands": s["hand_count"], "messages": s["chat_count"], "reactions": s["reactions"],
             "materialPct": material_pct(smp),
             "gazeRegions": pct_dist(s.get("gaze_time", {})),
+            # WebGazer yöntemi (aynı kalibrasyonla eğitilen ikinci model): karşılaştırma için; yoksa boş
+            "gazeRegionsWg": pct_dist(s.get("gaze_time_wg", {})) if s.get("gaze_time_wg") else None,
         })
     students.sort(key=lambda x: -(x["avgAttention"] or 0))
     total_gaze = {}
-    for s in cls["students"].values():
+    for s in real:
         for k, v in s.get("gaze_time", {}).items():
             total_gaze[k] = total_gaze.get(k, 0) + v
     tl = cls["timeline"]
@@ -449,7 +483,7 @@ def build_report(cls):
         "peakPresent": max((p["present"] for p in tl), default=0),
         "lowestMoment": lowest,
         "emotions": {k: round(100 * v / tot) for k, v in emo_total.items()},
-        "timeline": tl, "students": students, "alerts": cls["alerts"],
+        "timeline": tl, "students": students, "alerts": [a for a in cls["alerts"] if not a.get("demo")],
         "reactions": cls["reaction_counts"], "chat": cls["chat"],
         "gazeRegions": pct_dist(total_gaze),
         "heat": norm_heat(cls.get("heat_total", [])), "heatSize": [HX, HY],
@@ -475,6 +509,8 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         if args and "/api/metrics" in str(args[0]):
             return
+        # Öğretmen anahtarı URL'de taşınıyor; log dosyasına düz yazılmasın
+        args = tuple(re.sub(r"(key=)[^&\s]+", r"\1***", a) if isinstance(a, str) else a for a in args)
         super().log_message(fmt, *args)
 
     # yardımcılar
@@ -492,13 +528,35 @@ class Handler(BaseHTTPRequestHandler):
 
     def body(self):
         n = int(self.headers.get("Content-Length") or 0)
-        if n > 200_000:
-            raise ValueError("çok büyük")
+        if n < 0 or n > 200_000:          # negatif uzunluk rfile.read(-1) ile sınırsız okumaya yol açıyordu
+            raise ValueError("geçersiz uzunluk")
         raw = self.rfile.read(n) if n else b"{}"
-        return json.loads(raw.decode("utf-8") or "{}")
+        b = json.loads(raw.decode("utf-8") or "{}")
+        if not isinstance(b, dict):
+            raise ValueError("nesne bekleniyor")
+        return b
+
+    def test_log(self):
+        """Bakış testi kaydını test_kayitlari/ altına yazar. Yalnız bakis_test.html kullanır; en çok 2 MB."""
+        n = int(self.headers.get("Content-Length") or 0)
+        if n <= 0 or n > 2_000_000:
+            return self.err("geçersiz uzunluk")
+        try:
+            b = json.loads(self.rfile.read(n).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            return self.err("Geçersiz JSON")
+        if not isinstance(b, dict) or not isinstance(b.get("log"), list):
+            return self.err("log listesi bekleniyor")
+        cihaz = re.sub(r"[^A-Za-z0-9]+", "-", str(b.get("cihaz") or "bilinmiyor"))[:30].strip("-") or "bilinmiyor"
+        os.makedirs(TEST_DIR, exist_ok=True)
+        ad = f"{time.strftime('%Y%m%d_%H%M%S')}_{cihaz}_{secrets.token_hex(2)}.json"
+        with open(os.path.join(TEST_DIR, ad), "w", encoding="utf-8") as f:
+            json.dump(b, f, ensure_ascii=False, indent=1)
+        print(f"[testlog] {ad} ({len(b['log'])} satır)")
+        self.send_json({"ok": True, "dosya": ad})
 
     def teacher_ok(self, cls, key):
-        return bool(key) and secrets.compare_digest(str(key), cls["teacher_key"])
+        return bool(key) and secrets.compare_digest(str(key).encode("utf-8"), cls["teacher_key"].encode("utf-8"))
 
     # GET
     def do_GET(self):
@@ -530,7 +588,11 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("", "/"):
             path = "/index.html"
         full = os.path.normpath(os.path.join(STATIC, path.lstrip("/")))
-        if not full.startswith(STATIC) or not os.path.isfile(full):
+        try:
+            inside = os.path.commonpath([full, STATIC]) == STATIC  # "static_x" gibi komşu klasörler dışarıda kalır
+        except ValueError:                                          # farklı sürücü (ör. "C:/...") verilirse
+            inside = False
+        if not inside or not os.path.isfile(full):
             self.send_response(404)
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -540,7 +602,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", CTYPES.get(os.path.splitext(full)[1], "application/octet-stream"))
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-cache")
+        # Model dosyaları (MB'larca, değişmez) tarayıcıda kalıcı önbelleğe alınır; diğerleri her açılışta tazelenir
+        self.send_header("Cache-Control", "public, max-age=31536000, immutable" if path.startswith("/models/") else "no-cache")
         self.end_headers()
         if not head:
             self.wfile.write(data)
@@ -602,9 +665,11 @@ class Handler(BaseHTTPRequestHandler):
     # POST
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/api/testlog":
+            return self.test_log()
         try:
             b = self.body()
-        except (ValueError, json.JSONDecodeError):
+        except (ValueError, UnicodeDecodeError, RecursionError):
             return self.err("Geçersiz JSON")
         routes = {"/api/class": self.create_class, "/api/join": self.join,
                   "/api/metrics": self.metrics, "/api/event": self.event}
@@ -612,7 +677,11 @@ class Handler(BaseHTTPRequestHandler):
         if not fn:
             return self.err("Bulunamadı", 404)
         with LOCK:
-            return fn(b)
+            try:
+                return fn(b)
+            except (TypeError, ValueError, KeyError, AttributeError):
+                # ör. liste olarak gönderilen sid, sayı olmayan count: işleyici çökmesin
+                return self.err("Geçersiz istek")
 
     def create_class(self, b):
         name = str(b.get("name") or "").strip()[:80] or "Adsız ders"
@@ -654,6 +723,10 @@ class Handler(BaseHTTPRequestHandler):
         m = {"attention": clamp(b.get("attention")), "energy": clamp(b.get("energy")), "emotion": emotion,
              "face": bool(b.get("face")), "lookingAway": bool(b.get("lookingAway")),
              "eyesClosed": bool(b.get("eyesClosed")), "tabHidden": bool(b.get("tabHidden"))}
+        e = b.get("ekran")
+        if isinstance(e, dict):   # tarayıcı/ekran boyutu (yalnızca sayılar, sınırlı)
+            s["ekran"] = {k: int(clamp(e.get(k) or 0, 0, 20000)) for k in ("sw", "sh", "vw", "vh")}
+            s["ekran"].update(dpr=round(clamp(e.get("dpr") or 1, 0.25, 8), 2), fs=bool(e.get("fs")), mobil=bool(e.get("mobil")))
         record_metrics(cls, s, m, now(), parse_gaze(b.get("gaze")))
         self.send_json({"ok": True})
 
@@ -736,6 +809,12 @@ def main():
     ap = argparse.ArgumentParser(description="DersNabzı sunucusu")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8000)
+    # İsteğe bağlı HTTPS dinleyicisi (aynı süreç, aynı ders durumu). Telefon/başka cihaz kamerası için
+    # tarayıcı güvenli adres ister. Ör: --https-port 8443 --cert yerel_ssl/sertifika.pem --key yerel_ssl/anahtar.pem
+    ap.add_argument("--https-port", type=int, default=0)
+    ap.add_argument("--https-host", default="0.0.0.0")
+    ap.add_argument("--cert", default="")
+    ap.add_argument("--key", default="")
     a = ap.parse_args()
     try:
         sys.stdout.reconfigure(line_buffering=True)   # loglar anında görünsün
@@ -746,6 +825,16 @@ def main():
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     srv.daemon_threads = True
     print(f"DersNabzı çalışıyor: http://{'localhost' if a.host in ('127.0.0.1', '0.0.0.0') else a.host}:{a.port}")
+    if a.https_port:
+        import ssl
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.load_cert_chain(a.cert, a.key)
+        hs = ThreadingHTTPServer((a.https_host, a.https_port), Handler)
+        hs.daemon_threads = True
+        hs.socket = ctx.wrap_socket(hs.socket, server_side=True)
+        threading.Thread(target=hs.serve_forever, daemon=True).start()
+        print(f"HTTPS de açık: https://{a.https_host}:{a.https_port}")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

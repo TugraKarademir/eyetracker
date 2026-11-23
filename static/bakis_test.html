@@ -1,0 +1,1260 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bakış testi — DersNabzı</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0f141b; color: #e8edf3; font-family: system-ui, sans-serif; cursor: crosshair; }
+  #panel { position: fixed; top: 12px; left: 12px; z-index: 5; background: rgba(20,27,36,.92); border: 1px solid #2a3542; border-radius: 12px;
+           padding: 12px 14px; width: 330px; font-size: 13px; line-height: 1.45; cursor: default; }
+  #panel h2 { margin: 0 0 6px; font-size: 15px; }
+  #panel .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  #panel button { font: inherit; padding: 5px 9px; border-radius: 8px; border: 1px solid #3a4756; background: #1c2633; color: inherit; cursor: pointer; }
+  #panel button.primary { background: #0d9488; border-color: #0d9488; }
+  #panel .muted { color: #8a94a3; }
+  #panel .big { font-size: 22px; font-weight: 700; }
+  #stats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 6px; }
+  #dot { position: fixed; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%; border: 3px solid #ff3b3b;
+         background: rgba(255,59,59,.15); pointer-events: none; z-index: 4; display: none; }
+  .mark { position: fixed; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; pointer-events: none; z-index: 3; }
+  .line { position: fixed; height: 2px; transform-origin: 0 50%; pointer-events: none; z-index: 3; opacity: .55; }
+  #grid div { position: fixed; border: 1px dashed rgba(255,255,255,.07); pointer-events: none; }
+  #camMark { position: fixed; z-index: 6; pointer-events: none; display: none; font: 600 13px system-ui; color: #fff;
+             background: #7c3aed; padding: 4px 8px; border-radius: 8px; transform: translate(-50%, -50%); white-space: nowrap; }
+  #camMsg { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 7; background: rgba(15,20,27,.85);
+            font: 600 26px system-ui; text-align: center; pointer-events: none; }
+  .tgt { position: fixed; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; z-index: 4; pointer-events: none;
+         border: 3px solid #facc15; background: radial-gradient(circle, #facc15 0 4px, rgba(250,204,21,.18) 5px); animation: tp 1.2s infinite; }
+  @keyframes tp { 50% { transform: scale(1.25); } }
+  .tgt.bakis { width: 60px; height: 60px; margin: -30px 0 0 -30px; border-width: 5px; animation-name: bk; animation-timing-function: ease-out; animation-fill-mode: forwards;
+               background: radial-gradient(circle, #facc15 0 7px, rgba(250,204,21,.22) 8px); box-shadow: 0 0 24px rgba(250,204,21,.55); }
+  @keyframes bk { 0% { transform: scale(2.2); opacity: .6; } 30% { transform: scale(1); opacity: 1; } 100% { transform: scale(.55); } }
+  #guide { position: fixed; left: 25%; top: 25%; transform: translate(-50%, -50%); z-index: 6; display: none; background: rgba(20,27,36,.95); pointer-events: none;
+           border: 1px solid #facc15; border-radius: 12px; padding: 10px 14px; font-size: 14px; cursor: default; text-align: center; max-width: 300px; }
+  #guide button { font: inherit; margin-top: 6px; padding: 4px 10px; border-radius: 8px; border: 1px solid #3a4756; background: #1c2633; color: inherit; cursor: pointer; }
+  #yuzDot { position: fixed; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; z-index: 9;
+             display: none; pointer-events: none; border: 4px solid #facc15; background: radial-gradient(circle, #facc15 0 7px, rgba(250,204,21,.25) 8px);
+             box-shadow: 0 0 24px rgba(250,204,21,.8); animation: tp 1.2s infinite; }
+  #camMsg.ust { align-items: flex-start; padding-top: 18vh; background: rgba(15,20,27,.55); }
+  #startCard { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 8; display: none; text-align: center;
+               background: rgba(20,27,36,.97); border: 1px solid #0d9488; border-radius: 16px; padding: 22px 26px; max-width: 460px; cursor: default; }
+  #startCard h3 { margin: 0 0 8px; font-size: 20px; }
+  #startCard ol { text-align: left; margin: 8px 0 14px; padding-left: 20px; line-height: 1.6; }
+  #startCard button { font: 600 17px system-ui; padding: 10px 22px; border-radius: 10px; border: 0; background: #0d9488; color: #fff; cursor: pointer; }
+  #cam { position: fixed; right: 12px; bottom: 12px; width: 200px; border-radius: 10px; transform: scaleX(-1); opacity: .8; z-index: 2; pointer-events: none; }
+  .toast-wrap { pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="grid"></div>
+<button id="detBtn" style="position:fixed;top:10px;right:10px;z-index:6;font:13px system-ui;padding:4px 10px;border-radius:8px;border:1px solid #3a4756;background:#1c2633;color:#8a94a3;cursor:pointer">⚙ Ayrıntılar</button>
+<div id="panel" style="display:none">
+  <h2>🎯 Bakış testi (tıklamayla)</h2>
+  <div class="muted">Ekranda bir yere <b>bakın</b>, sonra <b>baktığınız yere tıklayın</b>. Kırmızı halka doğru yerdeyse halkanın üstüne tıklamanız yeterli.
+    Her tıklama önce ölçülür (hata), sonra modele öğretilir. 6 tıklamadan sonra halka görünür. Ekranın her yerine (köşeler dahil) dağıtın;
+    <b>aynı noktaya tekrar tıklamak ölçüme sayılmaz</b> (model ezberler, sonuç yanıltıcı olur).</div>
+  <div id="stats">
+    <div>Tıklama</div><div class="big" id="sN">0</div>
+    <div>Medyan hata (son 15)</div><div class="big" id="sErr">–</div>
+    <div>≤150 px isabet</div><div id="sHit">–</div>
+    <div>3×3 bölge isabeti</div><div id="sCell">–</div>
+    <div>Yöntem yarışı</div><div id="sWg" style="font-size:12px">–</div>
+    <div>Yüz tespiti (anlık)</div><div id="sYuz" style="font-size:12px">–</div>
+    <div>Kamera</div><div id="sCam">–</div>
+    <div>Kamera konumu</div><div id="sPos">–</div>
+    <div>Durum</div><div id="sState">yükleniyor…</div>
+  </div>
+  <div style="margin-top:8px">Kamera nerede?
+    <select id="camSel" style="font:inherit;background:#1c2633;color:inherit;border:1px solid #3a4756;border-radius:6px;padding:2px 4px">
+      <option value="">— seçin —</option><option value="ust">ekranın üstünde</option><option value="alt">ekranın altında</option>
+      <option value="sol">ekranın solunda</option><option value="sag">ekranın sağında</option><option value="bilinmiyor">bilmiyorum</option>
+    </select></div>
+  <div id="yuzDiv" class="muted" style="margin-top:8px;border-top:1px solid #2a3542;padding-top:6px">Yüz profili: yok — "🙂 Yüz profili" ile 10 sn'de çıkarılır (rehberli kalibrasyon da önce bunu yapar).</div>
+  <div id="canli" class="muted" style="margin-top:4px"></div>
+  <div id="prof" class="muted" style="margin-top:8px;border-top:1px solid #2a3542;padding-top:6px">Göz/yüz profili: ekranın üst, orta ve alt kısmına tıkladıkça oluşur.</div>
+  <div class="row">
+    <button id="guideBtn" class="primary">▶ Kalibrasyonu başlat</button>
+    <button id="fsBtn">⛶ Tam ekran</button>
+    <button id="resetBtn">Sıfırla</button>
+    <button id="camBtn" title="Model kurulduktan sonra: 2 sn kameranın merceğine bakın">📷 Kameraya bak</button>
+    <button id="saveBtn" class="primary" disabled>Öğrenci sayfasında kullan</button>
+  </div>
+  <div class="muted" style="margin-top:6px">Tüm ölçümler konsolda <code>[TEST]</code> satırlarında ve <code>window.testLog</code> içinde.</div>
+</div>
+<div id="dot"></div>
+<div id="guide"><div id="gTxt"></div></div>
+<div id="camMark"></div>
+<div id="camMsg"></div>
+<div id="yuzDot"></div>
+<div id="startCard"><div id="resTxt" style="font-size:17px;margin-bottom:14px"></div><button id="startBtn">↻ Yeniden kalibre et</button></div>
+<video id="cam" autoplay playsinline muted></video>
+
+<script src="/wg_yama.js"></script>
+<script src="/common.js"></script>
+<script src="/gaze.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
+<script src="/hsemotion.js"></script>
+<script>
+// Tıklamalı bakış testi ve kalibrasyonu.
+// Kullanıcı bir yere bakıp oraya tıklar: tıklamadan 350-50 ms önceki göz öznitelikleri o noktayla eşleştirilir.
+// Her tıklamada ÖNCE mevcut modelin tahmini ölçülür (dürüst hata), SONRA tıklama modele eklenir.
+// Model gaze.js ile aynı (ridge regresyon, ekran koordinatı, baş açısı öznitelikli); "Öğrenci sayfasında kullan" aynı kayda yazar.
+const TEST = { WIN: [0.35, 0.05], MIN_CLICKS: 6, HIT_PX: 150, LAST: 15, NEAR: 120, MAX_SAME: 2 };
+const video = $("#cam"), dot = $("#dot");
+// ════ Yöntem yarışı: aynı tıklamalarda 6 bakış tahmincisi ════
+// Hepsi her tıklamada ÖNCE ölçülür (tıklamadan 350-50 ms önceki tahmin), SONRA aynı etiketle (hedef merkezi) öğretilir.
+//  biz      webgaze taşıması + baş açısı (gaze.js ridge)
+//  wg       WebGazer 3.5.3 ridge (kendi yüz ağı + Kalman filtresi)
+//  wgK      WebGazer ridge, ama bizim MediaPipe'ın "göz kapalı" dediği kareler atılır (WebGazer'da kırpma algısı yok)
+//  karisim  biz ile wg'nin ağırlıklı ortalaması; ağırlık YALNIZ önceki tıklamalardan seçilir (ileriye dönük, dürüst)
+//  fuzyon   tek ridge: bizim göz/baş öznitelikleri + WebGazer'ın 120 göz pikseli (tıklama başına 1 örnek)
+// WebGazer'ın fareyle öğrenmesi kapalı: fare hedefin üstündeyken öğrenirse tıklama anındaki tahmini o noktayı önceden görmüş olur.
+const WG = { SRC: "https://cdn.jsdelivr.net/npm/webgazer@3.5.3/dist/webgazer.js", FM: "https://cdn.jsdelivr.net/npm/webgazer@3.5.3/dist/mediapipe/face_mesh" };
+const YONTEM = { biz: "bizim (webgaze+baş)", wg: "WebGazer ridge", wgK: "WebGazer+göz kapalı filtresi", karisim: "karışım biz+WebGazer", karisim70: "karışım sabit %70 (önceki oturumlardan)", bizB: "bizim + göz katsayıları + 3B baş", bizBk: "yalnız bakarak: bizim", bizBBk: "yalnız bakarak: göz katsayıları + 3B baş", aci: "açı modeli (ekran ölçeği tıklamalardan)", depo: "depo kalibrasyonu (webgaze 13+9 nokta)", bizW: "bizim + WebGazer göz yaması", wgMP: "WebGazer yöntemi (MediaPipe yüzüyle)", fuzyon: "füzyon (tek model)" };
+let wgYuzSon = null;
+let wg = null, wgBuf = [], wgN = 0, wgYuzYok = 0, fuzF = [], fuzY = [], fuzModel = null, karisimGecmis = [];
+async function wgStart() {
+  try {
+    await new Promise((ok, fail) => { const sc = document.createElement("script"); sc.src = WG.SRC; sc.onload = ok; sc.onerror = () => fail(new Error("betik indirilemedi")); document.head.append(sc); });
+    const w = window.webgazer;
+    w.params.faceMeshSolutionPath = WG.FM;   // varsayılan "./mediapipe/face_mesh" bizim sunucuda yok
+    w.saveDataAcrossSessions(false); w.showVideoPreview(false); w.showPredictionPoints(false);
+    // Kendi kamera akışını açmasın, sayfanınkini kullansın: birçok Android telefon kamerayı aynı anda
+    // iki akışa vermiyor; masaüstünde de çift görüntü işleme yükü kalkar.
+    // Yalnız telefonda: masaüstünde WebGazer'ın 1280x720 kareyi işlemesi kare hızını tıklama turlarında 5 sn'de ~40 kareye
+    // düşürdü (20.11 14:18 kaydı) ve tıklama pencerelerine 0-1 kare kaldı. Masaüstünde kendi 640x480 akışını açar.
+    if (MOBIL && video.srcObject) w.setStaticVideo(video.srcObject);
+    w.setGazeListener((d) => {
+      const t = performance.now() / 1000;
+      if (!d) { if (wgN > 0) { wgYuzYok++; wgYuzSon = { t, var: false }; } return; }
+      wgYuzSon = { t, var: true };
+      let ef = null; try { if (d.eyeFeatures) ef = w.util.getEyeFeats(d.eyeFeatures); } catch {}
+      wgBuf.push({ t, x: d.x, y: d.y, a: d.all?.[1] ? [d.all[1].x, d.all[1].y] : null, ef });
+      while (wgBuf.length && t - wgBuf[0].t > 4) wgBuf.shift();
+    });
+    await Promise.race([w.begin(), new Promise((_, f) => setTimeout(() => f(new Error("20 sn içinde başlamadı")), 20000))]);
+    w.removeMouseEventListeners(); await w.clearData();
+    wg = w; tlog("WebGazer 3.5.3 hazır: ridge; aynı tıklamalarla öğrenir, öğretmeden önce ölçülür (fareyle öğrenme kapalı)");
+  } catch (e) { tlog(`WebGazer başlatılamadı: ${e.message} — yarış yalnız bizim modelle`); }
+}
+const ortalama = (A, f) => { const v = A.map(f).filter((z) => z != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+// Tıklama penceresindeki tahminler. blinkT: bizim MediaPipe'ın göz kapalı dediği zamanlar
+function wgPencere(blinkT) {
+  if (!wg || wgN < TEST.MIN_CLICKS) return null;
+  const now = performance.now() / 1000, w = wgBuf.filter((b) => b.t >= now - TEST.WIN[0] && b.t <= now - TEST.WIN[1]);
+  if (!w.length) return null;
+  const acik = w.filter((b) => !blinkT.some((t) => Math.abs(t - b.t) < 0.05));
+  const xy = (A, f) => A.length ? [ortalama(A, (b) => f(b)?.[0]), ortalama(A, (b) => f(b)?.[1])] : null;
+  return { wg: xy(w, (b) => [b.x, b.y]), wgA: w.some((b) => b.a) ? xy(w.filter((b) => b.a), (b) => b.a) : null, wgK: xy(acik, (b) => [b.x, b.y]),
+           atilan: w.length - acik.length };
+}
+const WG_ORNEK_MS = [0, 60, 120];
+// Yakın göz ham vektörü: [rx, ry, lx, ly] yakın gözden, gerisi (açıklık, baş) aynı
+const GOZ_BS = ["eyeLookDownLeft", "eyeLookDownRight", "eyeLookUpLeft", "eyeLookUpRight", "eyeLookInLeft", "eyeLookInRight", "eyeLookOutLeft", "eyeLookOutRight"];
+// bizB öznitelikleri: gzModelFeatures (ilk 4'ü göz, karesel terimler bunlardan) + 8 bakış katsayısı + 3B yaw/pitch (derece/30)
+const ozB = (b) => [...gzModelFeatures(b.raw), ...GOZ_BS.map((k) => b.bs?.[k] ?? 0), (b.pose3?.yaw ?? 0) / 30, (b.pose3?.pitch ?? 0) / 30];
+// Fare bir hedefe 250 px'ten yakınsa WebGazer çalışır; tıklamadan 0,6 sn sonra ya da fare uzaklaşınca durur.
+// Tıklamadan önceki 350-50 ms'lik ölçüm penceresi korunur (fare hedefe tıklamadan önce yaklaşıyor).
+let wgCalisiyor = true, wgDurTimer = null;
+function wgAyarla(calis) {
+  if (!wg || calis === wgCalisiyor) return;
+  wgCalisiyor = calis; try { calis ? wg.resume() : wg.pause(); } catch {}
+}
+addEventListener("pointermove", (e) => {
+  if (!wg || wgN < 1 || !guide?.targets?.length || bakarakSuruyor) return;
+  const yakin = guide.targets.some((t) => Math.hypot(t.x - e.clientX, t.y - e.clientY) < 250);
+  if (yakin) { clearTimeout(wgDurTimer); wgAyarla(true); }
+  else if (wgCalisiyor && !wgDurTimer) wgDurTimer = setTimeout(() => { wgDurTimer = null; wgAyarla(false); }, 600);
+});
+function wgOgret(x, y) {
+  if (!wg) return; wgN++;
+  clearTimeout(wgDurTimer); wgDurTimer = setTimeout(() => { wgDurTimer = null; wgAyarla(false); }, 900);   // son örnek (+120 ms) alındıktan sonra dur
+  for (const ms of WG_ORNEK_MS) setTimeout(() => wg.recordScreenPosition(Math.round(x), Math.round(y), "click"), ms);
+}
+function wgGozOzellik() {   // tıklama penceresindeki WebGazer göz pikselleri (ortalama)
+  const now = performance.now() / 1000, w = wgBuf.filter((b) => b.ef && b.t >= now - TEST.WIN[0] && b.t <= now - TEST.WIN[1]);
+  return w.length ? w[0].ef.map((_, j) => w.reduce((s, b) => s + b.ef[j], 0) / w.length) : null;
+}
+// ════ Yüz tespiti karşılaştırması: MediaPipe (bizim, FaceLandmarker) ↔ WebGazer (TF.js üzerinden eski MediaPipe yüz ağı)
+// 100 ms'de bir: son 300 ms içinde yüz bulundu mu? WebGazer ancak ilk öğretimden sonra sayılır (öncesinde tahmin vermez).
+// Ayrışma 0,5 sn'den uzun sürerse konsola yazılır (ör. baş dönükken biri bulup öteki bulamıyorsa).
+const YT = { sayac: { ikisi: 0, mp: 0, wg: 0, hicbiri: 0 }, ayrisma: null };
+function yuzTespitTik() {
+  if (!gaze || !wg || wgN < 1 || !wgCalisiyor) return;   // WebGazer duraklatılmışken karşılaştırma yapılmaz
+  const t = performance.now() / 1000;
+  const mp = !!gaze.latest && t - gaze.latest.t < 0.3;
+  const w = !!wgYuzSon && wgYuzSon.var && t - wgYuzSon.t < 0.3;
+  const k = mp && w ? "ikisi" : mp ? "mp" : w ? "wg" : "hicbiri"; YT.sayac[k]++;
+  $("#sYuz").textContent = `MediaPipe ${mp ? "✓" : "✗"} · WebGazer ${w ? "✓" : "✗"}`;
+  const ayri = k === "mp" || k === "wg";
+  if (ayri && (!YT.ayrisma || YT.ayrisma.k !== k)) YT.ayrisma = { k, t0: t, yazildi: false };
+  if (ayri && !YT.ayrisma.yazildi && t - YT.ayrisma.t0 > 0.5) {
+    YT.ayrisma.yazildi = true;
+    tlog(`yüz tespiti ayrıştı: yalnız ${k === "mp" ? "MediaPipe" : "WebGazer"} yüz buluyor (0,5 sn+)`, { kim: k });
+  }
+  if (!ayri && YT.ayrisma) {
+    if (YT.ayrisma.yazildi) tlog(`  ayrışma bitti: ${(t - YT.ayrisma.t0).toFixed(1)} sn sürdü`);
+    YT.ayrisma = null;
+  }
+}
+setInterval(yuzTespitTik, 100);
+function yuzTespitOzet() {
+  const c = YT.sayac, n = c.ikisi + c.mp + c.wg + c.hicbiri; if (!n) return null;
+  const y = (v) => Math.round(100 * v / n);
+  return { sn: +(n / 10).toFixed(1), ikisi: y(c.ikisi), yalnizMP: y(c.mp), yalnizWG: y(c.wg), hicbiri: y(c.hicbiri),
+           metin: `${(n / 10).toFixed(0)} sn: ikisi de buldu %${y(c.ikisi)}, yalnız MediaPipe %${y(c.mp)}, yalnız WebGazer %${y(c.wg)}, ikisi de bulamadı %${y(c.hicbiri)}` };
+}
+const KARISIM_W = [0, .1, .2, .3, .4, .5, .6, .7, .8, .9, 1];
+function karisimAgirlik(H) {   // biz ağırlığı: geçmişte medyan hatayı en küçük yapan
+  if (H.length < 3) return null;
+  let best = null;
+  for (const w of KARISIM_W) {
+    const e = med(H.map((h) => Math.hypot(w * h.biz[0] + (1 - w) * h.wg[0] - h.x, w * h.biz[1] + (1 - w) * h.wg[1] - h.y)));
+    if (!best || e < best.e) best = { w, e };
+  }
+  return best.w;
+}
+// Tablo: yalnız TÜM yöntemlerin ölçüldüğü ortak tıklamalar (son TEST.LAST); her yöntem kendi n'iyle de verilir
+function yarisTablosu(list = clicks, son = TEST.LAST) {
+  // Yalnız bu oturumda en az bir kez ölçülen yöntemler (hafif modda WebGazer yok; ortak küme boş kalmasın)
+  const ol = list.filter((c) => c.v), keys = Object.keys(YONTEM).filter((k) => ol.some((c) => c.v[k]));
+  const ortak = ol.filter((c) => keys.every((k) => c.v[k])).slice(-son);
+  const satir = {};
+  for (const k of keys) {
+    const tek = ol.filter((c) => c.v[k]).slice(-son), e = (A) => A.map((c) => c.v[k].err);
+    satir[YONTEM[k]] = { "ortak medyan px": ortak.length ? Math.round(med(e(ortak))) : null,
+      "ortak ≤150 %": ortak.length ? Math.round(100 * ortak.filter((c) => c.v[k].err <= TEST.HIT_PX).length / ortak.length) : null,
+      "ortak 3×3 %": ortak.length ? Math.round(100 * ortak.filter((c) => c.v[k].cellOk).length / ortak.length) : null,
+      "kendi medyan px": tek.length ? Math.round(med(e(tek))) : null, "kendi n": tek.length };
+  }
+  return { n: ortak.length, satir };
+}
+function yarisKisa(T) {
+  if (!T.n) return null;
+  return Object.entries(T.satir).filter(([, r]) => r["ortak medyan px"] != null).sort((a, b) => a[1]["ortak medyan px"] - b[1]["ortak medyan px"])
+    .map(([ad, r]) => `${ad} ${r["ortak medyan px"]}`).join(" · ") + ` px (aynı ${T.n} tıklama)`;
+}
+let gaze = null, F = [], Y = [], buf = [], model = null, clicks = [];
+// "bizB": aynı ridge + MediaPipe göz bakış katsayıları (eyeLook*) + 3B baş açısı. Alt satır ve yan sütunlarda
+// hata belirgin büyüktü (20.11 kayıtları): aşağı bakınca kapak irisi örtüyor, yana bakınca göz kısalıyor;
+// bakış katsayıları ve matristen gelen baş açısı bu durumlarda ek bilgi taşır.
+let FB = [], modelB = null;
+// WebGazer göz yaması (wg_yama.js): WebGazer'ın 120 piksellik göz özniteliği, yüz MediaPipe'tan (WebGazer'ın ikinci yüz ağı yok).
+//  bizW: bizim öznitelikler + 120 yama değeri tek ridge'de;  wgMP: yalnız 120 yama değeri (WebGazer'ın yöntemi, bizim ridge ile)
+let FW = [], YW = [], FM = [], modelW = null, modelM = null;
+const ozW = (b) => (b.wgp ? [...gzModelFeatures(b.raw), ...b.wgp] : null);
+const ozM = (b) => (b.wgp ? [0, 0, 0, 0, ...b.wgp] : null);   // ilk 4 sabit sıfır: gzExpand'in göz terimleri boş kalır
+function wgyEkle(win, sx, sy, tekrar = 1) {
+  for (let r = 0; r < tekrar; r++) for (const b of win) if (b.wgp) { FW.push(ozW(b)); FM.push(ozM(b)); YW.push([sx, sy]); }
+}
+function wgyKur() { if (FW.length < 30) return; modelW = new GazeModel(); modelW.fit(FW, YW); modelM = new GazeModel(); modelM.fit(FM, YW); }
+// ---- Açı modeli. Göz pikselleri değil açıyı izler: hedef, göze göre açıya çevrilir (atan(k·Δpx / uzaklık)),
+// model açıyı tahmin eder, sonuç piksele geri çevrilir. Böylece kenarlardaki eğrilik ve öne-arkaya kayma hesaba girer.
+// k (cm/piksel = ekranın fiziksel ölçeği) tarayıcıdan öğrenilemez; öğrenciye de sorulmaz: aday k'ların her biriyle
+// ayrı model kurulur, her tıklamada ÖNCE ölçülür, ÖNCEKİ tıklamalarda en az hatayı veren k kullanılır (dürüst seçim).
+// Uzaklık MediaPipe'ın 3B matrisinden (cm, ortalama yüz ölçüsüne göre). Uzaklıktaki ölçek hatası k'nın içinde emilir.
+const ACI = { K: Array.from({ length: 15 }, (_, i) => +(0.012 + i * 0.002).toFixed(3)), K0: 0.024, MIN_GECMIS: 3 };
+let aciS = [], aciModel = {}, aciHata = {}, aciSecim = [];
+const aciD = (b) => b.pose3?.dist > 15 && b.pose3.dist < 150 ? b.pose3.dist : null;
+const aciHedef = (sx, sy, d, k) => [Math.atan(k * (sx - screen.width / 2) / d), Math.atan(k * (sy - screen.height / 2) / d)];
+const aciPx = (th, d, k) => [screen.width / 2 + d * Math.tan(th[0]) / k, screen.height / 2 + d * Math.tan(th[1]) / k];
+function aciEkle(win, sx, sy) { for (const b of win) { const d = aciD(b); if (d) aciS.push({ f: ozB(b), sx, sy, d }); } }
+function aciKur() {
+  if (aciS.length < 12) return;
+  const F = aciS.map((q) => q.f);
+  for (const k of ACI.K) { const m = new GazeModel(); m.fit(F, aciS.map((q) => aciHedef(q.sx, q.sy, q.d, k))); aciModel[k] = m; }
+}
+function aciK() {   // önceki tıklamalarda medyan hatası en küçük k
+  let best = null;
+  for (const k of ACI.K) { const e = aciHata[k] || []; if (e.length < ACI.MIN_GECMIS) return { k: ACI.K0, secildi: false }; const m = med(e); if (!best || m < best.m) best = { k, m }; }
+  return { k: best.k, secildi: true };
+}
+// Bu tıklamanın penceresi için her k'nın tahmini (ekran pikseli); geçmişe hata yazılır
+function aciOlc(win, sx, sy) {
+  if (!Object.keys(aciModel).length) return null;
+  const sec = aciK(), out = {};
+  for (const k of ACI.K) {
+    const Q = win.map((b) => { const d = aciD(b); return d ? aciPx(aciModel[k].predict(ozB(b)), d, k) : null; }).filter(Boolean);
+    if (!Q.length) continue;
+    out[k] = [Q.reduce((t, q) => t + q[0], 0) / Q.length, Q.reduce((t, q) => t + q[1], 0) / Q.length];
+  }
+  if (!out[sec.k]) return null;
+  for (const k of Object.keys(out)) (aciHata[k] ||= []).push(Math.hypot(out[k][0] - sx, out[k][1] - sy));
+  aciSecim.push(sec.k);
+  return { px: out[sec.k], k: sec.k, secildi: sec.secildi };
+}
+const aciInc = (k) => (k * Math.hypot(screen.width, screen.height) / 2.54).toFixed(1);
+// Her ölçülen tıklamanın ortalama öznitelikleri + hedef: farklı modeller kayıttan bilgisayarda denenebilsin
+const tiklamaOz = [];
+const fx = new OneEuro(), fy = new OneEuro();
+window.testLog = [];
+
+function tlog(msg, obj = {}) { const r = { t: new Date().toLocaleTimeString("tr-TR"), msg, ...obj }; testLog.push(r); console.log(`[TEST ${r.t}] ${msg}`, obj); }
+const med = (a) => { const s = [...a].sort((x, y) => x - y), k = s.length >> 1; return s.length ? (s.length % 2 ? s[k] : (s[k - 1] + s[k]) / 2) : null; };
+const cell = (x, y) => Math.min(2, Math.max(0, Math.floor(3 * x / innerWidth))) + 3 * Math.min(2, Math.max(0, Math.floor(3 * y / innerHeight)));
+
+function drawGrid() {
+  const g = $("#grid"); g.innerHTML = "";
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
+    const d = document.createElement("div");
+    Object.assign(d.style, { left: c * innerWidth / 3 + "px", top: r * innerHeight / 3 + "px", width: innerWidth / 3 + "px", height: innerHeight / 3 + "px" });
+    g.append(d);
+  }
+}
+addEventListener("resize", drawGrid); drawGrid();
+// Kalibrasyon sürerken pencere boyutu değişirse (DevTools açılıp kapanınca, kenar çubuğu, pencere yaslama) kalan
+// hedefler yeni boyuta orantılı taşınır. Önceden hedefler eski boyutta kalıyor, ekranın bir köşesine sıkışıyordu.
+let pencereOnce = { w: innerWidth, h: innerHeight };
+addEventListener("resize", () => {
+  const w = innerWidth, h = innerHeight, o = pencereOnce; pencereOnce = { w, h };
+  if (!guide || (o.w === w && o.h === h)) return;
+  const sx = (v) => GUIDE.M + (v - GUIDE.M) * (w - 2 * GUIDE.M) / Math.max(1, o.w - 2 * GUIDE.M);
+  const sy = (v) => GUIDE.M + (v - GUIDE.M) * (h - 2 * GUIDE.M) / Math.max(1, o.h - 2 * GUIDE.M);
+  for (const t of guide.targets) { t.x = Math.round(sx(t.x)); t.y = Math.round(sy(t.y)); }
+  guideShow();
+  tlog(`pencere boyutu değişti: ${o.w}x${o.h} → ${w}x${h}; kalan hedefler yeniden yerleştirildi (önceki tıklamalar ekran koordinatında geçerli)`);
+});
+
+async function start() {
+  // 1280x720: 1920x1080 denendi, kare hızı masaüstünde 4-14/sn'ye, telefonda ~3/sn'ye düştü ve yüz profili
+  // adımları yeterli kare toplayamadı (20.11 kayıtları). Yakın göz kesiti büyütülerek bu çözünürlükte çalışır.
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }, audio: false });
+  video.srcObject = stream; await video.play();
+  const st = stream.getVideoTracks()[0].getSettings();
+  $("#sCam").textContent = `${st.width}×${st.height}`;
+  try { const cap = stream.getVideoTracks()[0].getCapabilities?.() || {};
+        tlog(`kamera yetenekleri: en çok ${cap.width?.max ?? "?"}x${cap.height?.max ?? "?"}, odak ${cap.focusMode ? cap.focusMode.join("/") : "yok"}, yakınlaştırma ${cap.zoom ? `${cap.zoom.min}-${cap.zoom.max}` : "yok"}`); } catch {}
+  // Küçük ekran (telefon, genişlik < 768): "yakın tıklama" sınırı köşegenin %5'i. 375x812'de 45 px -> 7 tur hedef
+  // (120 px'te yalnız 2 tur çıkıyordu). Masaüstünde 120 px aynen kalır (önceki ölçümlerle karşılaştırılabilir).
+  if (innerWidth < 768) TEST.NEAR = Math.round(0.05 * Math.hypot(innerWidth, innerHeight));
+  tlog(`kamera ${st.width}x${st.height}`, { ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, cihaz: navigator.userAgent.match(/Android[^;)]*|iPhone|Windows NT [\d.]+|Mac OS X/)?.[0] || "?", dokunmatik: navigator.maxTouchPoints > 0 });
+  gaze = new GazeTracker(video, { onStatus: () => {} });
+  await gaze.load();
+  // gaze.js kendi kayıtlı modelini yükleyip tıklamayla öğrenmeye başlamış olabilir; bu sayfada kendi döngümüz var
+  gaze.tracking = false; document.removeEventListener("pointerdown", gaze._onClick, true);
+  $("#sState").textContent = "hazır";
+  sesAc(); addEventListener("pointerdown", sesAc, { once: true, capture: true });   // ses ancak ilk tıklamadan sonra kesin açılır
+  // ?hafif=1: yalnız ana model (telefonda grafik belleği sınırlı; WebGazer/face-api/HSEmotion yüklenmez)
+  const HAFIF = new URLSearchParams(location.search).has("hafif");
+  tanıBaslat();
+  if (HAFIF) tlog("hafif mod: WebGazer, face-api ve HSEmotion yüklenmedi");
+  else {
+    duyguYukle();   // beklenmez: nötr adıma yetişirse taban alınır
+    $("#sState").textContent = "WebGazer yükleniyor…";
+    await wgStart();
+  }
+  $("#sState").textContent = "hazır";
+  setTimeout(() => guideStart(), 1200);   // kamera hazır: akış kendiliğinden başlar (yüz algılansın diye kısa bekleme)
+  // Ham öznitelik tamponu (son ~1 sn)
+  setInterval(() => {
+    const l = gaze.latest; if (!l) return;
+    if (!buf.length || buf[buf.length - 1].t !== l.t) {
+      buf.push({ t: l.t, raw: l.raw, blink: l.blink, eyes: l.eyes, pose3: l.pose3, bs: l.bs, irisMm: l.irisMm, wgp: l.wgp || null });
+    }
+    while (buf.length && l.t - buf[0].t > 4) buf.shift();   // yüz profili adımları 3 sn sürer
+  }, 15);
+  requestAnimationFrame(loop);
+}
+
+// Son 3 karenin ortalaması -> model özniteliği (gaze.js _predict ile aynı yumuşatma)
+function featNow() {
+  const r = buf.filter((b) => !b.blink).slice(-3); if (!r.length) return null;
+  return gzModelFeatures(r[0].raw.map((_, j) => r.reduce((s, x) => s + x.raw[j], 0) / r.length));
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  if (!model) { dot.style.display = "none"; return; }
+  const f = featNow(); if (!f) return;
+  const t = performance.now() / 1000, [px, py] = model.predict(f), o = gaze._off();
+  const x = fx.f(px, t) - o.x, y = fy.f(py, t) - o.y;
+  dot.style.display = "block"; dot.style.left = Math.min(Math.max(x, 0), innerWidth) + "px"; dot.style.top = Math.min(Math.max(y, 0), innerHeight) + "px";
+}
+
+function mark(x, y, color) { const m = document.createElement("div"); m.className = "mark"; m.style.left = x + "px"; m.style.top = y + "px"; m.style.background = color; document.body.append(m); return m; }
+function line(x1, y1, x2, y2, color) {
+  const l = document.createElement("div"); l.className = "line"; l.style.background = color;
+  l.style.left = x1 + "px"; l.style.top = y1 + "px"; l.style.width = Math.hypot(x2 - x1, y2 - y1) + "px";
+  l.style.transform = `rotate(${Math.atan2(y2 - y1, x2 - x1)}rad)`; document.body.append(l);
+}
+
+document.addEventListener("pointerdown", (e) => {
+  if (!gaze || e.target.closest("#panel") || e.target.closest("#guide") || e.target.closest("#startCard") || e.target.closest("#tamDon") || e.target.closest("#baslaKart") || e.target.closest("#hazirKart") || e.target.closest(".gaze-ov") || camBusy || bakarakSuruyor) return;
+  // Rehberli mod: yalnız sarı hedeflere tıklanır; etiket tıklanan piksel değil hedefin merkezi (göz oraya bakıyor)
+  const tgt = guide ? guide.targets.find((t) => Math.hypot(t.x - e.clientX, t.y - e.clientY) < GUIDE.HIT) : null;
+  if (guide && !tgt) { toast("Sarı hedeflerden birine bakıp üstüne tıklayın.", 1500); return; }
+  const cx = tgt ? tgt.x : e.clientX, cy = tgt ? tgt.y : e.clientY;
+  gaze._learnOffset(e);
+  const now = buf.length ? buf[buf.length - 1].t : 0;
+  let win = buf.filter((b) => !b.blink && b.t >= now - TEST.WIN[0] && b.t <= now - TEST.WIN[1]);
+  // Kare hızı düşükse 0,35 sn'lik pencereye 0-1 kare düşüyor: pencere 0,6 sn'ye genişletilir (göz hâlâ hedefte varsayımı)
+  if (win.length < 2) { const tn = performance.now() / 1000; win = buf.filter((b) => !b.blink && b.t >= tn - 0.6); }   // tıklama anına göre son 0,6 sn (son kare dahil)
+  if (win.length < 1) {
+    const tum = buf.filter((b) => b.t >= now - TEST.WIN[0] && b.t <= now - TEST.WIN[1]);
+    const neden = !tum.length ? "son 0,35 sn'de işlenmiş kare yok (kare hızı düşük ya da yüz yok)" : `göz kapalı sayıldı (${tum.length} kare; kırpma ${ortalama(tum, (b) => b.eyes?.blink)?.toFixed(2) ?? "-"}, aşağı bakış ${ortalama(tum, (b) => b.eyes?.down)?.toFixed(2) ?? "-"})`;
+    tlog(`tıklama atlandı: ${neden}`); toast(tum.length ? "Göz kapalı sayıldı, gözünüzü açık tutup tekrar tıklayın." : "Yüz algılanmadı, tekrar deneyin.", 2000); return; }
+  const o = gaze._off(), sx = cx + o.x, sy = cy + o.y;
+  const feats = win.map((b) => gzModelFeatures(b.raw));
+  // Aynı yere tekrar tekrar tıklamak ölçümü şişirir (model o noktayı ezberler): önceki bir tıklamaya
+  // TEST.NEAR px'ten yakınsa ölçüme sayılmaz; o noktada en fazla TEST.MAX_SAME örnek öğretilir.
+  const near = clicks.filter((c) => Math.hypot(c.x - cx, c.y - cy) < TEST.NEAR).length;
+  // 1) Önce ölç: model (varsa) bu YENİ noktayı hiç görmeden nereyi tahmin ediyordu?
+  let err = null, ok = null, cellOk = null, pred = null;
+  if (model && near && !guide?.dogrula) {
+    tlog(`tıklama atlandı: önceki bir tıklamaya ${TEST.NEAR} px'ten yakın (ölçüme sayılmaz${near >= TEST.MAX_SAME ? ", öğretilmez" : ""}) — ekranın başka yerlerine tıklayın`);
+    if (near < TEST.MAX_SAME) { for (const f of feats) { F.push(f); Y.push([cx + gaze._off().x, cy + gaze._off().y]); }
+      for (const b of win) FB.push(ozB(b));
+      aciEkle(win, cx + gaze._off().x, cy + gaze._off().y);
+      model = new GazeModel(); model.fit(F, Y); modelB = new GazeModel(); modelB.fit(FB, Y); if (model) aciKur(); wgOgret(cx, cy); }
+    if (tgt) guideDone(tgt);
+    return;
+  }
+  if (model) {
+    const P = feats.map((f) => model.predict(f));
+    pred = [P.reduce((s, p) => s + p[0], 0) / P.length - o.x, P.reduce((s, p) => s + p[1], 0) / P.length - o.y];
+    err = Math.round(Math.hypot(pred[0] - cx, pred[1] - cy));
+    ok = err <= TEST.HIT_PX; cellOk = cell(pred[0], pred[1]) === cell(cx, cy);
+    line(cx, cy, pred[0], pred[1], ok ? "#22c55e" : "#f59e0b");
+    mark(pred[0], pred[1], "#ff3b3b");
+  }
+  // --- diğer yöntemler (hepsi öğretmeden önce)
+  const blinkT = buf.filter((b) => b.blink && b.t >= now - TEST.WIN[0] - 0.1).map((b) => b.t);
+  const W = wgPencere(blinkT), ef = wgGozOzellik(), fbiz = gzModelFeatures(meanVec(win.map((b) => b.raw)));
+  const P = { biz: pred, wg: W?.wg, wgK: W?.wgK, karisim: null, fuzyon: null, bizB: null, bizBk: null, bizBBk: null };
+  const ortP = (m, f) => { const Q = win.map((b) => m.predict(f(b))); return [Q.reduce((t, q) => t + q[0], 0) / Q.length - o.x, Q.reduce((t, q) => t + q[1], 0) / Q.length - o.y]; };
+  if (modelBk) P.bizBk = ortP(modelBk, (b) => gzModelFeatures(b.raw));
+  if (depoModel) P.depo = ortP(depoModel, (b) => gzModelFeatures(b.raw));
+  if (modelBBk) P.bizBBk = ortP(modelBBk, ozB);
+  const AO = aciOlc(win, sx, sy);
+  if (AO) P.aci = [AO.px[0] - o.x, AO.px[1] - o.y];
+  { const ww = win.filter((b) => b.wgp);
+    if (modelW && ww.length) { const Q = ww.map((b) => modelW.predict(ozW(b))); P.bizW = [ortalama(Q, (q) => q[0]) - o.x, ortalama(Q, (q) => q[1]) - o.y]; }
+    if (modelM && ww.length) { const Q = ww.map((b) => modelM.predict(ozM(b))); P.wgMP = [ortalama(Q, (q) => q[0]) - o.x, ortalama(Q, (q) => q[1]) - o.y]; } }
+  if (modelB) {
+    const PB = win.map((b) => modelB.predict(ozB(b)));
+    P.bizB = [PB.reduce((t, q) => t + q[0], 0) / PB.length - o.x, PB.reduce((t, q) => t + q[1], 0) / PB.length - o.y];
+  }
+  const kw = karisimAgirlik(karisimGecmis);
+  // Sabit %70: 20.11 tarihli iki ölçümde (99/85 px) seçilen oran; bu oturumun verisini görmez -> dürüst sınav
+  if (pred && W?.wg) P.karisim70 = [0.7 * pred[0] + 0.3 * W.wg[0], 0.7 * pred[1] + 0.3 * W.wg[1]];
+  if (kw != null && pred && W?.wg) P.karisim = [kw * pred[0] + (1 - kw) * W.wg[0], kw * pred[1] + (1 - kw) * W.wg[1]];
+  if (fuzModel && ef) { const q = fuzModel.predict([...fbiz, ...ef]); P.fuzyon = [q[0] - o.x, q[1] - o.y]; }
+  const v = {};
+  for (const [k, q] of Object.entries(P)) if (q && q.every(Number.isFinite)) v[k] = { err: Math.round(Math.hypot(q[0] - cx, q[1] - cy)), cellOk: cell(q[0], q[1]) === cell(cx, cy), x: Math.round(q[0]), y: Math.round(q[1]) };
+  if (P.wg) mark(P.wg[0], P.wg[1], "#3b82f6");
+  const dogrula = guide?.dogrula || false;
+  if (pred && W?.wg && !dogrula) karisimGecmis.push({ biz: pred, wg: W.wg, x: cx, y: cy });
+  mark(cx, cy, ok === false ? "#f59e0b" : "#22c55e");
+  const avg = (f) => { const v = win.map(f).filter((z) => z != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const goz = { acik: avg((b) => (b.raw[4] + b.raw[5]) / 2), kirpma: avg((b) => b.eyes?.blink), asagi: avg((b) => b.eyes?.down),
+                basYaw: avg((b) => b.raw[6]), basPitch: avg((b) => b.raw[7]),
+                yaw3: avg((b) => b.pose3?.yaw), pitch3: avg((b) => b.pose3?.pitch), uzak: avg((b) => b.pose3?.dist), irisX: avg((b) => b.irisMm?.sag && b.irisMm?.sol ? (b.irisMm.sag[0] + b.irisMm.sol[0]) / 2 : null), irisY: avg((b) => b.irisMm?.sag && b.irisMm?.sol ? (b.irisMm.sag[1] + b.irisMm.sol[1]) / 2 : null) };
+  clicks.push({ x: cx, y: cy, sx, sy, err, ok, cellOk, v, goz, f: meanVec(win.map((b) => b.raw)), dogrulama: dogrula });
+  tiklamaOz.push({ n: clicks.length, x: Math.round(cx), y: Math.round(cy), sx: Math.round(sx), sy: Math.round(sy), ornek: win.length,
+    raw: meanVec(win.map((b) => b.raw)).map((z) => +z.toFixed(5)), bs: GOZ_BS.map((k) => +(ortalama(win, (b) => b.bs?.[k]) ?? 0).toFixed(4)),
+    pose3: ["yaw", "pitch", "roll", "dist"].map((k) => { const z = ortalama(win, (b) => b.pose3?.[k]); return z == null ? null : +z.toFixed(3); }),
+    hata: Object.fromEntries(Object.entries(v).map(([k, r]) => [k, r.err])) });
+  // 2) Sonra öğret (tüm yöntemlere) — doğrulama noktaları hariç
+  // Düzeltme tıklaması bir bakarak noktası kadar (~8 satır) ağırlık alır: tıklama kesin bakış kanıtı ve daha yeni (kaymayı düzeltir)
+  const tekrar = modelBk ? Math.max(1, Math.round(8 / feats.length)) : 1;
+  if (!dogrula) {
+    for (let r = 0; r < tekrar; r++) { for (const f of feats) { F.push(f); Y.push([sx, sy]); } for (const b of win) FB.push(ozB(b)); }
+    wgyEkle(win, sx, sy, tekrar);
+    aciEkle(win, sx, sy);
+    wgOgret(cx, cy);
+    if (ef) { fuzF.push([...fbiz, ...ef]); fuzY.push([sx, sy]); if (fuzF.length >= TEST.MIN_CLICKS) { fuzModel = new GazeModel(); fuzModel.fit(fuzF, fuzY); } }
+  }
+  const spread = new Set(clicks.map((c) => cell(c.x, c.y))).size;
+  if (!dogrula && (modelBk || (clicks.length >= TEST.MIN_CLICKS && spread >= 4))) { model = new GazeModel(); model.fit(F, Y); modelB = new GazeModel(); modelB.fit(FB, Y); aciKur(); wgyKur(); }
+  { const g = clicks[clicks.length - 1].goz, f = (v) => (v == null ? "-" : v.toFixed(2));
+    tlog(`  göz/yüz: açıklık ${f(g.acik)} kırpma ${f(g.kirpma)} aşağı ${f(g.asagi)} baş yaw ${f(g.basYaw)} pitch ${f(g.basPitch)}`, g); }
+  if (Object.keys(v).length > 1) tlog(`  yarış: ${Object.entries(v).map(([k, r]) => `${k} ${r.err}`).join(" · ")} px${kw != null ? ` | karışım biz ağırlığı ${kw}` : ""}${W?.atilan ? ` | wgK ${W.atilan} kapalı-göz karesi attı` : ""}`, { v, karisimW: kw });
+  tlog(`${dogrula ? "DOĞRULAMA " : ""}tıklama ${clicks.length} (x ${Math.round(cx)}, y ${Math.round(cy)}) → ${err == null ? (dogrula === "bakarak" ? `bakarak model hatası ${v.bizBk?.err ?? "-"} px` : "model henüz yok (öğrenme)") : `tahmin hatası ${err} px ${ok ? "✓" : "✗"}, bölge ${cellOk ? "doğru" : "yanlış"}`} | örnek ${win.length}${tekrar > 1 && !dogrula ? ` (×${tekrar} ağırlık)` : ""}, toplam ${F.length}, kapsanan bölge ${spread}/9`,
+    { x: Math.round(cx), y: Math.round(cy), hata: err, bolgeDogru: cellOk });
+  stats();
+  if (tgt) guideDone(tgt);
+}, true);
+
+// ---- Göz/yüz profili: bakılan yerin ekrandaki yüksekliğine göre göz açıklığı, kırpma, aşağı bakma ve baş açısı.
+// Kamera üstteyse ekranın altına bakınca göz kısılır (açıklık düşer, kırpma/aşağı bakma artar); altta ise tersi.
+// Doğrusal uyum: değer = a + b * (ekran y / ekran yüksekliği). b'nin işareti kameranın yerini, büyüklüğü etkisini gösterir.
+let profil = null;
+function fit(xs, ys) {
+  const n = xs.length; if (n < 3) return null;
+  const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
+  const sxx = xs.reduce((a, x) => a + (x - mx) ** 2, 0); if (sxx < 1e-6) return null;
+  const b = xs.reduce((a, x, i) => a + (x - mx) * (ys[i] - my), 0) / sxx;
+  // ust/alt: tıklanan en üst ve en alt noktadaki değer (ölçülen aralığın dışına taşınmaz, uydurma olmasın)
+  const lo = Math.min(...xs), hi = Math.max(...xs), a = my - b * mx;
+  return { a, b, ust: a + b * lo, alt: a + b * hi };
+}
+function buildProfile() {
+  const c = clicks.filter((k) => k.goz && k.goz.acik != null);
+  const ys = c.map((k) => k.sy / screen.height);
+  const cy = c.map((k) => k.y);   // yayılım pencereye göre: tıklamalar pencerenin en az %60'lık yüksekliğine yayılmalı
+  if (c.length < 6 || Math.max(...cy) - Math.min(...cy) < 0.6 * innerHeight) { profil = null; return; }
+  const col = (f) => c.map(f);
+  const p = { n: c.length, acik: fit(ys, col((k) => k.goz.acik)), kirpma: fit(ys, col((k) => k.goz.kirpma ?? 0)), asagi: fit(ys, col((k) => k.goz.asagi ?? 0)),
+              basPitch: fit(ys, col((k) => k.goz.basPitch)),
+              basYaw: [Math.min(...col((k) => k.goz.basYaw)), Math.max(...col((k) => k.goz.basYaw))],
+              kirpmaMax: Math.max(...col((k) => k.goz.kirpma ?? 0)), asagiMax: Math.max(...col((k) => k.goz.asagi ?? 0)) };
+  // Kamera yorumu: ekranın altına bakınca göz açıklığı düşüyorsa (b<0) kamera ekranın üstünde
+  const d = p.acik ? (p.acik.alt - p.acik.ust) / Math.max(1e-6, Math.max(p.acik.ust, p.acik.alt)) : 0;
+  p.kamera = Math.abs(d) < 0.08 ? "göz hizasına yakın (üst/alt farkı küçük)" : d < 0 ? "ekranın ÜSTÜNDE (aşağı bakınca göz kısılıyor)" : "ekranın ALTINDA (yukarı bakınca göz kısılıyor)";
+  p.acikFark = Math.round(100 * d);
+  profil = p;
+}
+function showProfile() {
+  buildProfile();
+  const el = $("#prof");
+  if (!profil) { el.textContent = "Göz/yüz profili: ekranın üst, orta ve alt kısmına dağılmış en az 6 tıklama gerekli."; return; }
+  const f = (v) => (v == null ? "–" : v.toFixed(2)), p = profil;
+  el.innerHTML = `<b>Göz/yüz profili</b> (${p.n} tıklama)<br>
+    Göz açıklığı eğilimi: ${p.kamera} <span class="muted">(kamera konumu için kullanılmaz)</span><br>
+    Göz açıklığı: üstte ${f(p.acik.ust)} → altta ${f(p.acik.alt)} (%${p.acikFark > 0 ? "+" : ""}${p.acikFark})<br>
+    Kırpma katsayısı: üstte ${f(p.kirpma?.ust)} → altta ${f(p.kirpma?.alt)} · en yüksek ${f(p.kirpmaMax)}<br>
+    Aşağı bakma: üstte ${f(p.asagi?.ust)} → altta ${f(p.asagi?.alt)}<br>
+    Baş eğimi (pitch): üstte ${f(p.basPitch?.ust)} → altta ${f(p.basPitch?.alt)} · baş dönüşü (yaw) ${f(p.basYaw[0])}…${f(p.basYaw[1])}`;
+}
+
+function stats() {
+  showProfile();
+  const m = clicks.filter((c) => c.err != null), last = m.slice(-TEST.LAST);
+  $("#sN").textContent = clicks.length;
+  $("#sErr").textContent = last.length ? med(last.map((c) => c.err)) + " px" : "–";
+  $("#sHit").textContent = last.length ? `%${Math.round(100 * last.filter((c) => c.ok).length / last.length)} (${last.length} ölçüm)` : "–";
+  $("#sCell").textContent = last.length ? `%${Math.round(100 * last.filter((c) => c.cellOk).length / last.length)}` : "–";
+  $("#sWg").textContent = yarisKisa(yarisTablosu()) ?? (wg ? `öğreniyor (${wgN}/${TEST.MIN_CLICKS})` : "ölçüm bekleniyor (WebGazer kapalı)");
+  $("#sState").textContent = model ? "model var — halka tahmin" : `öğreniyor (${clicks.length}/${TEST.MIN_CLICKS}, en az 4 bölge)`;
+  $("#saveBtn").disabled = !model || last.length < (modelBk ? 5 : 9);
+  $("#camBtn").style.opacity = model ? 1 : 0.6;
+}
+
+// ---- Kamera konumu: kullanıcı 2 sn kameranın merceğine bakar; model o bakışın ekrana göre nereye düştüğünü
+// tahmin eder (ekran dışına uzatarak). Bu, kameranın ekrana göre yeridir (bakış hatası kadar belirsiz, ~±150 px).
+let camPos = null, camHist = [], camBusy = false;
+function meanVec(V) { const n = V.length, m = V[0].map(() => 0); for (const v of V) v.forEach((z, i) => (m[i] += z / n)); return m; }
+// Eksen izdüşümü: üst ve alt tıklamaların ortalama göz/baş öznitelikleri arasındaki doğru (ve sol↔sağ) boyunca
+// kameraya bakışın özniteliği nereye düşüyor? Üst grup → üst tıklamaların y'si, alt grup → alt tıklamaların y'si;
+// doğrunun ötesi ekranın dışıdır. Ridge modeli tıklanan alanın dışına uzanamaz, bu doğrusal yöntem uzanır.
+// Belirsizlik: her tıklamanın kendi izdüşümünün gerçek konumundan medyan sapması (px).
+function axisPos(fCam, key, lo, hi) {
+  const c = clicks.filter((k) => k.f), all = c.map((k) => k.f);
+  if (all.length < 6) return null;
+  const mu = meanVec(all), sd = mu.map((m, i) => Math.sqrt(all.reduce((a, v) => a + (v[i] - m) ** 2, 0) / all.length) || 1);
+  const z = (v) => v.map((x, i) => (x - mu[i]) / sd[i]);
+  const A = c.filter((k) => k[key] < lo), B = c.filter((k) => k[key] > hi);
+  if (A.length < 2 || B.length < 2) return null;
+  const fA = meanVec(A.map((k) => z(k.f))), fB = meanVec(B.map((k) => z(k.f)));
+  const pA = A.reduce((t, k) => t + k[key], 0) / A.length, pB = B.reduce((t, k) => t + k[key], 0) / B.length;
+  const d = fB.map((x, i) => x - fA[i]), dd = d.reduce((t, x) => t + x * x, 0);
+  if (dd < 1e-6) return null;
+  const proj = (f) => { const v = z(f); return pA + (v.reduce((t, x, i) => t + (x - fA[i]) * d[i], 0) / dd) * (pB - pA); };
+  return { pos: Math.round(proj(fCam)), hata: Math.round(med(c.map((k) => Math.abs(proj(k.f) - k[key])))), nA: A.length, nB: B.length };
+}
+
+// ---- Rehberli kalibrasyon: 4 köşe + 4 kenar ortası + merkez. Hepsi tıklanınca otomatik "kameraya bak",
+// sonra yeni tur (noktalar ~150-220 px kaydırılır: aynı noktaya tekrar tıklamak ölçümü şişirir ve sayılmaz).
+const GUIDE = { M: 40, HIT: 60, JIT: [150, 220] };
+let guide = null;
+function guidePoints(round) {
+  const W = innerWidth, H = innerHeight, m = GUIDE.M;
+  if (round === 1) { const pts = []; for (const y of [m, H / 2, H - m]) for (const x of [m, W / 2, W - m]) pts.push({ x: Math.round(x), y: Math.round(y) }); return pts; }
+  // Sonraki turlar: önceki tıklamalardan (ve birbirinden) en uzak 9 aday nokta. Aynı yere tekrar tıklamak
+  // ölçüme sayılmadığı için yalnız en az TEST.NEAR+10 px uzak noktalar seçilir; yer kalmayınca tur kısalır.
+  const cand = [], step = 60;
+  for (let y = m; y <= H - m; y += step) for (let x = m; x <= W - m; x += step) cand.push({ x, y });
+  const used = clicks.map((c) => ({ x: c.x, y: c.y })), pts = [];
+  while (pts.length < 9) {
+    let best = null, bd = -1;
+    for (const q of cand) { let d = Infinity; for (const u of used) d = Math.min(d, Math.hypot(u.x - q.x, u.y - q.y)); if (d > bd) { bd = d; best = q; } }
+    if (!best || bd <= TEST.NEAR + 10) break;
+    pts.push({ ...best }); used.push(best);
+  }
+  return pts;
+}
+// Yönerge kutusu + uyarılar için yer: aday noktalardan kalan hedeflere en uzak olanı
+const YER_ADAY = [[.5, .5], [.25, .25], [.75, .25], [.25, .75], [.75, .75], [.5, .2], [.5, .8], [.2, .5], [.8, .5]];
+function yerlestir() {
+  const T = guide?.targets || [];
+  let best = YER_ADAY[0], bd = -1;
+  for (const [ax, ay] of YER_ADAY) {
+    const x = ax * innerWidth, y = ay * innerHeight;
+    const d = T.length ? Math.min(...T.map((t) => Math.hypot(t.x - x, t.y - y))) : 1e9;
+    if (d > bd) { bd = d; best = [ax, ay]; }
+  }
+  const g = $("#guide"); g.style.left = best[0] * 100 + "%"; g.style.top = best[1] * 100 + "%";
+  let w = $(".toast-wrap");
+  if (!w) { w = document.createElement("div"); w.className = "toast-wrap"; document.body.append(w); }
+  Object.assign(w.style, { left: best[0] * 100 + "%", top: `calc(${best[1] * 100}% + 50px)`, right: "auto", bottom: "auto", transform: "translateX(-50%)" });
+}
+function guideShow() {
+  document.querySelectorAll(".tgt").forEach((n) => n.remove());
+  for (const t of guide.targets) { t.el = document.createElement("div"); t.el.className = "tgt"; t.el.style.left = t.x + "px"; t.el.style.top = t.y + "px"; document.body.append(t.el); }
+  $("#gTxt").innerHTML = guide.dogrula ? `<b>Kontrol</b> (ölçüm): sarı noktaya bakın, tıklayın<br><span class="muted">kalan ${guide.targets.length}</span>`
+    : guide.round === "düzeltme" ? `Sarı noktaya <b>bakın</b>, bir kez tıklayın<br><span class="muted">kalan ${guide.targets.length}</span>`
+    : `Sarı noktaya <b>bakın</b>, üstüne tıklayın<br><span class="muted">tur ${guide.round}/${AKIS.TUR} · kalan ${guide.targets.length}</span>`;
+  yerlestir();
+}
+// ---- Yüz profili: kişinin yapısal yüz/göz durumu (nötr), gerçek kapalı göz seviyesi ve başı kameraya dönükken açısı.
+// Görüntü saklanmaz; yalnız sayılar (localStorage, cihazda).
+let yuz = null;
+try { yuz = JSON.parse(localStorage.getItem("dn_yuz_profili") || "null"); } catch {}
+let audio = null;
+function sesAc() {   // düğme tıklaması içinde çağrılmalı (tarayıcı otomatik oynatma kuralı)
+  try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume?.(); tlog(`ses: ${audio.state}`); } catch (e) { tlog("ses açılamadı: " + e.message); }
+}
+function beep(f = 880, d = 0.35) {
+  // Yalnız ses (ekran yanıp sönmez: ışık uyarısı ışığa duyarlı epilepsiyi tetikleyebilir). Yumuşak sinüs tonu.
+  try {
+    if (!audio) return; audio.resume?.();
+    const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime;
+    o.type = "sine"; o.frequency.value = f; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(g); g.connect(audio.destination); o.start(t); o.stop(t + d + 0.05);
+  } catch {}
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const medOf = (arr, f) => { const v = arr.map(f).filter((z) => z != null && isFinite(z)); return v.length ? med(v) : null; };
+async function faceStep(text, sec, opts = {}) {
+  camBusy = true;   // adım sürerken sayfaya tıklama kalibrasyona sayılmaz
+  try { return await faceStepRun(text, sec, opts); } finally { camBusy = false; }
+}
+async function faceStepRun(text, sec, opts) {
+  const msg = $("#camMsg"); msg.style.display = "flex";
+  if (opts.dot) { $("#yuzDot").style.display = "block"; msg.classList.add("ust"); }   // nokta katmanın üstünde, yazı yukarıda
+  for (const n of [3, 2, 1]) { msg.innerHTML = `<div>${text}<br><span style="font-size:18px;opacity:.7">${n}</span></div>`; await sleep(500); }
+  msg.innerHTML = `<div>${text}<br><span style="font-size:18px;opacity:.7">ölçülüyor…</span></div>`;
+  if (opts.beepStart) beep(660);
+  const t0 = buf.length ? buf[buf.length - 1].t : 0;
+  await sleep(sec * 1000);
+  beep();
+  $("#yuzDot").style.display = "none"; msg.classList.remove("ust");
+  msg.style.display = "none";
+  return buf.filter((b) => b.t > t0 + 0.4);   // ilk 0.4 sn: tepki süresi
+}
+function summarize(S) {
+  const bs = {};
+  const keys = S.find((b) => b.bs)?.bs ? Object.keys(S.find((b) => b.bs).bs) : [];
+  for (const k of keys) bs[k] = +medOf(S, (b) => b.bs?.[k]).toFixed(3);
+  return { n: S.length, acik: medOf(S, (b) => (b.raw[4] + b.raw[5]) / 2), kirpma: medOf(S, (b) => b.eyes?.blink),
+           yaw: medOf(S, (b) => b.pose3?.yaw), pitch: medOf(S, (b) => b.pose3?.pitch), roll: medOf(S, (b) => b.pose3?.roll),
+           relYaw: medOf(S, (b) => b.pose3?.relYaw ?? b.pose3?.yaw), relPitch: medOf(S, (b) => b.pose3?.relPitch ?? b.pose3?.pitch),
+           uzak: medOf(S, (b) => b.pose3?.dist), bs,
+           irisX: medOf(S, (b) => b.irisMm?.sag && b.irisMm?.sol ? (b.irisMm.sag[0] + b.irisMm.sol[0]) / 2 : null),
+           irisY: medOf(S, (b) => b.irisMm?.sag && b.irisMm?.sol ? (b.irisMm.sag[1] + b.irisMm.sol[1]) / 2 : null) };
+}
+// Tıklamalardan yön işareti: ekranın üstüne bakarken 3B pitch büyüyor mu küçülüyor mu (koordinat kuralını varsaymamak için)
+function yonIsareti(key, ekr) {
+  const c = clicks.filter((k) => k.goz?.[key] != null);
+  if (c.length < 6) return null;
+  const f2 = fit(c.map((k) => k[ekr]), c.map((k) => k.goz[key]));
+  return f2 && Math.abs(f2.b) > 1e-4 ? Math.sign(f2.b) : null;   // + : ekran koordinatı büyüdükçe (sağa/aşağı) açı büyür
+}
+// Kamera konumu: ekranın ortasına rahat bakarken yüzün yönü ile yüzden kameraya giden doğru arasındaki açı.
+// (İlk denemede "başını kameraya çevir" farkı kullanıldı; insanlar başı yalnız ~4° çevirip gözle bakıyor, kamerayı
+// 2-3 cm yukarıda buldu. Nötr baş açısı ise kameraya göre zaten ölçülüyor: 14° aşağı dönük yüz = kamera ~14° yukarıda.)
+// Yön işareti tıklamalardan doğrulanır: ekranın altına bakınca pitch küçülüyorsa (y yukarı) yukarı = -relPitch.
+function kameraYuzden() {
+  if (!yuz?.notr || yuz.notr.relPitch == null) return null;
+  const n = yuz.notr, d = n.uzak;
+  const sP = yonIsareti("pitch3", "sy"), sY = yonIsareti("yaw3", "sx");
+  const yukari = (sP ?? -1) * n.relPitch, sag = -(sY ?? -1) * n.relYaw;
+  // Doğrulama: "yüzünü kameraya çevir" adımında kalan açı nötrdekinden küçük olmalı (kameraya doğru dönüldü)
+  const kalan = yuz.kamera?.relPitch != null ? Math.hypot(yuz.kamera.relPitch, yuz.kamera.relYaw) : null, ilk = Math.hypot(n.relPitch, n.relYaw);
+  const cm = (a) => Math.round(d * Math.tan(a * Math.PI / 180));
+  return { yukariDer: +yukari.toFixed(1), sagDer: +sag.toFixed(1), yukariCm: cm(yukari), sagCm: cm(sag), uzakCm: Math.round(d),
+           isaret: sP == null || sY == null ? "varsayım (tıklamalarla doğrulanmadı)" : "tıklamalardan",
+           donus: kalan == null ? null : +(ilk - kalan).toFixed(1), tutarli: kalan == null ? null : kalan < ilk };
+}
+function showYuz() {
+  const el = $("#yuzDiv");
+  if (!yuz) return;
+  const f = (v, k = 2) => (v == null ? "–" : v.toFixed(k)), n = yuz.notr, k = yuz.kapali, kc = kameraYuzden();
+  const yapisal = Object.entries(n.bs || {}).filter(([key, v]) => v > 0.25 && key !== "_neutral").sort((a, b) => b[1] - a[1]).slice(0, 4)
+    .map(([key, v]) => `${key} ${v.toFixed(2)}`).join(", ");
+  el.innerHTML = `<b>Yüz profili</b> (${new Date(yuz.at).toLocaleTimeString("tr-TR")})<br>
+    Nötr: göz açıklığı ${f(n.acik)}, kırpma ${f(n.kirpma)} · kapalı: kırpma ${f(k.kirpma)}, açıklık ${f(k.acik)}
+    ${k.kirpma - n.kirpma < 0.3 ? ' <b style="color:#f59e0b">⚠ kapalı/açık farkı küçük</b>' : ""}<br>
+    Kişisel göz kapalı eşiği: ${yuz.esik != null ? f(yuz.esik) : "–"} · baş: uzaklık ~${Math.round(n.uzak ?? 0)} cm, eğim ${f(n.pitch, 1)}°, dönüş ${f(n.yaw, 1)}°<br>
+    Yapısal (nötr yüzde yüksek) katsayılar: ${yapisal || "belirgin yok"}<br>
+    Nötr duygu tabanı: ${n.duygu ? ["faceapi", "hse"].filter((k) => n.duygu[k]).map((k) => `${k === "faceapi" ? "face-api" : "HSEmotion"} ${Object.entries(n.duygu[k]).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([a, v]) => `${a} %${Math.round(100 * v)}`).join(", ")}`).join(" · ") : "yok"}<br>
+    ${kc ? `Kamera (nötr baş açısından): ekran ortasından ~${Math.abs(kc.yukariCm)} cm ${kc.yukariCm >= 0 ? "yukarıda" : "aşağıda"}, ~${Math.abs(kc.sagCm)} cm ${kc.sagCm >= 0 ? "sağda" : "solda"} (${kc.yukariDer}° / ${kc.sagDer}°, yön: ${kc.isaret})` : ""}`;
+}
+// ---- Nötr duygu tabanı: nötr bakış adımında face-api (ders sayfasının "Duygu"su) ve HSEmotion'ın gördüğü duygu payı.
+// Öğrenci sayfası bu payı nötr sayar (common.js notrTabanDuzelt). Modeller arka planda yüklenir; yetişmezse taban alınmaz.
+const DUYGU = { HZ: 2.5, MIN_N: 4 };
+let duyguHazir = { fa: false, hse: null };
+async function duyguYukle() {
+  try {
+    await faceapi.tf.setBackend("webgl").catch(() => faceapi.tf.setBackend("cpu")); await faceapi.tf.ready();
+    const M = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model/";
+    await Promise.all([faceapi.nets.tinyFaceDetector.loadFromUri(M), faceapi.nets.faceExpressionNet.loadFromUri(M)]);
+    duyguHazir.fa = true; tlog("duygu tabanı: face-api hazır");
+  } catch (e) { tlog(`duygu tabanı: face-api yüklenemedi (${e.message})`); }
+  try {
+    const h = new HSEmotionProbe(video, { getFace: () => gaze?.face || null }); await h.load();
+    duyguHazir.hse = h; tlog("duygu tabanı: HSEmotion hazır");
+  } catch (e) { tlog(`duygu tabanı: HSEmotion yüklenemedi (${e.message})`); }
+}
+function duyguOrnekle() {   // durdurulana kadar örnek toplar: { t, fa:{neutral..}, hse:{Neutral..}, va }
+  const S = [], ctl = { S, dur: false };
+  (async () => {
+    const fo = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 });
+    while (!ctl.dur) {
+      const t0 = performance.now(), r = { t: t0 / 1000 };
+      if (duyguHazir.fa) { try { const d = await faceapi.detectSingleFace(video, fo).withFaceExpressions(); if (d) r.fa = { ...d.expressions }; } catch {} }
+      const h = duyguHazir.hse;
+      if (h) { try { h.t = -Infinity; await h.step(); if (h.raw && performance.now() / 1000 - h.t < 1) { r.hse = Object.fromEntries(HSE_CLASSES.map((c, i) => [c, h.raw.probsHam[i]])); r.va = [h.raw.valence, h.raw.arousal]; } } catch {} }
+      if (r.fa || r.hse) S.push(r);
+      await sleep(Math.max(0, 1000 / DUYGU.HZ - (performance.now() - t0)));
+    }
+  })();
+  return ctl;
+}
+function duyguTaban(S, key) {
+  const A = S.filter((r) => r[key]); if (A.length < DUYGU.MIN_N) return null;
+  return Object.fromEntries(Object.keys(A[0][key]).map((k) => [k, +medOf(A, (r) => r[key][k]).toFixed(3)]));
+}
+// Telefon/tablet: ön kamera cihazın kenarında sabit (dikey tutuşta üst kenar ortası); ölçmeye gerek yok.
+const MOBIL = /Android|iPhone|iPad/i.test(navigator.userAgent);
+function telefonKamera() {
+  const aci = (screen.orientation?.angle ?? window.orientation ?? 0) % 360, dikey = innerHeight >= innerWidth;
+  const yer = dikey ? "ust" : (aci === 90 ? "sol" : aci === 270 || aci === -90 ? "sag" : null);
+  return { dikey: yer, metin: dikey ? "telefon dikey: ön kamera ekranın üst kenarında" : `telefon yatay: ön kamera ekranın ${yer === "sol" ? "sol" : yer === "sag" ? "sağ" : "bir yan"} kenarında`,
+           yonDogrulama: null, kaynak: "cihaz türü ve ekran yönü (ölçülmedi)", yukariCm: null, sagCm: null, yukariDer: null, sagDer: null, uzakCm: null };
+}
+// Yüz profili adımında gereken en az kare. 15 idi; yavaş cihazda (3 kare/sn) 3 sn'lik adım 6-8 kare toplayabiliyor.
+const PROFIL_MIN_KARE = 5;
+async function faceProfile() {
+  if (!gaze) return;
+  tlog(`yüz profili başladı: nötr (2 sn), gözler kapalı (3 sn)${MOBIL ? " — telefon: kamera adımı yok, ön kamera üst kenarda kabul edilir" : ", başla kameraya dönme (2 sn)"}`);
+  await hazirKarti("🙂 Yüz tanıma (yaklaşık 10 sn)",
+    `Üç kısa adım var; her adımdan önce ekranda 3-2-1 sayılır:<br>
+    1) <b>Sarı noktaya</b> rahat ve nötr bakın.<br>
+    2) <b>Gözlerinizi kapatın</b>; <b>bip sesini</b> duyunca açın.<br>
+    ${MOBIL ? "" : "3) Başınızı <b>kameraya</b> çevirip merceğe bakın.<br>"}
+    <span style="opacity:.75">Hoparlör sesinin açık olduğundan emin olun. Ekranda ışık yanıp sönmez; uyarı yalnız sestir.</span>`, "Hazırım");
+  const DS = duyguOrnekle();
+  const A = await faceStep("🙂 Sarı noktaya <b>rahat ve nötr</b> bakın<br>(yüzünüz noktaya dönük, ekrana düz oturun)", 2, { dot: true });
+  DS.dur = true;
+  const B = await faceStep("😌 <b>Gözlerinizi kapatın</b><br>bip sesini duyunca açın", 3);
+  const C = MOBIL ? [] : await faceStep("📷 <b>Yüzünüzü kameraya çevirin</b><br>(başınızı kameraya doğru döndürüp merceğe bakın)", 2);
+  const notr = summarize(A.filter((b) => !b.blink)), kapali = summarize(B), kamera = MOBIL ? null : summarize(C.filter((b) => !b.blink));
+  { const hiz = gaze.diag && A.length > 1 ? (A.length / Math.max(0.5, A.at(-1).t - A[0].t)).toFixed(1) : "?";
+    tlog(`profil kareleri: nötr ${notr.n}, kapalı ${kapali.n}${kamera ? `, kamera ${kamera.n}` : ""} (~${hiz} kare/sn)${notr.n < 15 || kapali.n < 15 ? " — az kare, profil değerleri gürültülü olabilir" : ""}`); }
+  { // nötr duygu tabanı: yalnız ölçüm penceresindeki örnekler (geri sayım ve tepki süresi hariç)
+    const t0 = A[0]?.t ?? Infinity, t1 = A.at(-1)?.t ?? -Infinity, S = DS.S.filter((r) => r.t >= t0 && r.t <= t1 + 0.2);
+    const fa = duyguTaban(S, "fa"), hs = duyguTaban(S, "hse"), V = S.filter((r) => r.va);
+    notr.duygu = (fa || hs) ? { faceapi: fa, hse: hs, hseVA: V.length >= DUYGU.MIN_N ? [+medOf(V, (r) => r.va[0]).toFixed(3), +medOf(V, (r) => r.va[1]).toFixed(3)] : null,
+                                n: { faceapi: S.filter((r) => r.fa).length, hse: S.filter((r) => r.hse).length } } : null;
+    const ilk = (o) => o ? Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${k} %${Math.round(100 * v)}`).join(", ") : "yok";
+    tlog(notr.duygu ? `nötr duygu tabanı: face-api ${ilk(fa)} (${notr.duygu.n.faceapi} örnek) | HSEmotion ${ilk(hs)} (${notr.duygu.n.hse} örnek)${notr.duygu.hseVA ? ` V ${notr.duygu.hseVA[0]} A ${notr.duygu.hseVA[1]}` : ""}`
+                    : `nötr duygu tabanı alınamadı (face-api ${duyguHazir.fa ? "hazır" : "yok"}, HSEmotion ${duyguHazir.hse ? "hazır" : "yok"}, ${S.length} örnek)`, notr.duygu);
+  }
+  const sorun = [];
+  if (notr.n < PROFIL_MIN_KARE) sorun.push(`nötr adımda yüz az algılandı (${notr.n} kare)`);
+  if (kapali.n < PROFIL_MIN_KARE) sorun.push(`kapalı göz adımında yüz az algılandı (${kapali.n} kare)`);
+  if (kapali.kirpma != null && notr.kirpma != null && kapali.kirpma - notr.kirpma < 0.3) sorun.push(`kapalı göz kırpma katsayısı (${kapali.kirpma.toFixed(2)}) nötrden (${notr.kirpma.toFixed(2)}) yeterince yüksek değil — gözler kapanmadı mı?`);
+  if (notr.pitch == null) sorun.push("3B baş açısı gelmedi (tarayıcı/MediaPipe matrisi vermiyor)");
+  if (sorun.length) { tlog("yüz profili sorunlu: " + sorun.join("; ")); toast("Yüz profili: " + sorun[0], 5000); }
+  if (notr.n < PROFIL_MIN_KARE || kapali.n < PROFIL_MIN_KARE) return false;
+  const lo = notr.kirpma + 0.1, hi = kapali.kirpma - 0.05;
+  yuz = { at: Date.now(), notr, kapali, kamera, esik: hi > lo ? +((lo + hi) / 2).toFixed(2) : null, kameraYuz: null,
+          matris: buf.find((b) => b.pose3)?.pose3?.colMajor ? "sütun" : "satır" };
+  yuz.kameraYuz = MOBIL ? null : kameraYuzden();
+  // Gözler gerçekten kapanmadıysa (20.11 15:21: kapalı 0,11, nötr 0,07) kişisel eşik KURULMAZ: 0,03 eşik açık gözü de kapalı sayardı
+  if (kapali.kirpma != null && notr.kirpma != null && kapali.kirpma - notr.kirpma >= 0.3) {
+    gaze.yuzKapali = kapali.kirpma;   // bundan sonra kırpma kararı kişisel kapalı-göz değerine göre (gaze.js)
+    tlog(`kırpma eşiği artık kişisel: ${(kapali.kirpma - 0.08).toFixed(2)} (gerçek kapalı göz ${kapali.kirpma.toFixed(2)}); aşağı bakış kapalı sayılmayacak`);
+  } else { gaze.yuzKapali = null; tlog("kişisel kırpma eşiği kurulmadı (kapalı göz ölçülemedi); genel eşik kullanılıyor"); }
+  try { localStorage.setItem("dn_yuz_profili", JSON.stringify(yuz)); } catch {}
+  const r = (v, k = 2) => (v == null ? "-" : v.toFixed(k));
+  tlog(`yüz profili: nötr açıklık ${r(notr.acik)} kırpma ${r(notr.kirpma)} | kapalı kırpma ${r(kapali.kirpma)} açıklık ${r(kapali.acik)} | kişisel eşik ${yuz.esik ?? "-"} | baş nötr yaw ${r(notr.yaw, 1)}° pitch ${r(notr.pitch, 1)}° uzaklık ${r(notr.uzak, 0)} cm ${kamera ? ` | kameraya dönük yaw ${r(kamera.yaw, 1)}° pitch ${r(kamera.pitch, 1)}°` : ""}`, yuz);
+  if (yuz.kameraYuz) tlog(`kamera (nötr baş açısından): ${yuz.kameraYuz.yukariCm} cm yukarı, ${yuz.kameraYuz.sagCm} cm sağ (${yuz.kameraYuz.yukariDer}°, ${yuz.kameraYuz.sagDer}°, uzaklık ${yuz.kameraYuz.uzakCm} cm, yön işareti: ${yuz.kameraYuz.isaret}) | doğrulama: kameraya dönünce açı ${yuz.kameraYuz.donus ?? "-"}° azaldı${yuz.kameraYuz.tutarli === false ? " ⚠ TUTARSIZ (kameraya dönünce açı büyüdü)" : ""}`, yuz.kameraYuz);
+  showYuz();
+  return true;
+}
+// Canlı: şu anki yüz katsayılarının nötrden sapması (duygu için kişisel taban örneği)
+setInterval(() => {
+  const el = $("#canli"); if (!yuz?.notr?.bs || !buf.length) { el.textContent = ""; return; }
+  const S = buf.slice(-10).filter((b) => b.bs); if (!S.length) return;
+  const d = Object.keys(yuz.notr.bs).map((k) => [k, S.reduce((t, b) => t + b.bs[k], 0) / S.length - yuz.notr.bs[k]])
+    .filter(([, v]) => Math.abs(v) > 0.12).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 4);
+  el.textContent = "Nötrden sapma (canlı): " + (d.length ? d.map(([k, v]) => `${k} ${v > 0 ? "+" : ""}${v.toFixed(2)}`).join(", ") : "nötr");
+}, 500);
+
+
+// ---- Tek akış: 1) yüz profili (10 sn) 2) tıklama turları (öğrenme doyana ya da yer bitene kadar)
+// 3) tüm ölçümlerin birleşik özeti 4) öğrenci sayfasına otomatik kayıt. Her başlatma sıfırdan başlar
+// (oturuş/ışık değiştiyse eski tıklamalar modeli bozmasın).
+// Kısa akış: 2 öğrenme turu (~15-18 tıklama) + 5 noktalık doğrulama. 20.11 kayıtlarında hata ilk 10-13 tıklamada düşüp
+// sonra düzleşti (14-60 tıklama arası 130-260 px gidip geldi); daha çok tur iyileştirmiyor. Doğrulama noktalarından
+// model öğrenmez: sonuçta raporlanan hata bunlardan hesaplanır (yöntem bölümünde verilecek "bu kişide doğruluk").
+const AKIS = { TUR: 2, DOGRULAMA: 5 };
+// İki doğrulama aynı 5 noktada (pencere oranı): bakarak ve tıklamalı kalibrasyon kendi doğrulamasıyla HEMEN ardından ölçülür
+// (20.11 14:55: bakarak modeller 40 sn'lik tıklama turlarından sonra ölçülünce kayma yüzünden adil değildi).
+const DOGRULAMA_NOKTA = [[0.3, 0.3], [0.7, 0.3], [0.5, 0.55], [0.3, 0.8], [0.7, 0.8]];
+// Kontrol noktaları: bakarak ızgarasından ve düzeltme noktalarından uzak (model bunlardan hiç öğrenmez). ?kontrol=0 ile atlanır.
+const KONTROL = new URLSearchParams(location.search).get("kontrol") !== "0";
+const KONTROL_NOKTA = [[0.5, 0.15], [0.12, 0.4], [0.88, 0.4], [0.5, 0.85], [0.88, 0.85]];
+const kontrolNoktalari = () => KONTROL_NOKTA.map(([a, b]) => ({ x: Math.round(a * innerWidth), y: Math.round(b * innerHeight) }));
+const dogrulamaNoktalari = () => DOGRULAMA_NOKTA.map(([a, b]) => ({ x: Math.round(a * innerWidth), y: Math.round(b * innerHeight) }));
+// ---- Bakarak kalibrasyon (tıklamasız). Öğrenci sayfasında tıklama istenmiyor; noktalar kendiliğinden ilerler, her noktada
+// 0,6 sn göz yerleşmesi beklenir, sonraki 1 sn'nin kareleri (kırpma ve aykırı kareler atılarak) öğretilir. Tıklamalı
+// kalibrasyonla adil karşılaştırma: bakarak modeller YALNIZ bakarak turlarından öğrenir; ardından gelen tıklamalı turların
+// ve doğrulamanın tüm tıklamaları onlar için hiç görülmemiş noktalardır (tıklama, gözün o anda hedefte olduğunu kanıtlar).
+// ?bakarak=0 ile atlanır.
+const BAKIS = { TUR: 1, BEKLE: 1.0, TOPLA: 1.2, ACIK: new URLSearchParams(location.search).get("bakarak") !== "0" };
+let bakarakSuruyor = false, modelBk = null, modelBBk = null, bakisNokta = [];
+function uzakNoktalar(kullanilan, n) {   // kullanılanlardan en uzak n aday (60 px ızgara)
+  const cand = [], step = 60, m = GUIDE.M, used = kullanilan.map((q) => ({ ...q })), pts = [];
+  for (let y = m; y <= innerHeight - m; y += step) for (let x = m; x <= innerWidth - m; x += step) cand.push({ x, y });
+  while (pts.length < n) {
+    let best = null, bd = -1;
+    for (const q of cand) { let d = Infinity; for (const u of used) d = Math.min(d, Math.hypot(u.x - q.x, u.y - q.y)); if (d > bd) { bd = d; best = q; } }
+    if (!best || bd <= TEST.NEAR + 10) break;
+    pts.push({ ...best }); used.push(best);
+  }
+  return pts;
+}
+function hazirKarti(baslik, metin, dugme) {
+  return new Promise((ok) => {
+    const k = document.createElement("div"); k.id = "hazirKart";
+    Object.assign(k.style, { position: "fixed", inset: "0", zIndex: "19", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "16px",
+      background: "rgba(15,20,27,.94)", color: "#e6edf3", font: "20px system-ui", textAlign: "center", padding: "16px" });
+    k.innerHTML = `<div style="font-size:26px">${baslik}</div><div style="max-width:640px;line-height:1.5;opacity:.9">${metin}</div>
+      <button style="font:inherit;font-size:22px;padding:12px 30px;border-radius:12px;border:2px solid #facc15;background:#1c2633;color:#facc15;cursor:pointer">${dugme}</button>`;
+    document.body.append(k);
+    k.querySelector("button").onclick = (e) => { e.stopPropagation(); k.remove(); setTimeout(ok, 400); };
+  });
+}
+async function bakarakKalibrasyon() {
+  if (!BAKIS.ACIK) return;
+  await hazirKarti("👀 1. bölüm: sadece bakın",
+    `Ekranda <b>sarı noktalar</b> sırayla çıkacak (${BAKIS.TUR * 9} nokta, yaklaşık ${Math.round(BAKIS.TUR * 9 * (BAKIS.BEKLE + BAKIS.TOPLA) / 10) * 10} sn).<br>Her noktaya <b>bakın ve küçülene kadar gözünüzü üzerinde tutun</b>. <b>Tıklamayın.</b><br>Başınızı oynatmadan, yalnız gözünüzle takip edin.`, "Hazırım");
+  bakarakSuruyor = true; bakisNokta = [];
+  const Fk = [], Yk = [], FBk = [];
+  $("#guide").style.display = "block";
+  tlog(`BAKARAK kalibrasyon başladı: ${BAKIS.TUR} tur, nokta başına ${BAKIS.BEKLE} sn bekleme + ${BAKIS.TOPLA} sn toplama (tıklama yok)`);
+  try {
+    for (let tur = 1; tur <= BAKIS.TUR; tur++) {
+      const pts = tur === 1 ? guidePoints(1) : uzakNoktalar(bakisNokta, 9);
+      for (let i = 0; i < pts.length; i++) {
+        const q = pts[i];
+        guide = { round: tur, targets: [q], total: pts.length, startN: 0, ozet: "", meds: [], bakarak: true };
+        guideShow(); q.el?.classList.add("bakis"); if (q.el) q.el.style.animationDuration = `${BAKIS.BEKLE + BAKIS.TOPLA}s`;
+        $("#gTxt").innerHTML = `<b>Sadece bakın</b> — tıklamayın<br><span class="muted">nokta ${(tur - 1) * 9 + i + 1}/${BAKIS.TUR * 9}</span>`;
+        yerlestir();
+        const t0 = performance.now() / 1000;
+        // WebGazer yalnız noktanın son 0,5 sn'sinde çalışır (çalışırken bizim kare hızımızı 3-4 kat düşürüyor, 20.11 15:10)
+        await sleep((BAKIS.BEKLE + BAKIS.TOPLA - 0.5) * 1000); wgAyarla(true);
+        await sleep(330);
+        if (wg) { wgN++; for (const ms of WG_ORNEK_MS) setTimeout(() => wg.recordScreenPosition(q.x, q.y, "click"), ms); setTimeout(() => wgAyarla(false), 200); }
+        await sleep(170);
+        const S = buf.filter((b) => !b.blink && b.t >= t0 + BAKIS.BEKLE && b.t <= t0 + BAKIS.BEKLE + BAKIS.TOPLA);
+        // aykırı kare ayıklama (gaze.js ile aynı MAD kuralı, göz konumu sütunlarında): bakış noktadan kaçtıysa atılır
+        const rows = S.map((b) => gzModelFeatures(b.raw)), temiz = rows.length >= 3 ? gzDropOutliers(rows) : rows;
+        const tut = S.filter((_, k) => temiz.includes(rows[k]));
+        const o = gaze._off(), sx = q.x + o.x, sy = q.y + o.y;
+        for (const b of tut) { Fk.push(gzModelFeatures(b.raw)); FBk.push(ozB(b)); Yk.push([sx, sy]); }
+        aciEkle(tut, sx, sy); wgyEkle(tut, sx, sy);
+        bakisNokta.push({ x: q.x, y: q.y });
+        tlog(`  bakarak nokta ${tur}.${i + 1} (x ${q.x}, y ${q.y}): ${S.length} kare, ${tut.length} tutuldu`, { x: q.x, y: q.y, kare: S.length, tut: tut.length });
+      }
+    }
+  } finally { bakarakSuruyor = false; document.querySelectorAll(".tgt").forEach((n) => n.remove()); guide = null; }
+  if (Fk.length >= 30) {
+    modelBk = new GazeModel(); modelBk.fit(Fk, Yk); modelBBk = new GazeModel(); modelBBk.fit(FBk, Yk);   // yalnız bakarak (karşılaştırma için sabit kalır)
+    F.push(...Fk); Y.push(...Yk); FB.push(...FBk);   // ana model: bakarak kareleri + sonra düzeltme tıklamaları
+    model = new GazeModel(); model.fit(F, Y); modelB = new GazeModel(); modelB.fit(FB, Y); aciKur(); wgyKur();
+    tlog(`WebGazer göz yaması: ${FW.length}/${Fk.length} karede var${modelW ? "; bizW ve wgMP kuruldu" : " — model kurulamadı"}`);
+    tlog(`BAKARAK modeller kuruldu: ${bakisNokta.length} nokta, ${Fk.length} kare; WebGazer ${wgN} noktadan öğrendi. Düzeltme tıklamaları ana modele eklenir, "yalnız bakarak" model sabit kalır`);
+  } else tlog(`BAKARAK modeller kurulamadı: yalnız ${Fk.length} kare toplandı`);
+  await sleep(600);
+}
+async function guideStart() {
+  F = []; Y = []; clicks = []; model = null; depoModel = null; camHist = []; camPos = null; tiklamaOz.length = 0; modelBk = null; modelBBk = null;
+  fuzF = []; fuzY = []; fuzModel = null; karisimGecmis = []; FB = []; modelB = null; FW = []; YW = []; FM = []; modelW = null; modelM = null; aciS = []; aciModel = {}; aciHata = {}; aciSecim = [];
+  if (wg) { await wg.clearData(); wgN = 0; wgBuf = []; wgYuzYok = 0; wgYuzSon = null; }
+  YT.sayac = { ikisi: 0, mp: 0, wg: 0, hicbiri: 0 }; YT.ayrisma = null;
+  document.querySelectorAll(".mark,.line").forEach((n) => n.remove());
+  wgAyarla(false);   // WebGazer yalnız gerektiğinde çalışır (kare hızı)
+  tlog(`═══ kalibrasyon başladı: 1) yüz profili 2) bakarak 9 nokta 3) 5 noktaya birer tıklama (düzeltme)${KONTROL ? " 4) 5 kontrol noktası (yalnız test)" : ""} ═══`);
+  $("#startCard").style.display = "none";
+  if (!(await faceProfile())) {
+    tlog("kalibrasyon durdu: yüz profili alınamadı");
+    $("#resTxt").innerHTML = "Yüz yeterince görülemedi.<br><span class='muted'>Kameraya düz bakın, ışığı kontrol edin.</span>";
+    const x = gaze?.diag; if (x) tlog(`[tanı] toplam: ${x.kare} kare, yüz ${x.yuz}, hata ${x.hata}${x.sonHata ? ` (son: ${x.sonHata})` : ""} | ${x.delegate}, video ${x.video}`, x);
+    const dosya = await testKaydiGonder();
+    if (dosya) $("#resTxt").innerHTML += `<br><span class="muted" style="font-size:12px">Kayıt bilgisayara gönderildi: ${dosya}</span>`;
+    $("#startBtn").textContent = "↻ Tekrar dene"; $("#startCard").style.display = "block"; return;
+  }
+  pencereOnce = { w: innerWidth, h: innerHeight };
+  $("#panel").style.display = "none";
+  if (DEPO && (await depoKalibrasyon())) {
+    await hazirKarti("✅ Kontrol (5 nokta)", "Depo kalibrasyonu bitti. Şimdi 5 sarı noktaya <b>bakın ve bir kez tıklayın</b> (yalnız ölçüm).<br>Ardından bizim kalibrasyon gelecek.", "Başla");
+    guide = { round: "KD", dogrula: "kontrolDepo", targets: kontrolNoktalari(), total: 5, startN: clicks.length, ozet: "", meds: [] };
+    $("#guide").style.display = "block";
+    tlog("DEPO KONTROL başladı: 5 nokta (depo kalibrasyonunun hemen ardından; kimse öğrenmez)"); guideShow(); return;
+  }
+  await bizimAkis();
+}
+async function bizimAkis() {
+  await bakarakKalibrasyon();
+  if (modelBk) {
+    await hazirKarti("👆 2. bölüm: 5 nokta", `Şimdi 5 sarı nokta çıkacak. Her birine <b>bakın ve bir kez tıklayın</b>.${KONTROL ? '<br><span style="opacity:.75">Ardından ölçüm için 5 nokta daha var (yalnız bu test sayfasında).</span>' : ""}`, "Başla");
+    guide = { round: "düzeltme", targets: dogrulamaNoktalari(), total: 5, startN: clicks.length, ozet: "", meds: [] };
+    $("#guide").style.display = "block";
+    tlog("DÜZELTME başladı: 5 nokta, birer tıklama (her tıklama önce ölçülür, sonra modele eklenir)"); guideShow(); return;
+  }
+  await tiklamaliBasla();
+}
+// ---- ?kalibre=depo: projenin GitHub deposundaki (TugraKarademir/eyetracker) kalibrasyon, gaze.js calibrate() aynen:
+// 13 nokta bakarak (0,7 sn yerleşme + 1 sn toplama) + 3x3 hücrede rastgele 9 doğrulama noktası. Tıklamayla öğrenmesi kapalı
+// tutulur (yalnız ölçülür). Ardından aynı 5 kontrol noktası, sonra bizim akış ve yine aynı 5 kontrol -> aynı oturumda karşılaştırma.
+const DEPO = new URLSearchParams(location.search).get("kalibre") === "depo";
+let depoModel = null;
+async function depoKalibrasyon() {
+  tlog("DEPO kalibrasyonu başladı (TugraKarademir/eyetracker gaze.js calibrate, webgaze): 13 nokta bakarak + 9 rastgele doğrulama noktası");
+  const kalBas = (window.kalLog ||= []).length, yuzOnce = gaze.report?.yuz;
+  const k = gaze._close.bind(gaze);
+  const bitti = new Promise((ok) => { gaze._close = (x) => { gaze._close = k; k(x); ok(x); }; });
+  await gaze.calibrate();
+  const bas = Date.now();
+  await (gaze.calibrating ? bitti : null);
+  // Doğrulama bittiyse (rapor bu kalibrasyonda yazıldıysa) sonuç ekranı "Vazgeç"/Esc ile kapatılsa da model geçerlidir
+  const ok = !!(gaze.model && gaze.report?.at >= bas);
+  gaze._close = k;
+  gaze.tracking = false; document.removeEventListener("pointerdown", gaze._onClick, true);   // depo modeli tıklamadan öğrenmesin
+  if (yuzOnce && gaze.report) gaze.report.yuz = yuzOnce;
+  for (const r of window.kalLog.slice(kalBas)) tlog("  [depo] " + r.msg);
+  if (!ok || !gaze.model) { tlog("DEPO kalibrasyonu tamamlanmadı (vazgeçildi ya da pencere küçük) — bizim akışa geçiliyor"); return false; }
+  depoModel = gaze.model;
+  tlog(`DEPO kendi doğrulaması (9 rastgele nokta, bakarak): hata ${gaze.report?.acc} px, titreme ${gaze.report?.prec} px, 3x3 isabet %${gaze.report?.hit3}`, { rapor: gaze.report });
+  return true;
+}
+async function tiklamaliBasla() {
+  if (BAKIS.ACIK) await hazirKarti("👆 2. bölüm: bakın ve tıklayın", "Şimdi sarı noktalar yine çıkacak. Her birine <b>bakın, sonra üstüne tıklayın</b>.<br>Bitince yine 5 noktalık kontrol var.", "Başla");
+  guide = { round: 1, targets: guidePoints(1), total: 9, startN: clicks.length, ozet: "", meds: [] };
+  tlog(`hedef alanı: pencere ${innerWidth}x${innerHeight}, ekranda sol üst (${Math.round(gaze._off().x)}, ${Math.round(gaze._off().y)}), ekran ${screen.width}x${screen.height}${document.fullscreenElement ? " (tam ekran)" : ""}`);
+  $("#panel").style.display = "none"; $("#guide").style.display = "block";
+  tlog("nokta turları başladı: 9 nokta (köşeler, kenar ortaları, merkez); sonraki turlar boş kalan yerlere");
+  guideShow();
+}
+// Kamera konumu: tüm kaynaklar birlikte. Dikey: yüz profilinin nötr baş açısı (yönü tıklamalarla doğrulanır).
+// Yatay: yüz profili (cm) ve tıklamalarda baş dönüşünün sıfır olduğu ekran x'i (px) — ikisi uyuşmalı.
+function kameraBirlesik() {
+  if (MOBIL) return telefonKamera();
+  const kc = yuz ? kameraYuzden() : null;
+  const yc = clicks.filter((k) => k.goz?.basYaw != null);
+  const yf = yc.length >= 6 ? fit(yc.map((k) => k.goz.basYaw), yc.map((k) => k.sx)) : null;
+  const yawX = yf ? Math.round(yf.a) : null, o = gaze._off();
+  const refX = o.x + innerWidth / 2, refY = o.y + innerHeight / 2;   // nötr adımdaki sarı noktanın ekran koordinatı
+  const ref = Math.abs(refX - screen.width / 2) < 100 && Math.abs(refY - screen.height / 2) < 100 ? "ekran ortasının" : "pencere ortasının";
+  const dikey = kc ? (kc.yukariDer > 3 ? "ust" : kc.yukariDer < -3 ? "alt" : "orta") : null;
+  const yatayPx = yawX == null ? null : yawX - refX;
+  const basYana = yuz?.notr?.yaw != null && Math.abs(yuz.notr.yaw) > 6;
+  const yatayTxt = !kc ? "yatay bilinmiyor" : basYana ? `yatay ölçülemedi (nötr bakışta baş ${Math.abs(yuz.notr.yaw).toFixed(0)}° yana dönüktü)`
+    : Math.abs(kc.sagCm) <= 3 ? "yatayda ortada" : `${ref} ~${Math.abs(kc.sagCm)} cm ${kc.sagCm > 0 ? "sağında" : "solunda"}`;
+  const uyum = basYana ? "güvenilmez" : null;
+  const dikeyTxt = !kc ? "dikey bilinmiyor" : dikey === "orta" ? "göz hizasına yakın" : `${ref} ~${Math.abs(kc.yukariCm)} cm ${dikey === "ust" ? "yukarısında (ekranın üstünde)" : "aşağısında (ekranın altında)"}`;
+  return { dikey, metin: `${dikeyTxt}, ${yatayTxt}`, yukariCm: kc?.yukariCm ?? null, sagCm: kc?.sagCm ?? null, yukariDer: kc?.yukariDer ?? null,
+           sagDer: kc?.sagDer ?? null, uzakCm: kc?.uzakCm ?? null, yonDogrulama: kc?.isaret ?? null, tiklamaYawX: yawX, yatayUyum: uyum,
+           kaynak: "yüz profili (nötr baş açısı) + tıklamalar" };
+}
+async function guideFinish(neden) {
+  const g = guide; guideStop();
+  const m = clicks.filter((c) => c.err != null), V = m.filter((c) => c.dogrulama === "kontrol"), last = V.length ? V : m.slice(-TEST.LAST);
+  { // Bakarak + 5 tıklamalı düzeltme: düzeltme tıklamaları (öğretmeden önce ölçülür) ve kontrol noktaları (hiç öğretilmez)
+    const K = clicks.filter((c) => c.dogrulama === "kontrol"), D = clicks.filter((c) => !c.dogrulama);
+    const md = (L, k) => { const e = L.filter((c) => c.v?.[k]).map((c) => c.v[k].err); return e.length ? `${Math.round(med(e))} px (${e.length})` : "-"; };
+    const KD = clicks.filter((c) => c.dogrulama === "kontrolDepo");
+    if (KD.length) tlog(`DEPO KARŞILAŞTIRMA (aynı 5 kontrol noktası): depo kalibrasyonu hemen ardından ${md(KD, "depo")} | bizim akıştan sonra: bizim ${md(K, "biz")} · depo (kaymış, ~1 dk sonra) ${md(K, "depo")}`, { KD: KD.map((c) => c.v) });
+    if (modelBk) tlog(`KARŞILAŞTIRMA | KONTROL (yeni noktalar, öğretilmedi): bakarak+düzeltme bizim ${md(K, "biz")} · bizim+WebGazer yaması ${md(K, "bizW")} · WebGazer yöntemi (MediaPipe) ${md(K, "wgMP")} · göz katsayıları ${md(K, "bizB")} · karışım %70 ${md(K, "karisim70")} · WebGazer ${md(K, "wg")} · yalnız bakarak bizim ${md(K, "bizBk")} · yalnız bakarak göz katsayıları ${md(K, "bizBBk")} | DÜZELTME tıklamaları (öğretmeden önce): bizim ${md(D, "biz")} · bizim+WebGazer yaması ${md(D, "bizW")} · WebGazer yöntemi (MediaPipe) ${md(D, "wgMP")} · göz katsayıları ${md(D, "bizB")} · karışım %70 ${md(D, "karisim70")} · WebGazer ${md(D, "wg")}`,
+      { K: K.map((c) => c.v), D: D.map((c) => c.v) });
+  }
+  const acc = last.length ? Math.round(med(last.map((c) => c.err))) : null;
+  const hit = last.length ? Math.round(100 * last.filter((c) => c.ok).length / last.length) : null;
+  const cell3 = last.length ? Math.round(100 * last.filter((c) => c.cellOk).length / last.length) : null;
+  const T = V.length ? yarisTablosu(V, 99) : yarisTablosu();
+  camPos = kameraBirlesik();
+  if (camPos.dikey && camPos.dikey !== "orta" && camPos.yonDogrulama === "tıklamalardan") {
+    $("#camSel").value = camPos.dikey; try { localStorage.setItem("dn_kamera_yeri", camPos.dikey); } catch {}
+  }
+  $("#sPos").textContent = camPos.metin;
+  stats();
+  const kayit = !$("#saveBtn").disabled;
+  if (kayit) $("#saveBtn").onclick();
+  tlog(`SONUÇ (${neden}): ${V.length ? `doğrulama (${V.length} nokta, öğretilmeden) ` : ""}bakış hatası ${acc ?? "-"} px (≤150 px %${hit ?? "-"}, 3×3 %${cell3 ?? "-"}, turlar ${g?.meds.join("→") || "-"}, ${clicks.length} tıklama) | kamera ${camPos.metin} [dikey yön ${camPos.yonDogrulama ?? "-"}] | göz kapalı eşiği ${yuz?.esik ?? "-"} | ${kayit ? "ders sayfasına kaydedildi" : "KAYDEDİLMEDİ (az ölçüm)"}`, { camPos, yuz });
+  if (T.n) {
+    { const sk = aciK();
+      // Ölçek ancak hata eğrisinde belirgin bir dip varsa (aralığın ucunda değil, uçlardan en az %10 düşük) yazılır.
+      // Benzetimde (gerçek 26 inç) en uçtaki k seçildi: modelin karesel terimleri eğriliği emiyor, ölçek ayırt edilemiyor.
+      const E = ACI.K.map((k) => (aciHata[k]?.length ? med(aciHata[k]) : null)), i = ACI.K.indexOf(sk.k);
+      const dip = sk.secildi && i > 0 && i < ACI.K.length - 1 && E[i] < 0.9 * Math.min(E[0], E.at(-1));
+      tlog(`EKRAN ÖLÇEĞİ (açı modeli iç parametresi, inç tahmini değildir — 20.11'de 27 inçe 34,7 dedi): seçilen ${sk.k} cm/piksel${dip ? "" : " (belirgin dip yok)"} | k'ya göre medyan hata: ${ACI.K.map((k, j) => `${k}:${E[j] == null ? "-" : Math.round(E[j])}`).join(" ")} px`, { k: sk.k, dip, secimler: aciSecim }); }
+    for (const k of ["bizBk", "bizBBk"]) { const e = clicks.filter((c) => c.v?.[k]).map((c) => c.v[k].err);
+      if (e.length) tlog(`BAKARAK ${YONTEM[k]}: tüm tıklamalarda (${e.length} nokta, hiçbiri öğretilmedi) medyan ${Math.round(med(e))} px, ≤150 px %${Math.round(100 * e.filter((x) => x <= TEST.HIT_PX).length / e.length)}`); }
+    tlog(`YARIŞ${V.length ? " (doğrulama noktaları)" : ""}: ${yarisKisa(T) ?? "ortak ölçüm yok"} | WebGazer yüz bulamadı: ${wgYuzYok} kare (ilk öğretimden sonra)`, { tablo: T });
+    // Bölgeye göre medyan hata (tüm ölçülen tıklamalar): alt satır ve yan sütunlar zor bölgeler
+    const bolge = (c) => ({ satir: c.y < innerHeight / 3 ? "üst" : c.y < 2 * innerHeight / 3 ? "orta" : "alt", sutun: c.x < innerWidth / 3 ? "sol" : c.x < 2 * innerWidth / 3 ? "orta" : "sağ" });
+    const bm = (k, f) => { const e = clicks.filter((c) => c.v?.[k] && f(bolge(c))).map((c) => c.v[k].err); return e.length ? Math.round(med(e)) : "-"; };
+    for (const k of Object.keys(YONTEM).filter((k) => clicks.some((c) => c.v?.[k])))
+      tlog(`BÖLGE ${YONTEM[k]}: üst ${bm(k, (b) => b.satir === "üst")} · orta ${bm(k, (b) => b.satir === "orta")} · alt ${bm(k, (b) => b.satir === "alt")} | sol ${bm(k, (b) => b.sutun === "sol")} · orta ${bm(k, (b) => b.sutun === "orta")} · sağ ${bm(k, (b) => b.sutun === "sağ")} px`);
+    const yo = yuzTespitOzet();
+    tlog(`YÜZ TESPİTİ: ${yo ? yo.metin : "ölçüm yok"}`, { yuzTespiti: yo });
+    console.table(T.satir);
+    // Karışım ağırlığı tablosu: TÜM tıklamalarla seçildiği için iyimser (aynı veriyle seçip ölçüyor); yalnız yön göstermek için
+    const H = karisimGecmis;
+    if (H.length >= 5) tlog(`KARIŞIM (iyimser, tüm veriyle): ${KARISIM_W.map((w) => `biz %${Math.round(100 * w)}→${Math.round(med(H.map((h) => Math.hypot(w * h.biz[0] + (1 - w) * h.wg[0] - h.x, w * h.biz[1] + (1 - w) * h.wg[1] - h.y))))}`).join(" · ")} px`);
+    tlog("Tüm veri: konsolda copy(testLog) yazıp yapıştırabilirsiniz");
+  }
+  const dosya = await testKaydiGonder();
+  $("#resTxt").innerHTML = kayit ? `✓ Kalibrasyon tamam<br><span class="muted">Bakış hatası ~${acc} px · ders sayfasına aktarıldı</span>${T.n ? `<br><span class="muted" style="font-size:13px">${yarisKisa(T)}</span>` : ""}`
+                                 : `Kalibrasyon kaydedilmedi<br><span class="muted">Yeterli ölçüm yok, tekrar deneyin</span>`;
+  document.querySelectorAll(".mark,.line").forEach((n) => n.remove());
+  if (dosya) $("#resTxt").innerHTML += `<br><span class="muted" style="font-size:12px">Kayıt bilgisayara gönderildi: ${dosya}</span>`;
+  $("#startBtn").textContent = "↻ Yeniden kalibre et"; $("#startCard").style.display = "block";
+}
+// Konsol kaydını sunucuya gönder (test_kayitlari/ altına yazılır). Telefondan konsol kopyalamak zor olduğu için.
+let tanıOnce = null;
+function tanı() {
+  const d = gaze?.diag; if (!d) return null;
+  const o = tanıOnce || { kare: 0, yuz: 0, hata: 0 }; tanıOnce = { ...d };
+  return { ...d, araKare: d.kare - o.kare, araYuz: d.yuz - o.yuz, araHata: d.hata - o.hata };
+}
+// Kamera karesinin ortalama parlaklığı (0-255): yüz bulunamıyorsa en sık sebep karanlık
+const parlakCv = document.createElement("canvas"); parlakCv.width = 32; parlakCv.height = 18;
+function kareParlakligi() {
+  try { const c = parlakCv.getContext("2d", { willReadFrequently: true }); c.drawImage(video, 0, 0, 32, 18);
+    const d = c.getImageData(0, 0, 32, 18).data; let t = 0; for (let i = 0; i < d.length; i += 4) t += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    return Math.round(t / (d.length / 4)); } catch { return null; }
+}
+// Ekranda yüz durumu uyarısı + yüz uzun süre yoksa kaydı kendiliğinden gönder (kalibrasyon bitmese de kayıt gelsin)
+const yuzUyari = document.createElement("div");
+Object.assign(yuzUyari.style, { position: "fixed", top: "54px", left: "50%", transform: "translateX(-50%)", zIndex: "15", display: "none", pointerEvents: "none",
+  background: "rgba(127,29,29,.92)", color: "#fff", font: "16px system-ui", padding: "10px 16px", borderRadius: "10px", maxWidth: "90vw", textAlign: "center" });
+document.body.append(yuzUyari);
+let kotuSay = 0, sonGonderim = -1e9, otoGonderim = 0;   // yüz yokken kendiliğinden gönderim: sayfa başına en çok 3
+function tanıBaslat() {
+  const t0 = performance.now();
+  setInterval(async () => {
+    const x = tanı(); if (!x) return;
+    const parlak = kareParlakligi(), oran = x.araKare ? x.araYuz / x.araKare : 0;
+    const ilk = performance.now() - t0 < 30000, kotu = !x.araKare || oran < 0.5 || x.araKare < 50;   // < 10 kare/sn de yazılır
+    if (ilk || kotu || x.araHata)
+      tlog(`[tanı] son 5 sn: ${x.araKare} kare, yüz ${x.araYuz}, hata ${x.araHata}${x.sonHata ? ` (son hata: ${x.sonHata})` : ""} | ${x.delegate}${x.gpuHata ? ` (GPU açılamadı: ${x.gpuHata})` : ""}, video ${x.video}, parlaklık ${parlak ?? "-"}/255`, { ...x, parlak });
+    kotuSay = (!x.araKare || oran < 0.3) ? kotuSay + 1 : 0;
+    if (kotuSay >= 2) {
+      yuzUyari.innerHTML = !x.araKare ? "📷 Kameradan görüntü gelmiyor.<br><small>Kamera başka bir programda (Zoom, OBS, Teams) ya da başka sekmede açık olabilir.</small>"
+        : parlak != null && parlak < 60 ? `🌑 Yüz bulunamıyor: görüntü çok karanlık (parlaklık ${parlak}/255).<br><small>Yüzünüzü önden aydınlatın.</small>`
+        : "🙂 Yüz bulunamıyor.<br><small>Kameraya önden bakın, yaklaşık 40 cm uzakta oturun, yüzünüz kadrajın içinde olsun.</small>";
+      yuzUyari.style.display = "block";
+      if (otoGonderim < 3 && performance.now() - sonGonderim > 60000) { otoGonderim++; sonGonderim = performance.now(); tlog("yüz 10 sn'dir bulunamıyor: kayıt bilgisayara gönderiliyor"); await testKaydiGonder(); }
+    } else yuzUyari.style.display = "none";
+  }, 5000);
+}
+// ---- Ekranın fiziksel ölçüsü, öğrenciye sormadan: her tıklamada başın (3B matris, derece) ve gözün (iris kayması mm →
+// göz küresi dönüşü) ekranın ortasına bakıştan (nötr adım) ne kadar döndüğü + yüz uzaklığı → hedefin ortadan cm uzaklığı.
+// Piksel uzaklığıyla oranı ekran ölçeğini (cm/piksel) verir. Köşe tıklamaları en çok bilgiyi taşır.
+// Varsayımlar: iris çapı 11,7 mm; iris merkezinin göz dönme merkezine uzaklığı ~10,5 mm (kişiden kişiye ±%10-15 değişir).
+const GEO = { DONME_MM: 10.5 };
+function ekranGeometrik() {
+  const n = yuz?.notr;
+  if (!n || n.irisX == null || n.yaw == null) return { metin: "ölçülemedi (yüz profilinde iris/baş açısı yok)" };
+  const o = gaze._off(), rx = o.x + innerWidth / 2, ry = o.y + innerHeight / 2;   // nötr adımdaki noktanın ekran yeri
+  const C = clicks.filter((c) => c.goz?.irisX != null && c.goz?.yaw3 != null && c.goz?.uzak);
+  if (C.length < 8) return { metin: `ölçülemedi (uygun tıklama az: ${C.length})` };
+  const deg = (r) => r * 180 / Math.PI, asinD = (mm) => deg(Math.asin(Math.max(-1, Math.min(1, mm / GEO.DONME_MM))));
+  const egim = (xs, ys) => { const mx = xs.reduce((a, b) => a + b, 0) / xs.length, my = ys.reduce((a, b) => a + b, 0) / ys.length;
+    return xs.reduce((a, x, i) => a + (x - mx) * (ys[i] - my), 0); };
+  const eksen = (px, bas, goz) => {   // px: hedefin ortadan piksel farkı; bas/goz: derece farkları (işaretleri tıklamalardan)
+    const sB = Math.sign(egim(px, bas)) || 1, sG = Math.sign(egim(px, goz)) || 1;
+    const aci = bas.map((b, i) => sB * b + sG * goz[i]);
+    const cm = aci.map((a, i) => C[i].goz.uzak * Math.tan(a * Math.PI / 180));
+    const k = cm.reduce((a, c, i) => a + c * px[i], 0) / px.reduce((a, p) => a + p * p, 0);   // orijinden geçen doğru
+    const art = cm.map((c, i) => c - k * px[i]), ss = cm.reduce((a, c) => a + c * c, 0);
+    return { k, r2: ss ? 1 - art.reduce((a, r) => a + r * r, 0) / ss : null, basPay: +(bas.map(Math.abs).reduce((a, b) => a + b, 0) / aci.map(Math.abs).reduce((a, b) => a + b, 0)).toFixed(2) };
+  };
+  const X = eksen(C.map((c) => c.sx - rx), C.map((c) => c.goz.yaw3 - n.yaw), C.map((c) => asinD(c.goz.irisX) - asinD(n.irisX)));
+  const Yk = eksen(C.map((c) => c.sy - ry), C.map((c) => c.goz.pitch3 - n.pitch), C.map((c) => asinD(c.goz.irisY) - asinD(n.irisY)));
+  const diag = Math.hypot(screen.width, screen.height), inc = (k) => +(k * diag / 2.54).toFixed(1);
+  const ort = (X.k + Yk.k) / 2;
+  const uyum = Math.abs(X.k - Yk.k) / ort;
+  return { kYatay: +X.k.toFixed(4), kDikey: +Yk.k.toFixed(4), incYatay: inc(X.k), incDikey: inc(Yk.k), inc: inc(ort), r2Yatay: X.r2 && +X.r2.toFixed(2), r2Dikey: Yk.r2 && +Yk.r2.toFixed(2),
+    basPayi: { yatay: X.basPay, dikey: Yk.basPay }, tiklama: C.length,
+    metin: `yatay ${inc(X.k)} inç, dikey ${inc(Yk.k)} inç → ~${inc(ort)} inç (${C.length} tıklama; uyum R² yatay ${X.r2?.toFixed(2)}, dikey ${Yk.r2?.toFixed(2)}${uyum > 0.25 ? "; yatay ve dikey %25'ten çok farklı, güvenilmez" : ""}) — varsayım: iris 11,7 mm, göz dönme yarıçapı ${GEO.DONME_MM} mm` };
+}
+async function testKaydiGonder() {
+  try {
+    const cihaz = navigator.userAgent.match(/Android[^;)]*|iPhone|Windows NT [\d.]+|Mac OS X/)?.[0] || "bilinmiyor";
+    const r = await fetch("/api/testlog", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cihaz, ua: navigator.userAgent, ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, log: testLog, tiklamaOz: tiklamaOz }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.status);
+    tlog(`kayıt bilgisayara gönderildi: test_kayitlari/${j.dosya}`); return j.dosya;
+  } catch (e) { tlog(`kayıt gönderilemedi: ${e.message}`); return null; }
+}
+function guideStop() {
+  guide = null; document.querySelectorAll(".tgt").forEach((n) => n.remove());
+  $("#guide").style.display = "none";
+  tlog("rehberli kalibrasyon bitti"); stats();
+}
+async function guideDone(t) {
+  if (!guide) return;
+  t.el?.remove(); guide.targets = guide.targets.filter((x) => x !== t);
+  if (guide.targets.length) { guideShow(); return; }
+  tlog(guide.dogrula === "bakarak" ? "bakarak doğrulama tamamlandı" : guide.dogrula ? "doğrulama tamamlandı" : `tur ${guide.round} tamamlandı`);
+  // Tur özeti: bu turdaki ölçülen hatalar (model her tıklamada güncellenir; turlar arası düşüş öğrenmeyi gösterir)
+  const e = clicks.slice(guide.startN).filter((c) => c.err != null).map((c) => c.err);
+  if (!e.length && guide.dogrula === "bakarak") { const ty = yarisKisa(yarisTablosu(clicks.slice(guide.startN), 99)); tlog(`Bakarak doğrulama: ${ty ?? "ölçüm yok"}`); }
+  if (e.length) {
+    guide.ozet = `${guide.dogrula ? "Kontrol" : guide.round === "düzeltme" ? "Düzeltme (her tıklama öğretilmeden önce ölçüldü)" : `Tur ${guide.round}`}: medyan hata ${Math.round(med(e))} px, ≤150 px %${Math.round(100 * e.filter((x) => x <= TEST.HIT_PX).length / e.length)} (${e.length} ölçüm)`;
+    const ty = yarisKisa(yarisTablosu(clicks.slice(guide.startN)));
+    if (ty) guide.ozet += ` | ${ty}`;
+    tlog(guide.ozet, { tur: guide.round, medyan: Math.round(med(e)), n: e.length });
+    if (guide.round > 1) guide.meds.push(Math.round(med(e)));   // 1. turda model yok/az: karşılaştırmaya girmez
+  }
+  if (yuz) { yuz.kameraYuz = MOBIL ? null : kameraYuzden(); showYuz(); }
+  const kb = kameraBirlesik(); $("#sPos").textContent = kb.metin;
+  tlog(`  kamera (birleşik): ${kb.metin} | dikey yön ${kb.yonDogrulama ?? "-"}`);
+  if (guide.dogrula === "kontrolDepo") { guideStop(); await bizimAkis(); return; }
+  if (guide.dogrula) { await guideFinish(`kontrol tamam (${clicks.filter((c) => c.dogrulama === "kontrol").length} yeni nokta, öğretilmeden ölçüldü)`); return; }
+  if (guide.round === "düzeltme" || guide.round >= AKIS.TUR) {
+    if (!KONTROL) { await guideFinish("kalibrasyon tamam (kontrol atlandı)"); return; }
+    guide.dogrula = "kontrol"; guide.round = "K"; guide.targets = kontrolNoktalari(); guide.total = guide.targets.length; guide.startN = clicks.length;
+    toast("Son 5 nokta (ölçüm): bakın ve bir kez tıklayın", 3000);
+    tlog(`KONTROL başladı: ${guide.targets.length} yeni nokta; model bunlardan öğrenmez, sonuç bunlardan hesaplanır`); guideShow(); return;
+  }
+  guide.round++; guide.targets = guidePoints(guide.round); guide.total = guide.targets.length; guide.startN = clicks.length;
+  if (guide.targets.length < 3) { await guideFinish(`ekranda önceki tıklamalardan ${TEST.NEAR} px uzak boş nokta kalmadı`); return; }
+  tlog(`tur ${guide.round} başladı: ${guide.targets.length} yeni nokta (öncekilerden en uzak yerler)`); guideShow();
+}
+$("#guideBtn").onclick = () => { sesAc(); $("#startCard").style.display = "none"; guideStart(); };
+$("#startBtn").onclick = () => { sesAc(); $("#startCard").style.display = "none"; guideStart(); };
+$("#detBtn").onclick = () => { const pn = $("#panel"); pn.style.display = pn.style.display === "none" ? "" : "none"; };
+showYuz();
+try { $("#camSel").value = localStorage.getItem("dn_kamera_yeri") || ""; } catch {}
+$("#camSel").onchange = () => { try { localStorage.setItem("dn_kamera_yeri", $("#camSel").value); } catch {} tlog(`kamera yeri seçildi: ${$("#camSel").value}`); };
+
+function describeCam(sx, sy) {
+  // Ekran koordinatıyla (pencere değil: pencere ekranın bir kısmı olabilir). Bakış hatası ~±100-150 px olduğundan
+  // kenara bu kadar yakın tahminler "kenarda / hemen dışında" sayılır; model ekran dışına iyi uzanamaz.
+  const W = screen.width, H = screen.height, tol = 160, cx = sx - W / 2;
+  const yatay = Math.abs(cx) < tol ? "yatayda ortada" : `ekran ortasının ~${Math.round(Math.abs(cx))} px ${cx > 0 ? "sağında" : "solunda"}`;
+  const dikey = sy < tol ? (sy < 0 ? `üst kenarın ~${Math.round(-sy)} px üstünde` : "üst kenarda (büyük olasılıkla hemen üstünde)")
+    : sy > H - tol ? (sy > H ? `alt kenarın ~${Math.round(sy - H)} px altında` : "alt kenarda (büyük olasılıkla hemen altında)")
+    : sx < tol ? "sol kenarda" : sx > W - tol ? "sağ kenarda" : "ekranın İÇİNDE görünüyor (ölçüm şüpheli, tekrarlayın)";
+  return `${dikey}, ${yatay}`;
+}
+$("#camBtn").onclick = () => measureCam();
+async function measureCam() {
+  if (camBusy) return;
+  if (!model) {
+    const spread = new Set(clicks.map((c) => cell(c.x, c.y))).size;
+    tlog(`kamera konumu için önce model gerekli: ${clicks.length}/${TEST.MIN_CLICKS} tıklama, ${spread}/4 farklı bölge — ekranın farklı yerlerine bakıp tıklayın`);
+    toast(`Önce ekranın farklı yerlerine bakıp tıklayın (${clicks.length}/${TEST.MIN_CLICKS} tıklama, ${spread}/4 bölge).`, 4000);
+    return;
+  }
+  tlog("kamera konumu ölçümü başladı: geri sayımdan sonra 2 sn kameranın merceğine bakın");
+  camBusy = true;
+  try { await camLook(); } finally { camBusy = false; $("#camMsg").style.display = "none"; }
+}
+async function camLook() {
+  const msg = $("#camMsg"); msg.style.display = "flex";
+  for (const n of [3, 2, 1]) { msg.textContent = `📷 ${n} — şimdi KAMERANIN MERCEĞİNE bakın (başınızı oynatmayın)`; await new Promise((r) => setTimeout(r, 700)); }
+  msg.textContent = "📷 Kameraya bakmaya devam edin…";
+  const t0 = buf.length ? buf[buf.length - 1].t : 0;
+  await new Promise((r) => setTimeout(r, 2000));
+  msg.style.display = "none";
+  const win = buf.filter((b) => !b.blink && b.t > t0 + 0.2);
+  if (win.length < 10) { tlog("kamera konumu ölçülemedi: yüz/göz yeterince algılanmadı"); toast("Ölçülemedi, tekrar deneyin.", 3000); return; }
+  const o = gaze._off(), P = win.map((b) => model.predict(gzModelFeatures(b.raw)));
+  const rx = med(P.map((p) => p[0])), ry = med(P.map((p) => p[1]));   // ridge (ekran koord.): yalnız karşılaştırma için
+  const H = innerHeight, W = innerWidth, fCam = meanVec(win.map((b) => b.raw));
+  const ay = axisPos(fCam, "sy", o.y + 0.3 * H, o.y + 0.7 * H), ax = axisPos(fCam, "sx", o.x + 0.3 * W, o.x + 0.7 * W);
+  if (!ay) tlog("eksen yöntemi (dikey): pencerenin üst %30'unda ve alt %30'unda en az 2'şer tıklama gerekli → ridge sonucu kullanıldı");
+  if (!ax) tlog("eksen yöntemi (yatay): sol %30 ve sağ %30'da en az 2'şer tıklama gerekli → ridge sonucu kullanıldı");
+  // Baş dönüşü (yaw) yüz kameraya dönükken 0'dır (burnun yüz ortasına göre yatay kayması, simetrik).
+  // Tıklamalarda ekran x'i ~ yaw doğrusal; yaw=0 noktası kameranın yatay konumudur. Eğim (pitch) için bu geçerli değil:
+  // burun-yüz ortası dikey farkı kişiden kişiye değişir, sıfırı "kameraya dönük" demek değildir.
+  const yc = clicks.filter((k) => k.goz?.basYaw != null), yf = fit(yc.map((k) => k.goz.basYaw), yc.map((k) => k.sx));
+  const yawSpan = yc.length ? Math.max(...yc.map((k) => k.goz.basYaw)) - Math.min(...yc.map((k) => k.goz.basYaw)) : 0;
+  let yawX = null;
+  if (yf && yawSpan > 0.15) {
+    const res = yc.map((k) => k.sx - (yf.a + yf.b * k.goz.basYaw)), sdr = Math.sqrt(res.reduce((t, r) => t + r * r, 0) / Math.max(1, res.length - 2));
+    const my2 = yc.reduce((t, k) => t + k.goz.basYaw, 0) / yc.length, sxx = yc.reduce((t, k) => t + (k.goz.basYaw - my2) ** 2, 0);
+    yawX = { pos: Math.round(yf.a), hata: Math.round(sdr * Math.sqrt(1 / yc.length + my2 * my2 / sxx)), egim: Math.round(yf.b) };
+  }
+  tlog(`  baş dönüşü yöntemi (yatay): ${yawX ? `yaw=0 → ekranX ${yawX.pos} (±${yawX.hata} px, eğim ${yawX.egim} px/birim, ${yc.length} tıklama)` : "yetersiz (sol ve sağa yayılmış tıklama gerekli)"}`);
+  const ex = yawX ? yawX.pos : ax ? ax.pos : Math.round(rx), ey = ay ? ay.pos : Math.round(ry);
+  camHist.push({ ex, ey });
+  // Birden çok ölçüm varsa medyanı (tek ölçümdeki gürültüye karşı)
+  const mx = Math.round(med(camHist.map((c) => c.ex))), my = Math.round(med(camHist.map((c) => c.ey)));
+  const x = mx - o.x, y = my - o.y;
+  camPos = { x: Math.round(x), y: Math.round(y), ekranX: mx, ekranY: my, olcum: camHist.length, yontem: `${ay ? "eksen" : "ridge"}/${ax ? "eksen" : "ridge"}`,
+             belirsizlikY: ay?.hata ?? null, belirsizlikX: ax?.hata ?? null, ridge: { ekranX: Math.round(rx), ekranY: Math.round(ry) }, pencere: `${W}x${H}` };
+  tlog(`  bu ölçüm: eksen dikey ekranY ${ay ? `${ay.pos} (üst ${ay.nA}/alt ${ay.nB} tıklama, tıklamalarda sapma ~${ay.hata} px)` : "-"} · yatay ekranX ${ax ? `${ax.pos} (sol ${ax.nA}/sağ ${ax.nB}, sapma ~${ax.hata} px)` : "-"} | ridge (${Math.round(rx)}, ${Math.round(ry)})`);
+  camPos.yatayYontem = yawX ? "baş dönüşü (yaw=0)" : ax ? "göz ekseni" : "ridge"; camPos.yatayBelirsizlik = yawX?.hata ?? null;
+  camPos.dikeyGozOlcumu = my; camPos.secim = $("#camSel").value || null;
+  const W2 = screen.width, cx2 = mx - W2 / 2;
+  const yatay = Math.abs(cx2) < Math.max(160, yawX?.hata || 0) ? "yatayda ortada" : `ekran ortasının ~${Math.round(Math.abs(cx2))} px ${cx2 > 0 ? "sağında" : "solunda"}`;
+  const secimTxt = { ust: "ekranın üstünde", alt: "ekranın altında", sol: "ekranın solunda", sag: "ekranın sağında", bilinmiyor: "dikey konum bilinmiyor" }[camPos.secim] || "dikey konum: yukarıdan seçin";
+  // Gözden ölçülen dikey konum seçimle çelişiyorsa açıkça yazılır (gözler bu kişide/oturumda dikeyi güvenilir vermiyor)
+  const gozDikey = my < 0 ? "ust" : my > screen.height ? "alt" : "ic";
+  const celiski = (camPos.secim === "ust" && gozDikey === "alt") || (camPos.secim === "alt" && gozDikey === "ust");
+  const txt = `${secimTxt}, ${yatay}${yawX ? ` (±${yawX.hata} px)` : ""}` + (celiski ? " · ⚠ göz ölçümü dikeyde tersini söylüyor (güvenilmez)" : "") + (camHist.length > 1 ? ` · ${camHist.length} ölçüm` : "");
+  tlog(`  dikey: seçim "${camPos.secim || "yok"}", göz ölçümü ekranY ${my} (${gozDikey === "ust" ? "üstte" : gozDikey === "alt" ? "altta" : "ekran içinde"}) — göz ölçümü dikeyde deneysel, sonuç olarak kullanılmıyor${celiski ? "; SEÇİMLE ÇELİŞİYOR" : ""}`);
+  $("#sPos").textContent = txt;
+  const m = $("#camMark");
+  m.style.display = "block"; m.style.left = Math.min(Math.max(x, 60), innerWidth - 60) + "px"; m.style.top = ({ ust: 16, alt: innerHeight - 16 }[camPos.secim] ?? innerHeight / 2) + "px";
+  m.textContent = `📷 kamera (yatay tahmin${camPos.secim ? ", dikey: seçiminiz" : ""})`;
+  tlog(`kamera konumu: ${txt} | ekran (${mx}, ${my}), yatay yöntem: ${camPos.yatayYontem}, örnek ${win.length}`, camPos);
+}
+
+$("#fsBtn").onclick = () => document.documentElement.requestFullscreen?.().catch(() => {});
+$("#resetBtn").onclick = () => { F = []; Y = []; clicks = []; model = null; camHist = []; camPos = null; document.querySelectorAll(".mark,.line").forEach((n) => n.remove()); tlog("sıfırlandı"); stats(); };
+$("#saveBtn").onclick = () => {
+  const olc = clicks.filter((c) => c.err != null), dv = olc.filter((c) => c.dogrulama === "kontrol"), last = dv.length ? dv : olc.slice(-TEST.LAST);
+  const acc = med(last.map((c) => c.err)), hit3 = Math.round(100 * last.filter((c) => c.cellOk).length / last.length);
+  const report = { acc, prec: null, hit3, deg: +(Math.atan((acc * 0.0265) / 55) * 180 / Math.PI).toFixed(1), at: Date.now(),
+                   kamera: `${video.videoWidth}x${video.videoHeight}`, kaynak: "tıklama testi", n: clicks.length, kameraKonumu: camPos, profil, yuz };
+  if (profil) tlog(`göz/yüz profili kaydedildi: ekrana bakarken en yüksek kırpma ${profil.kirpmaMax.toFixed(2)} (ders sayfasında göz kapalı eşiği buna göre ayarlanır)`, profil);
+  gaze.model = model; gaze.wgModel = modelM; gaze.geom = gaze._curGeom(); gaze.report = report; gaze.save();
+  tlog(`öğrenci sayfası için kaydedildi: medyan hata ${acc} px, 3x3 isabet %${hit3}${hit3 < GZ.MIN_HIT ? " → öğrenci sayfasında KABA MOD olur" : ""}`, report);
+};
+
+// Tam ekran: tarayıcılar tam ekranı yalnız kullanıcı tıklamasıyla açar (sayfa kendiliğinden açamaz). Bu yüzden
+// açılışta tek bir "Başla" dokunuşu istenir: tam ekran + ses + kamera birlikte açılır. Tam ekranda pencere = ekran;
+// kenar çubuğu, araç çubukları ve DevTools kalibrasyon alanını daraltmaz.
+const basla = document.createElement("div");
+basla.id = "baslaKart";
+Object.assign(basla.style, { position: "fixed", inset: "0", zIndex: "20", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+  gap: "14px", background: "#0f141b", color: "#e6edf3", font: "18px system-ui", textAlign: "center", padding: "16px" });
+basla.innerHTML = `<div style="font-size:22px">🎯 Bakış testi</div>
+  <div style="opacity:.75;max-width:520px">Başlayınca sayfa tam ekrana geçer, kamera açılır ve kalibrasyon kendiliğinden başlar.
+  Yüzünüzü önden aydınlatan bir ışık varsa açın.</div>
+  <button id="baslaBtn" style="font:inherit;font-size:20px;padding:12px 28px;border-radius:12px;border:1px solid #facc15;background:#1c2633;color:#facc15;cursor:pointer">▶ Başla</button>`;
+document.body.append(basla);
+$("#baslaBtn").onclick = async () => {
+  try { await document.documentElement.requestFullscreen?.({ navigationUI: "hide" }); } catch (e) { tlog(`tam ekran açılamadı (${e.message}); pencere modunda devam`); }
+  sesAc(); basla.remove();
+  start().catch((e) => { $("#sState").textContent = "hata: " + e.message; console.error(e); });
+};
+// Kalibrasyon sürerken tam ekrandan çıkılırsa: kayda yaz + geri dönme düğmesi göster
+const tamDon = document.createElement("button"); tamDon.id = "tamDon";
+tamDon.textContent = "⛶ Tam ekrana dön";
+Object.assign(tamDon.style, { position: "fixed", top: "10px", left: "50%", transform: "translateX(-50%)", zIndex: "12", display: "none",
+  font: "15px system-ui", padding: "8px 16px", borderRadius: "10px", border: "1px solid #facc15", background: "#1c2633", color: "#facc15", cursor: "pointer" });
+document.body.append(tamDon);
+tamDon.onclick = () => document.documentElement.requestFullscreen?.().catch(() => {});
+document.addEventListener("fullscreenchange", () => {
+  const tam = !!document.fullscreenElement;
+  tamDon.style.display = !tam && document.fullscreenEnabled ? "block" : "none";
+  tlog(tam ? `tam ekrana geçildi (${innerWidth}x${innerHeight})` : "tam ekrandan çıkıldı");
+});
+</script>
+</body>
+</html>

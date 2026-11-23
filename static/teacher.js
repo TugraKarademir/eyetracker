@@ -83,7 +83,8 @@ function renderState(s) {
   const kAtt = $("#kAtt"); kAtt.textContent = a.attention == null ? "–" : "%" + a.attention; kAtt.style.color = levelColor(a.attention);
   const kEn = $("#kEn"); kEn.textContent = a.energy == null ? "–" : "%" + a.energy; kEn.style.color = levelColor(a.energy);
   $("#kPres").textContent = a.present;
-  $("#kPresS").textContent = `/ ${a.total} öğrenci çevrim içi` + (a.hands ? ` · ✋ ${a.hands}` : "");
+  // Sınıfta gerçek öğrenci yokken özetler yalnızca demo öğrencilerden gelir; bunu açıkça göster
+  $("#kPresS").textContent = `/ ${a.total} ${a.demo ? "DEMO öğrenci (gerçek veri değil)" : "öğrenci"} çevrim içi` + (a.hands ? ` · ✋ ${a.hands}` : "");
   const domKey = a.present ? Object.entries(a.emotions).sort((x, y) => y[1] - x[1])[0][0] : null;
   $("#kEmo").textContent = domKey ? `${EMO[domKey].icon} ${EMO[domKey].label}` : "–";
   $("#kEmoS").textContent = domKey ? `${a.emotions[domKey]} / ${a.present} öğrenci` : " ";
@@ -124,6 +125,7 @@ function renderStudents(list) {
       <div class="metric"><span>Dikkat</span><div class="bar"><i style="width:${st.attention}%;background:${levelColor(st.attention)}"></i></div><b>${st.attention}</b></div>
       <div class="metric"><span>Enerji</span><div class="bar"><i style="width:${st.energy}%;background:var(--c-en)"></i></div><b>${st.energy}</b></div>
       ${gazeLine(st)}
+      ${st.ekran ? `<div class="muted" style="font-size:11px" title="Ekran ${st.ekran.sw}x${st.ekran.sh}, ölçek ${st.ekran.dpr}">🖥️ Tarayıcı ${st.ekran.vw}×${st.ekran.vh}${st.ekran.fs ? " · tam ekran" : ""}${st.ekran.mobil ? " · 📱 mobil" : ""}</div>` : ""}
       ${floorBtn}
     </div>`;
   }).join("");

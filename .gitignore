@@ -9,3 +9,12 @@ __pycache__/
 *.tmp
 .DS_Store
 Thumbs.db
+
+# Yerel test sertifikası (kendinden imzalı; özel anahtar paylaşılmaz)
+yerel_ssl/
+
+# Bakış testi kayıtları (cihazdan gelen konsol kaydı)
+test_kayitlari/
+
+# graphify kod grafiği (otomatik üretilir)
+graphify-out/

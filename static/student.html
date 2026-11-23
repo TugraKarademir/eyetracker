@@ -85,19 +85,30 @@
       </div>
     </div>
     <div class="card me">
-      <div class="row" style="justify-content:space-between"><h3 style="margin:0">Benim durumum</h3><button class="btn sm" id="recalBtn" title="Ekrana düz bakarken tıklayın">Kalibre et</button></div>
+      <div class="row" style="justify-content:space-between"><h3 style="margin:0">Benim durumum</h3><button class="btn sm" id="recalBtn" title="Ekranın ortasına ve kenarlarına bakarak ekran alanını ölçer (baş yönü için)">🖥️ Ekran alanını ölç</button></div>
       <div class="metric"><span>Dikkat</span><div class="bar"><i id="mAttBar"></i></div><b id="mAtt">–</b></div>
       <div class="metric"><span>Enerji</span><div class="bar"><i id="mEnBar" style="background:var(--c-en)"></i></div><b id="mEn">–</b></div>
       <div class="small muted" id="mEmo">&nbsp;</div>
       <div class="gaze-box">
         <div class="row" style="justify-content:space-between;gap:8px">
           <b>👁️ Bakış takibi</b>
-          <button class="btn sm" id="gazeCalBtn">Kalibre et</button>
+          <button class="btn sm" id="gazeCalBtn" title="Başınız sabit, yalnız gözlerinizle 22 noktayı izleyin">👁️ Bakışı kalibre et</button> <button class="btn sm" id="gazeCalYeniBtn" title="Demo: 9 noktaya bakış + 5 tıklama; bizim model ve WebGazer yöntemi birlikte">🧪 Yeni kalibrasyon (demo)</button> <a class="btn sm" href="/bakis_test.html" target="_blank" title="Bakıp tıklayarak bakışı test edin ve kalibre edin">🎯 Test sayfası</a>
         </div>
         <div class="muted" id="gazeStatus" style="margin:6px 0">Hazırlanıyor…</div>
         <div id="gazeRegion" style="margin-bottom:6px"></div>
         <label class="row" style="font-weight:500;gap:8px;margin:0;font-size:13px"><input type="checkbox" id="gazeDotChk" style="width:auto"> Bakış noktamı göster</label>
       </div>
+    </div>
+    <div class="card" id="hseCard">
+      <div class="row" style="justify-content:space-between;gap:8px"><h3 style="margin:0">🧪 HSEmotion</h3><span class="pill" style="font-size:11px">deneysel</span></div>
+      <label class="row" style="font-weight:500;gap:8px;margin:8px 0;font-size:13px"><input type="checkbox" id="hseChk" style="width:auto"> Çalıştır (yalnızca bu sayfada görünür, öğretmene gitmez)</label>
+      <div class="small muted" id="hseStatus">kapalı</div>
+      <div id="lsBox" style="margin:10px 0 6px;padding-top:10px;border-top:1px solid var(--border)">
+        <div class="row" style="justify-content:space-between;gap:8px"><b>🎓 Ders durumu</b><span class="pill" style="font-size:10px">deneysel · kural tabanlı</span></div>
+        <div id="lsState" style="margin:6px 0;font-size:15px">–</div>
+        <div id="lsBars" class="small"></div>
+      </div>
+      <div id="hseBars" class="small"></div>
     </div>
   </div>
 
@@ -144,6 +155,8 @@
         <button class="btn" data-r="🎉" title="Harika">🎉</button>
       </div>
       <p class="small muted" style="text-align:center;margin-bottom:0">❓ Anlamadım · 🐢 Biraz yavaş · 💡 Fikrim var</p>
+      <label class="row" style="justify-content:center;font-weight:500;gap:8px;margin:10px 0 0;font-size:13px"><input type="checkbox" id="autoHandChk" style="width:auto"> ✋ Elimi kaldırınca otomatik söz iste</label>
+      <div class="small muted" id="handStatus" style="text-align:center;margin-top:4px"></div>
     </div>
   </div>
 
@@ -167,7 +180,11 @@
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
 <script src="/common.js"></script>
 <script src="/analyzer.js"></script>
+<script src="/wg_yama.js"></script>
 <script src="/gaze.js"></script>
+<script src="/hand.js"></script>
+<script src="/hsemotion.js"></script>
+<script src="/learnstate.js"></script>
 <script src="/student.js"></script>
 <script src="/student-live.js"></script>
 </body>

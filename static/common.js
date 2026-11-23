@@ -187,3 +187,15 @@ const RTC_CONFIG = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 
 const BRAND =`<a class="brand" href="/"><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg></span>DersNabzı</a>`;
 document.querySelectorAll("[data-brand]").forEach((e) => (e.outerHTML = BRAND));
+
+// Kişisel nötr yüz tabanı (bakış testindeki "nötr bakış" adımında ölçülür). Kişinin dinlenik yüzünde duygu modelinin
+// zaten gördüğü pay (ör. doğuştan aşağı dönük ağız köşesi -> "üzgün") duygu sayılmaz, nötre eklenir:
+//   q_i = max(0, p_i - b_i)  (nötr dışı sınıflar),  q_nötr = 1 - Σ q_i.   Σ q_i ≤ Σ p_i ≤ 1 olduğundan dağılım geçerli kalır.
+// Taban yoksa p aynen döner (tahmini taban uydurulmaz).
+function notrTabanDuzelt(p, b, notrKey) {
+  if (!b) return p;
+  const q = {}; let s = 0;
+  for (const k in p) if (k !== notrKey) { q[k] = Math.max(0, p[k] - (b[k] ?? 0)); s += q[k]; }
+  q[notrKey] = Math.max(0, 1 - s);
+  return q;
+}

@@ -99,7 +99,8 @@
   renderTable();
 
   $("#csvBtn").onclick = () => {
-    const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    // = + - @ ile başlayan metin Excel'de formül olarak çalışır (ör. öğrenci adı "=HYPERLINK(...)"); başına ' eklenir
+    const q = (v) => { let x = String(v ?? ""); if (typeof v === "string" && /^[=+\-@\t\r]/.test(x)) x = "'" + x; return `"${x.replace(/"/g, '""')}"`; };
     const lines = [cols.map(([, l]) => q(l)).join(";")].concat(r.students.map((s) =>
       cols.map(([k]) => q(k === "dominantEmotion" && s[k] ? EMO[s[k]].label : s[k])).join(";")));
     lines.push("", q("Zaman") + ";" + q("Dikkat") + ";" + q("Enerji") + ";" + q("Çevrim içi") + ";" + q("Materyale bakan %"));
