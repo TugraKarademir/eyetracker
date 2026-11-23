@@ -74,6 +74,20 @@ class YonetimTest(unittest.TestCase):
         r = yonetim.ders(con, "D1")["materyaller"][0]
         self.assertEqual(r["bakma_pct"], 50)
 
+    def test_n_bakma_yalniz_katkida_bulunan_ogrenciler(self):
+        con = ac(":memory:")
+        ders_ekle(con, "D1", "D", "K", 1)
+        ogrenci_ekle(con, "D1", "s1", "A", None, 1, False)
+        ogrenci_ekle(con, "D1", "s2", "B", None, 1, False)
+        m = materyal_ekle(con, "D1", "I", "insan")
+        materyal_sec(con, "D1", m, 2)
+        ornek_ekle(con, "D1", "s1", 3, satir(share={"materyal": 1.0}))
+        ornek_ekle(con, "D1", "s2", 3, satir(share=None))   # kalibreli ama share yok
+        r = yonetim.ders(con, "D1")["materyaller"][0]
+        self.assertEqual(r["n_kalibreli"], 2)
+        self.assertEqual(r["n_bakma"], 1)
+        self.assertEqual(r["bakma_pct"], 100)
+
     def test_csv_formul_enjeksiyonu(self):
         con = ac(":memory:")
         ders_ekle(con, "D1", "D", "K", 1)

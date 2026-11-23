@@ -58,11 +58,12 @@ def _ozet(rows):
     kal = [r for r in rows if r["gaze_cal"] == 1]
     # share boş/None: pencerede bakış sayılmamış, ölçüm değil; atlanır.
     # Dolu share'de "materyal" yoksa o bölgeye bakılmamıştır (0).
-    bak = []
+    bak, bak_sid = [], set()
     for r in kal:
         sh = _j(r["share"], {})
         if isinstance(sh, dict) and sh:
             bak.append(sh.get("materyal") or 0)
+            bak_sid.add(r["sid"])
     return {
         "bakma_pct": round(100 * sum(bak) / len(bak)) if bak else None,
         "ort_dikkat": _yuv(_ort(r["attention"] for r in rows)),
@@ -70,6 +71,7 @@ def _ozet(rows):
         "baskin_duygu": _baskin(r["emotion"] for r in rows),
         "n_ornek": len(rows),
         "n_kalibreli": len({r["sid"] for r in kal}),
+        "n_bakma": len(bak_sid),   # bakma_pct ortalamasına en az bir örnekle katılan öğrenci
     }
 
 
@@ -199,6 +201,7 @@ def ders(con, code):
                      "hasImage": bool(m["image_path"]),
                      "sure_sn": round(sureler.get(m["id"], 0)),
                      "n_kalibreli": o["n_kalibreli"], "bakma_pct": o["bakma_pct"],
+                     "n_bakma": o["n_bakma"],
                      "ort_dikkat": o["ort_dikkat"], "ort_enerji": o["ort_enerji"],
                      "baskin_duygu": o["baskin_duygu"], "isi": _isi(rs),
                      "n_ornek": o["n_ornek"]})

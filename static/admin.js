@@ -68,7 +68,8 @@ const KIND = { insan: { label: "İnsan", color: "#2f6fdb" }, yz: { label: "YZ", 
 const kindOf = (k) => KIND[k] || KIND.diger;
 const kindChip = (k) => `<span class="kind" style="--c:${kindOf(k).color}">${esc(KIND[k] ? KIND[k].label : k || "Diğer")}</span>`;
 const YOK = '<span class="yok">veri yok</span>';
-const nTag = (n, birim = "") => `<span class="n">n=${n ?? 0}${birim ? " " + birim : ""}</span>`;
+const nTag = (n, birim = "") => `<span class="n">${n == null ? "n yok" : `n=${n}${birim ? " " + birim : ""}`}</span>`;
+const saatS = (d) => d.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const val = (v, f = (x) => x) => (v == null ? YOK : f(v));
 const ol = (v, n, f, birim) => `${val(v, f)}${nTag(n, birim)}`;          // ölçü + n
 const pctF = (v) => "%" + v;
@@ -176,6 +177,10 @@ function cizMateryal(canvas, { grid = null, img = null, mod = "isi", kucuk = fal
 }
 
 const _gorsel = new Map();
+// Önbellekler (_gorsel, _ham, _ogr, _fiks). Bitmemiş derste her girişte o dersin önbelleği silinir (canlı veriyle karışmasın).
+function onbellekTemizle(code) {
+  for (const m of [_gorsel, _ham, _ogr, _fiks]) for (const k of [...m.keys()]) if (code == null || k === code || k.startsWith(code + "/")) m.delete(k);
+}
 function gorselYukle(code, m) {
   if (!m.hasImage) return Promise.resolve(null);
   const k = code + "/" + m.id;
@@ -320,7 +325,7 @@ function hamOrnekler(code) {
       const satir = csvAyristir(txt.replace(/^﻿/, ""));
       const bas = satir.shift() || [], ix = Object.fromEntries(bas.map((k, i) => [k, i]));
       const ham = (s) => (/^'[=+\-@\t\r]/.test(s) ? s.slice(1) : s);
-      const sayi = (s) => (s === "" || s == null ? null : +s);
+      const sayi = (s) => { if (s === "" || s == null) return null; const v = +s; return Number.isFinite(v) ? v : null; };
       const js = (s) => { if (!s) return null; try { return JSON.parse(s); } catch { return null; } };
       return satir.filter((r) => r.length >= bas.length).map((r) => ({
         sid: ham(r[ix.ogrenci]), t: +r[ix.t], mid: sayi(r[ix.material_id]), att: sayi(r[ix.attention]),
@@ -365,14 +370,14 @@ function fiksasyonlar(code) {
       let seg = [], onceki = null, wh = null;
       const bitir = () => {
         if (seg.length >= 3) for (const f of GL.ivt(seg).fixations) {
-          const i = seg.findIndex((q) => q[0] >= f.start);
-          out.list.push({ sid, mid: seg[i < 0 ? seg.length - 1 : i][3], start: f.start, dur: f.dur });
+          out.list.push({ sid, mid: seg[0][3], start: f.start, dur: f.dur });   // segment tek materyalli
         }
         seg = [];
       };
       for (const r of rs) {
         const b = boyut(r.t);
-        if (!wh || b[0] !== wh[0] || b[1] !== wh[1]) { bitir(); wh = b; onceki = null; }
+        // pencere boyutu ya da gösterilen materyal değişince segment kesilir (fiksasyon materyal sınırını aşmaz)
+        if (!wh || b[0] !== wh[0] || b[1] !== wh[1] || (seg.length && seg[seg.length - 1][3] !== r.mid)) { bitir(); wh = b; onceki = null; }
         for (const g of r.gaze) {
           const tm = r.t * 1000 + g[0];
           if (onceki != null && (tm - onceki > 250 || tm < onceki)) bitir();
@@ -443,8 +448,10 @@ async function viewDersler(_p, live) {
 let _esik = null;
 async function viewDers([code], live) {
   const [d, esik] = await Promise.all([aapi(`ders?code=${enc(code)}`), _esik || aapi("kalite_esik")]);
+  const an = new Date();
   _esik = esik;
   if (!live()) return;
+  if (d.ders.ended == null) onbellekTemizle(d.ders.code);
   const L = d.ders, ad = adlar(d.ogrenciler);
   const t1 = L.ended ?? (d.zaman.length ? d.zaman[d.zaman.length - 1].t + 10 : null);
   const el = {}, sohbet = {};
@@ -458,7 +465,7 @@ async function viewDers([code], live) {
     <div class="head"><div class="muted small"><a href="#dersler">Dersler</a> / ${esc(L.code)}</div>
       <h1>${esc(L.name || L.code)}</h1>
       <div class="muted small">${tarih(L.created)} · süre ${t1 != null ? mmss(t1 - L.created) + " (dk:sn)" : "veri yok"}${L.ended == null ? ' · <span class="pill">bitmedi (süre son örneğe göre)</span>' : ""}
-        · Konu: ${esc(L.topic || "—")} · ${d.ogrenciler.length} öğrenci · ${d.materyaller.length} materyal</div></div>
+        · veri anı: ${saatS(an)} · Konu: ${esc(L.topic || "—")} · ${d.ogrenciler.length} öğrenci · ${d.materyaller.length} materyal</div></div>
     <div class="card">
       <div class="row" style="justify-content:space-between;flex-wrap:wrap;margin-bottom:8px">
         <h3 style="margin:0">Zaman çizelgesi — sınıf ortalaması (10 sn kutular)</h3>
@@ -475,15 +482,15 @@ async function viewDers([code], live) {
       ${d.materyaller.map((m) => `<tr class="click" data-mat="${m.id}">
         <td>${kindChip(m.kind)}</td><td><a href="#materyal/${enc(L.code)}/${m.id}">${esc(m.name)}</a></td>
         <td class="num">${m.sure_sn ? mmss(m.sure_sn) : '<span class="yok">gösterilmedi</span>'}</td>
-        <td class="num">${ol(m.bakma_pct, m.n_kalibreli, pctF, "kalibreli öğr.")}</td>
+        <td class="num">${ol(m.bakma_pct, m.n_bakma, pctF, "öğr.")}</td>
         <td class="num" style="color:${levelColor(m.ort_dikkat)}">${ol(m.ort_dikkat, m.n_ornek, fix1, "örnek")}</td>
         <td>${emoS(m.baskin_duygu)}</td>
         <td class="num" data-fiks="${m.id}"><span class="muted small">hesaplanıyor…</span></td>
         <td><canvas class="mini" data-isi="${m.id}"></canvas></td></tr>`).join("")}
     </table></div>
     ${d.materyaller.length ? "" : '<div class="muted" style="padding:10px 4px">Bu derste materyal tanımlanmamış.</div>'}
-    <div class="note">Materyale bakma ve ısı haritası yalnız iyi kalibreli öğrencilerden (n = kalibreli öğrenci). Fiksasyon: sayı · ortalama süre,
-      tam ekran bakış örneklerinden I-VT (30°/s, 80–400 ms); piksel→derece dönüşümü tahmindir, konum materyal üzerine eşlenmez.</div></div>
+    <div class="note">Materyale bakma ve ısı haritası yalnız iyi kalibreli öğrencilerden (materyale bakma n = ortalamaya en az bir örnekle katılan öğrenci). Fiksasyon: sayı · ortalama süre,
+      tam ekran bakış örneklerinden I-VT (30°/s, 80–400 ms); piksel→derece dönüşümü tahmindir, konum materyal üzerine eşlenmez.<span id="pYok"></span></div></div>
     <div class="card"><h3>Öğrenciler</h3><div class="tbl"><table>
       <tr><th>Öğrenci</th><th>Kod</th><th>Kalite</th><th>Son kal. hatası</th><th>Kamerada</th><th>Kalibreli</th><th>Örnekleme</th>
         <th>Ort. dikkat</th><th>Baskın duygu</th><th>Materyale bakma</th><th>✋</th><th>Sohbet</th></tr>
@@ -532,6 +539,7 @@ async function viewDers([code], live) {
       const c = APP.querySelector(`td[data-fiks="${m.id}"]`), z = fiksOzet(F.list.filter((f) => f.mid === m.id));
       if (c) c.innerHTML = z.n ? `${z.n} · ${z.ort} ms${nTag(z.ogr, "öğr.")}` : `${YOK}${nTag(0, "öğr.")}`;
     }
+    if (F.pencereYok.length) $("#pYok").textContent = ` Pencere boyutu yok: ${F.pencereYok.length} öğrenci (fiksasyona girmedi).`;
   }).catch((e) => { if (!(e instanceof Yetkisiz)) hata("td[data-fiks]"); });
 }
 function kaliteRozet(n) {
@@ -544,13 +552,16 @@ const MAT_SEC = { key: "", sid: "", mod: "isi" };
 async function viewMateryal([code, idS], live) {
   const id = +idS;
   const d = await aapi(`ders?code=${enc(code)}`);
+  const an = new Date();
   if (!live()) return;
+  if (d.ders.ended == null) onbellekTemizle(d.ders.code);
   const m = d.materyaller.find((x) => x.id === id);
   if (!m) { APP.innerHTML = `<div class="card">Materyal bulunamadı. <a href="#ders/${enc(code)}">Derse dön</a></div>`; return; }
   const L = d.ders, ad = adlar(d.ogrenciler);
   APP.innerHTML = `
     <div class="head"><div class="muted small"><a href="#dersler">Dersler</a> / <a href="#ders/${enc(L.code)}">${esc(L.name || L.code)}</a> / materyal</div>
-      <h1>${kindChip(m.kind)} ${esc(m.name)}</h1></div>
+      <h1>${kindChip(m.kind)} ${esc(m.name)}</h1>
+      <div class="muted small">veri anı: ${saatS(an)}${L.ended == null ? ' · <span class="pill">bitmedi</span>' : ""}</div></div>
     <div class="mat-grid">
       <div class="card">
         <div class="opts">
@@ -611,7 +622,8 @@ async function viewMateryal([code, idS], live) {
     $("#mNot").innerHTML = `Isı haritası ve bakış ölçüleri yalnız iyi kalibreli örneklerden. ` +
       (dis.length ? `Dışarıda kalan: ${dis.length} örnek (kalibresiz ya da kaba kalibrasyon)${disS.length ? `, ${disS.length} öğrencinin hiç bakış verisi yok` : ""}. ` : "") +
       (img ? "Noktalar görselin içerik alanına eşlenir." : m.hasImage ? "Görsel yüklenemedi; boş 16:9 tuval." : "Bu materyalin görseli yok; boş 16:9 tuval.") +
-      " Fiksasyon sayısı tam ekran bakıştan I-VT ile; derece dönüşümü tahmin.";
+      " Fiksasyon sayısı tam ekran bakıştan I-VT ile; derece dönüşümü tahmin." +
+      (F && F.pencereYok.length ? ` Pencere boyutu yok: ${F.pencereYok.length} öğrenci (fiksasyona girmedi).` : "");
   };
   guncelle();
   onResize = guncelle;
@@ -683,7 +695,7 @@ $("#dersSec").onchange = (e) => { if (e.target.value) location.hash = "#ders/" +
 const csvTik = (tur) => () => csvIndir(tur, CTX.code).catch((e) => { if (!(e instanceof Yetkisiz)) toast(e.message); });
 $("#csvUzun").onclick = csvTik("uzun");
 $("#csvHam").onclick = csvTik("ham");
-$("#cikis").onclick = () => { askKey(""); };
+$("#cikis").onclick = () => { onbellekTemizle(null); _esik = null; askKey(""); };
 addEventListener("hashchange", route);
 addEventListener("resize", () => onResize && onResize());
 
