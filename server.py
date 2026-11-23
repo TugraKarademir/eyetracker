@@ -12,6 +12,8 @@ Mimari:
   * Ders bitince oturum data/<KOD>.json olarak saklanır; /report.html raporu gösterir.
 """
 import argparse
+import csv
+import io
 import json
 import math
 import os
@@ -19,6 +21,7 @@ import queue
 import random
 import re
 import secrets
+import sqlite3
 import sys
 import threading
 import time
@@ -30,6 +33,136 @@ STATIC = os.path.join(ROOT, "static")
 DATA = os.path.join(ROOT, "data")
 TEST_DIR = os.path.join(ROOT, "test_kayitlari")   # bakış testi kayıtları (telefondan da gelir)
 os.makedirs(DATA, exist_ok=True)
+
+# ---- Bakış testi verileri GazeLab biçiminde (gazelab/server.py şeması + yöntem sütunu + yöntem özeti)
+GL_DB = os.path.join(TEST_DIR, "gazelab.db")
+GL_LOCK = threading.Lock()
+GL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sessions(
+  id TEXT PRIMARY KEY, study_id TEXT, participant TEXT, status TEXT,
+  device TEXT DEFAULT '{}', accuracy_px REAL, precision_px REAL,
+  answers TEXT DEFAULT '{}', meta TEXT DEFAULT '{}', created_at REAL, completed_at REAL, log_file TEXT);
+CREATE TABLE IF NOT EXISTS recordings(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, stimulus_id TEXT, method TEXT,
+  order_idx INTEGER, started_at REAL, rect TEXT, gaze TEXT, mouse TEXT, head TEXT,
+  UNIQUE(session_id, stimulus_id, method));
+CREATE TABLE IF NOT EXISTS method_stats(
+  session_id TEXT, method TEXT, label TEXT, gl_accuracy_px REAL, gl_precision_px REAL, gl_median_px REAL,
+  gl_corrected_px REAL, control_median_px REAL, control_hit150_pct REAL, control_cell_pct REAL, sample_hz REAL,
+  row TEXT, PRIMARY KEY(session_id, method));
+CREATE TABLE IF NOT EXISTS phase_stats(session_id TEXT, idx INTEGER, phase TEXT, row TEXT, PRIMARY KEY(session_id, idx));
+CREATE TABLE IF NOT EXISTS session_stats(session_id TEXT, idx INTEGER, section TEXT, name TEXT, value TEXT, PRIMARY KEY(session_id, idx));
+"""
+
+
+def gl_db():
+    os.makedirs(TEST_DIR, exist_ok=True)
+    con = sqlite3.connect(GL_DB)
+    con.row_factory = sqlite3.Row
+    con.executescript(GL_SCHEMA)
+    return con
+
+
+def gl_num(v):
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else None
+
+
+def gl_kaydet(g, log_file):
+    """bakis_test.html glPaket() → SQLite. Oturum kimliği gazelab gibi 8 karakter."""
+    se = g.get("session") if isinstance(g.get("session"), dict) else {}
+    sid = secrets.token_urlsafe(6)[:8]
+    tab = g.get("tablolar") if isinstance(g.get("tablolar"), dict) else {}
+    with GL_LOCK, gl_db() as con:
+        con.execute("INSERT INTO sessions(id,study_id,participant,status,device,accuracy_px,precision_px,meta,created_at,completed_at,log_file)"
+                    " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    (sid, "bakis_testi", None, str(se.get("status") or "started")[:20], json.dumps(se.get("device") or {}),
+                     gl_num(se.get("accuracy_px")), gl_num(se.get("precision_px")), json.dumps(se.get("meta") or {}, ensure_ascii=False),
+                     gl_num(se.get("created_at")) or time.time(), gl_num(se.get("completed_at")), log_file))
+        for r in g.get("recordings") or []:
+            if not isinstance(r, dict):
+                continue
+            gz = r.get("gaze") if isinstance(r.get("gaze"), dict) else {}
+            stim = str(r.get("stimulus_id") or "?")[:40]
+            for m, pts in (gz or {"-": []}).items():   # yöntem başına bir satır (gazelab: uyaran başına bir satır)
+                con.execute("INSERT OR REPLACE INTO recordings(session_id,stimulus_id,method,order_idx,started_at,rect,gaze,mouse,head)"
+                            " VALUES(?,?,?,?,?,?,?,?,?)",
+                            (sid, stim, str(m)[:20], r.get("order_idx"), gl_num(r.get("started_at")), json.dumps(r.get("rect") or {}),
+                             json.dumps(pts if isinstance(pts, list) else []), json.dumps(r.get("mouse") or []), json.dumps(r.get("head") or [])))
+        for row in tab.get("yontem") or []:
+            if isinstance(row, dict):
+                con.execute("INSERT OR REPLACE INTO method_stats VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (sid, str(row.get("Kod"))[:20], str(row.get("Yöntem"))[:120], gl_num(row.get("GL doğruluk px")), gl_num(row.get("GL kesinlik px")),
+                             gl_num(row.get("GL medyan px")), gl_num(row.get("GL düzeltmeli px")), gl_num(row.get("Kontrol medyan px")),
+                             gl_num(row.get("Kontrol ≤150 %")), gl_num(row.get("Kontrol 3×3 %")), gl_num(row.get("Örnekleme Hz")),
+                             json.dumps(row, ensure_ascii=False)))
+        for i, row in enumerate(tab.get("asama") or []):
+            if isinstance(row, dict):
+                con.execute("INSERT OR REPLACE INTO phase_stats VALUES(?,?,?,?)", (sid, i, str(row.get("Aşama"))[:60], json.dumps(row, ensure_ascii=False)))
+        for i, row in enumerate(tab.get("oturum") or []):
+            if isinstance(row, dict):
+                con.execute("INSERT OR REPLACE INTO session_stats VALUES(?,?,?,?,?)",
+                            (sid, i, str(row.get("Bölüm"))[:40], str(row.get("Ölçü"))[:80], str(row.get("Değer"))[:200]))
+    return sid
+
+
+def gl_csv(kind):
+    """gazelab export_csv karşılığı: sessions | gaze | head | mouse | methods | phases | session_stats"""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    with GL_LOCK, gl_db() as con:
+        if kind == "sessions":
+            w.writerow(["session_id", "status", "accuracy_px", "precision_px", "created_at", "completed_at", "screen_w", "screen_h",
+                        "viewport_w", "viewport_h", "dpr", "screen_res_w", "screen_res_h", "viewport_res_w", "viewport_res_h",
+                        "camera_w", "camera_h", "camera_fps", "zoom", "zoom_mode", "model_input", "device_type", "browser", "user_agent", "log_file"])
+            for r in con.execute("SELECT * FROM sessions ORDER BY created_at"):
+                d, m = json.loads(r["device"] or "{}"), json.loads(r["meta"] or "{}")
+                cam, ay = m.get("camera") or {}, m.get("kameraAyari") or {}
+                w.writerow([r["id"], r["status"], r["accuracy_px"], r["precision_px"], fmt_ts(r["created_at"]), fmt_ts(r["completed_at"]),
+                            d.get("screenW"), d.get("screenH"), d.get("viewportW"), d.get("viewportH"), d.get("dpr"), d.get("screenResW"),
+                            d.get("screenResH"), d.get("viewportResW"), d.get("viewportResH"), cam.get("width"), cam.get("height"),
+                            cam.get("frameRate"), ay.get("zoom"), ay.get("mod"), ay.get("islenen"), d.get("type"), d.get("browser"), d.get("ua"), r["log_file"]])
+        elif kind in ("gaze", "head", "mouse"):
+            col = {"gaze": "gaze", "head": "head", "mouse": "mouse"}[kind]
+            hdr = {"gaze": ["session_id", "phase", "method", "t_ms", "x_px", "y_px"],
+                   "head": ["session_id", "phase", "t_ms", "yaw_deg", "pitch_deg", "roll_deg", "distance_pct", "shift_pct"],
+                   "mouse": ["session_id", "phase", "t_ms", "x_px", "y_px", "event"]}[kind]
+            w.writerow(hdr)
+            q = "SELECT * FROM recordings ORDER BY session_id, order_idx, method"
+            if kind != "gaze":   # baş ve fare her yöntem satırında aynı: aşama başına bir kez
+                q = "SELECT * FROM recordings WHERE id IN (SELECT MIN(id) FROM recordings GROUP BY session_id, stimulus_id) ORDER BY session_id, order_idx"
+            for r in con.execute(q):
+                for p in json.loads(r[col] or "[]"):
+                    if kind == "gaze":
+                        w.writerow([r["session_id"], r["stimulus_id"], r["method"]] + list(p[:3]))
+                    else:
+                        w.writerow([r["session_id"], r["stimulus_id"]] + list(p))
+        elif kind == "methods":
+            rows = [(r["session_id"], json.loads(r["row"])) for r in con.execute("SELECT * FROM method_stats ORDER BY session_id")]
+            cols = []
+            for _, d in rows:
+                cols += [k for k in d if k not in cols]
+            w.writerow(["session_id"] + cols)
+            for sid, d in rows:
+                w.writerow([sid] + [d.get(k) for k in cols])
+        elif kind == "phases":
+            rows = [(r["session_id"], json.loads(r["row"])) for r in con.execute("SELECT * FROM phase_stats ORDER BY session_id, idx")]
+            cols = []
+            for _, d in rows:
+                cols += [k for k in d if k not in cols]
+            w.writerow(["session_id"] + cols)
+            for sid, d in rows:
+                w.writerow([sid] + [d.get(k) for k in cols])
+        elif kind == "session_stats":
+            w.writerow(["session_id", "section", "name", "value"])
+            for r in con.execute("SELECT * FROM session_stats ORDER BY session_id, idx"):
+                w.writerow([r["session_id"], r["section"], r["name"], r["value"]])
+        else:
+            return None
+    return buf.getvalue()
+
+
+def fmt_ts(t):
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t)) if t else ""
 
 EMOTIONS = ["mutlu", "notr", "kafa_karisik", "zorlaniyor"]
 TIMELINE_EVERY = 5          # saniye
@@ -539,7 +672,7 @@ class Handler(BaseHTTPRequestHandler):
     def test_log(self):
         """Bakış testi kaydını test_kayitlari/ altına yazar. Yalnız bakis_test.html kullanır; en çok 2 MB."""
         n = int(self.headers.get("Content-Length") or 0)
-        if n <= 0 or n > 2_000_000:
+        if n <= 0 or n > 8_000_000:       # her yöntemin kare kare bakış kaydı (gazelab biçimi) da gelir
             return self.err("geçersiz uzunluk")
         try:
             b = json.loads(self.rfile.read(n).decode("utf-8"))
@@ -553,7 +686,14 @@ class Handler(BaseHTTPRequestHandler):
         with open(os.path.join(TEST_DIR, ad), "w", encoding="utf-8") as f:
             json.dump(b, f, ensure_ascii=False, indent=1)
         print(f"[testlog] {ad} ({len(b['log'])} satır)")
-        self.send_json({"ok": True, "dosya": ad})
+        oturum = None
+        if isinstance(b.get("gazelab"), dict):
+            try:
+                oturum = gl_kaydet(b["gazelab"], ad)
+                print(f"[testlog] GazeLab oturumu {oturum} -> {GL_DB}")
+            except (sqlite3.Error, TypeError, ValueError) as e:
+                print(f"[testlog] GazeLab kaydı yazılamadı: {e}")
+        self.send_json({"ok": True, "dosya": ad, "oturum": oturum})
 
     def teacher_ok(self, cls, key):
         return bool(key) and secrets.compare_digest(str(key).encode("utf-8"), cls["teacher_key"].encode("utf-8"))
@@ -572,6 +712,22 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.teacher_ok(cls, q.get("key")):
                     return self.err("Yetkisiz", 403)
                 return self.send_json(build_report(cls))
+        if u.path == "/api/testlog/export.csv":
+            # Yalnız bu bilgisayardan (test kayıtları cihaz/yüz ölçüleri içerir)
+            if self.client_address[0] not in ("127.0.0.1", "::1"):
+                return self.err("Yalnız yerelden", 403)
+            kind = q.get("kind", "methods")
+            text = gl_csv(kind)
+            if text is None:
+                return self.err("kind: sessions | gaze | head | mouse | methods | phases | session_stats")
+            body = ("\ufeff" + text).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition", f'attachment; filename="bakis_testi_{kind}.csv"')
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if u.path == "/api/class":
             with LOCK:
                 cls = load_class(q.get("code", "").upper())

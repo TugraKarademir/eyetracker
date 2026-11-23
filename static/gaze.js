@@ -253,21 +253,48 @@ class GazeTracker {
     else this.onStatus("Kalibre edilmedi");
   }
 
+  // Modele verilecek kare: zoom 1 ise video; değilse zoomC (tam karede 0-1 merkez) çevresinden kırpılmış tuval
+  _kaynak() {
+    const v = this.video, z = this.zoom || 1;
+    if (z <= 1.01) { this.kirp = null; return v; }
+    const vw = v.videoWidth, vh = v.videoHeight, cw = Math.round(vw / z), ch = Math.round(vh / z), c = this.zoomC || [0.5, 0.5];
+    const x0 = Math.round(Math.min(vw - cw, Math.max(0, c[0] * vw - cw / 2))), y0 = Math.round(Math.min(vh - ch, Math.max(0, c[1] * vh - ch / 2)));
+    if (!this._kirpCv) { this._kirpCv = document.createElement("canvas"); this._kirpCtx = this._kirpCv.getContext("2d", { willReadFrequently: true }); }
+    const cv = this._kirpCv;
+    if (cv.width !== cw || cv.height !== ch) { cv.width = cw; cv.height = ch; }
+    this._kirpCtx.drawImage(v, x0, y0, cw, ch, 0, 0, cw, ch);
+    this.kirp = { x0, y0, cw, ch, vw, vh };
+    return cv;
+  }
+  setZoom(z, merkez) {
+    this.zoom = Math.max(1, Math.min(3, +z || 1));
+    if (merkez) this.zoomC = merkez;
+  }
+
   // Her kamera karesinde: özellik vektörü (webgaze Tracker.run)
   _frame() {
     if (!this.ready) return;
+    // rVFC üst verisi: presentedFrames = kameranın gerçekten gönderip gösterilen kare sayısı (biz işleyemesek de artar).
+    // İşlenen kare ile karşılaştırınca yavaşlığın kameradan mı (ışık/pozlama) işlemeden mi geldiği ayrılır.
     const next = () => (this.video.requestVideoFrameCallback
-      ? this.video.requestVideoFrameCallback(() => this._frame())
+      ? this.video.requestVideoFrameCallback((_, meta) => { this._meta = meta; this._frame(); })
       : requestAnimationFrame(() => this._frame()));
     if (this.paused || this.video.readyState < 2) { setTimeout(next, 200); return; }
     const t = performance.now() / 1000;
     let res;
-    try { res = this.mesh.detectForVideo(this.video, performance.now()); }
+    // Dijital yakınlaştırma (gazelab'deki gibi kamera ayarı adımında seçilir): yüz küçük görünüyorsa karenin yüz çevresindeki
+    // bölümü kırpılıp modele o verilir. Kırpma merkezi ayar adımında sabitlenir (kare kare kaymaz; öznitelikler tutarlı kalır).
+    const src = this._kaynak(), t0 = performance.now();
+    try { res = this.mesh.detectForVideo(src, performance.now()); }
     catch (e) { if (this.diag) { this.diag.hata++; this.diag.sonHata = String(e?.message || e).slice(0, 160); } next(); return; }
+    if (this.diag) {
+      this.diag.islemeMs = (this.diag.islemeMs || 0) + (performance.now() - t0); this.diag.islemeN = (this.diag.islemeN || 0) + 1;
+      if (this._meta?.presentedFrames != null) this.diag.kameraKare = this._meta.presentedFrames;
+    }
     const lm = res.faceLandmarks && res.faceLandmarks[0];
-    if (this.diag) { this.diag.kare++; if (lm) this.diag.yuz++; this.diag.video = `${this.video.videoWidth}x${this.video.videoHeight}`; }
+    if (this.diag) { this.diag.kare++; if (lm) this.diag.yuz++; this.diag.video = `${this.video.videoWidth}x${this.video.videoHeight}`; this.diag.islenen = `${src.width || src.videoWidth}x${src.height || src.videoHeight}`; this.diag.zoom = this.zoom; }
     if (lm && lm.length >= 478) {
-      const w = this.video.videoWidth, h = this.video.videoHeight;
+      const w = src.width || this.video.videoWidth, h = src.height || this.video.videoHeight;
       const p = lm.map((q) => [q.x * w, q.y * h]);
       const [rx, ry, ro] = gzEyeFeatures(p, GZ.EYE_R), [lx, ly, lo] = gzEyeFeatures(p, GZ.EYE_L);
       const raw = [rx, ry, lx, ly, ro, lo, ...gzHeadPose(lm)];
@@ -283,18 +310,24 @@ class GazeTracker {
       const kp = this.report?.yuz, kapaliK = kp?.kapali?.kirpma != null && kp.kapali.kirpma - (kp.notr?.kirpma ?? 0) >= 0.3 ? kp.kapali.kirpma : this.yuzKapali;
       const blink = eyes ? (kapaliK != null ? eyes.blink > kapaliK - 0.08 : eyes.blink > GZ.BLINK_BS + GZ.BLINK_DOWN * Math.min(1, eyes.down / 0.5)) : (ro + lo) / 2 < GZ.BLINK;
       const pose3 = gzPose3(res.facialTransformationMatrixes?.[0]?.data);
+      // Kırpılmış karede yüz zoom kat büyük görünür; MediaPipe uzaklığı zoom kat yakın sanır → gerçek ölçeğe geri çevrilir
+      if (pose3 && this.zoom > 1.01) for (const k of ["dist", "tx", "ty", "tz"]) pose3[k] *= this.zoom;
       const bsAll = bs ? Object.fromEntries(bs.map((c) => [c.categoryName, c.score])) : null;
-      this.latest = { t, raw, blink, open: (ro + lo) / 2, eyes, pose3, bs: bsAll, irisMm: { sag: gzIrisMm(p, GZ.EYE_R), sol: gzIrisMm(p, GZ.EYE_L) } };
+      // yuz2d: GazeLab baş pozu sınırları için burun ucu (1) ve dış göz köşeleri arası (33-263) uzaklık, video pikseli
+      const yuz2d = { nx: p[1][0], ny: p[1][1], size: Math.hypot(p[263][0] - p[33][0], p[263][1] - p[33][1]) };
+      this.latest = { t, raw, blink, open: (ro + lo) / 2, eyes, pose3, bs: bsAll, yuz2d, irisMm: { sag: gzIrisMm(p, GZ.EYE_R), sol: gzIrisMm(p, GZ.EYE_L) } };
       // WebGazer göz yaması: aynı karenin aynı yüz noktalarından (wg_yama.js yüklüyse; kare başına ~2-3 ms)
       let wgp = null;
-      if (typeof wgYama === "function") { try { wgp = wgYama(this.video, p); } catch { wgp = null; } }
+      if (typeof wgYama === "function") { try { wgp = wgYama(src, p); } catch { wgp = null; } }
       this.latest.wgp = wgp;
       try { this.latest.kure = gzKure(lm, w, h); } catch { this.latest.kure = null; }
       // İsteğe bağlı kanca (bakış testi: yakın göz). Aynı karenin landmark pikselleriyle çağrılır.
       if (this.onLandmarks) { try { this.latest.yakin = this.onLandmarks(p, lm); } catch (e) { this.latest.yakinHata = String(e?.message || e); } }
       // Yüz konumu (normalize 0-1): el kaldırma algılayıcısı başa göre karar verir
-      this.face = { t, eyeY: (lm[159].y + lm[386].y) / 2, top: lm[10].y, chin: lm[152].y, left: Math.min(lm[234].x, lm[454].x), right: Math.max(lm[234].x, lm[454].x),
-        box: lm.reduce((b, q) => ({ x0: Math.min(b.x0, q.x), y0: Math.min(b.y0, q.y), x1: Math.max(b.x1, q.x), y1: Math.max(b.y1, q.y) }), { x0: 1, y0: 1, x1: 0, y1: 0 }) };
+      // Kırpma varsa tam kareye çevrilir: el kaldırma ve HSEmotion tam video karesinde çalışır
+      const K = this.kirp, FX = (x) => (K ? (K.x0 + x * K.cw) / K.vw : x), FY = (y) => (K ? (K.y0 + y * K.ch) / K.vh : y);
+      this.face = { t, eyeY: FY((lm[159].y + lm[386].y) / 2), top: FY(lm[10].y), chin: FY(lm[152].y), left: FX(Math.min(lm[234].x, lm[454].x)), right: FX(Math.max(lm[234].x, lm[454].x)),
+        box: lm.reduce((b, q) => ({ x0: Math.min(b.x0, FX(q.x)), y0: Math.min(b.y0, FY(q.y)), x1: Math.max(b.x1, FX(q.x)), y1: Math.max(b.y1, FY(q.y)) }), { x0: 1, y0: 1, x1: 0, y1: 0 }) };
       // Göz kapağı: MediaPipe katsayıları (0-1). Aşağı bakış kapağı kısar; bu yüzden ayrıca 'aşağı bakma' da tutulur.
       if (eyes) this.face.eyes = eyes;
       if (this.rec) { this.recStat.frames++; if (blink) { this.recStat.blink++; this.recStat.open.push((ro + lo) / 2); } }
@@ -305,6 +338,7 @@ class GazeTracker {
       if (this.rec) { this.recStat.frames++; this.recStat.noFace++; }
       if (this.tracking) this._sample(null);
     }
+    if (this.diag) this.diag.toplamMs = (this.diag.toplamMs || 0) + (performance.now() - t0);   // MediaPipe + göz yaması + küre + kancalar
     next();
   }
 
@@ -454,6 +488,7 @@ class GazeTracker {
     }
     this._klog(`kayıtlı kalibrasyon yüklendi: isabet %${d.report.hit3}, hata ${d.report.acc} px, kamera ${cam}${d.report.hit3 < GZ.MIN_HIT ? " → KABA MOD" : ""}`);
     this.model = GazeModel.from(d.model); this.geom = d.geom; this.report = d.report;
+    if (d.report.zoom > 1.01) this.setZoom(d.report.zoom, d.report.zoomC);   // bakış testinin kamera ayarındaki yakınlaştırma
     this.wgModel = d.wgModel ? GazeModel.from(d.wgModel) : null; this.wgClickF = []; this.wgClickY = [];
     this.coarse = !!(d.report && d.report.hit3 < GZ.MIN_HIT);
     this.startTracking(); this._geomOk();
