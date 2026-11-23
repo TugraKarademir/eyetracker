@@ -49,6 +49,13 @@
   background: rgba(127, 29, 29, .95); color: #fff; border: 2px solid #f87171; border-radius: 12px; padding: 12px 22px;
   font: 20px system-ui; text-align: center; box-shadow: 0 6px 24px rgba(0,0,0,.4); }
 #basUyari small { display: block; font-size: 15px; opacity: .9; margin-top: 4px; }
+/* Adım çubuğu: üst kenarda ince, yarı saydam, tıklamayı engellemez (kalibrasyon noktaları kenardan en az 40 px içeride) */
+#adimCubuk { position: fixed; top: 0; left: 50%; transform: translateX(-50%); z-index: 20; display: none; pointer-events: none; white-space: nowrap;
+  max-width: 96vw; overflow: hidden; text-overflow: ellipsis; font: 11px/16px system-ui; padding: 1px 10px; border-radius: 0 0 8px 8px;
+  background: rgba(20,27,36,.6); color: #cbd5e1; }
+#adimCubuk b { color: #facc15; }
+#adimCubuk .ag { opacity: .85; } #adimCubuk .ay { opacity: .4; } #adimCubuk .aa { opacity: .4; text-decoration: line-through; }
+#adimCubuk .as { color: #facc15; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -90,6 +97,7 @@
 <div id="dot"></div>
 <div id="guide"><div id="gTxt"></div></div>
 <div id="camMark"></div>
+<div id="adimCubuk"></div>
 <div id="camMsg"></div>
 <div id="yuzDot"></div>
 <div id="startCard"><div id="resTxt" style="font-size:17px;margin-bottom:14px"></div><button id="startBtn">↻ Yeniden kalibre et</button>
@@ -850,12 +858,64 @@ function uzakNoktalar(kullanilan, n) {   // kullanılanlardan en uzak n aday (60
   }
   return pts;
 }
+// ---- Adım göstergesi: akış belli olsun (tek kaynak: ADIMLAR + adimBasla). glFazBasla'dan ayrı (o istatistik içindir).
+// Liste akışa göre kurulur; kapalı adımlar (?ayar=0, ?bas=0, ?kontrol=0, ?gazelab=0, depo yok) yer almaz.
+const ADIM_AD = {
+  ayar: ["Kamera ayarı", "kamerayı ve yüzünüzün konumunu ayarlayacaksınız."],
+  profil: ["Yüz profili", "üç kısa adımda yüzünüz tanınacak (~10 sn)."],
+  depo: ["Depo kalibrasyonu", "eski (depo) kalibrasyonu: noktalara bakacaksınız."],
+  depoKontrol: ["Depo kontrolü", "5 noktaya bakıp birer kez tıklayacaksınız (yalnız ölçüm)."],
+  bakarak: [() => `Bakarak ${bakisNoktaSayisi()} nokta`, () => `${bakisNoktaSayisi()} sarı noktaya sırayla yalnız bakacaksınız, tıklama yok.`],
+  bas: ["Baş turu", "gözünüz noktadayken başınızı yavaşça çevireceksiniz."],
+  duzeltme: ["Düzeltme (5 tıklama)", "5 noktaya bakıp birer kez tıklayacaksınız."],
+  tiklama: ["Tıklama turları", "sarı noktalara bakıp üstlerine tıklayacaksınız."],
+  gazelab: ["GazeLab doğrulaması", "mavi nokta 5 yere gidecek, yalnız bakacaksınız."],
+  kontrol: ["Kontrol (5 nokta)", "5 yeni noktaya bakıp birer kez tıklayacaksınız (yalnız ölçüm)."],
+  sonuc: ["Sonuç", "hata ve noktalar ekranda gösterilecek."],
+};
+const bakisNoktaSayisi = () => BAKIS.TUR * 9;
+let ADIMLAR = [], adimSimdi = null, adimGecilen = new Set();
+const adimAd = (k) => { const a = ADIM_AD[k]?.[0]; return typeof a === "function" ? a() : a || k; };
+const adimAcik = (k) => { const a = ADIM_AD[k]?.[1]; return typeof a === "function" ? a() : a || ""; };
+function adimKur(ayarVar) {
+  const L = ayarVar ? ["ayar"] : [];
+  L.push("profil");
+  if (DEPO) L.push("depo", "depoKontrol");
+  if (BAKIS.ACIK) { L.push("bakarak"); if (BASTUR.ACIK) L.push("bas"); L.push("duzeltme"); } else L.push("tiklama");
+  if (GLAB) L.push("gazelab");
+  if (KONTROL) L.push("kontrol");
+  L.push("sonuc");
+  ADIMLAR = L; adimSimdi = null; adimGecilen = new Set(); adimCiz();
+}
+// Her aşamanın başında bir kez. Listede yoksa (ör. bakarak model kurulamadı → tıklama turları) şimdiki adımın ardına eklenir.
+function adimBasla(k) {
+  if (!ADIMLAR.includes(k)) ADIMLAR.splice(adimSimdi ? ADIMLAR.indexOf(adimSimdi) + 1 : 0, 0, k);
+  if (adimSimdi) adimGecilen.add(adimSimdi);
+  adimSimdi = k; adimCiz();
+}
+function adimCiz() {
+  const el = $("#adimCubuk"), i = ADIMLAR.indexOf(adimSimdi);
+  if (i < 0) { el.style.display = "none"; return; }
+  const liste = ADIMLAR.map((k, j) => {
+    const c = j === i ? "as" : j > i ? "ay" : adimGecilen.has(k) ? "ag" : "aa";   // aa: atlandı (bu oturumda yapılmadı)
+    return `<span class="${c}">${j < i && adimGecilen.has(k) ? "✓ " : ""}${adimAd(k)}</span>`;
+  }).join(" · ");
+  el.innerHTML = `<b>Adım ${i + 1} / ${ADIMLAR.length} · ${adimAd(adimSimdi)}</b> &nbsp;|&nbsp; ${liste}`;
+  el.style.display = "block";
+}
+// Hazır kartlarının üstündeki satır: "Adım N / M · ad" + "Sırada: …"
+function adimSatiri() {
+  const i = ADIMLAR.indexOf(adimSimdi); if (i < 0) return "";
+  const s = ADIMLAR[i + 1];
+  return `<div style="font-size:15px;color:#facc15">Adım ${i + 1} / ${ADIMLAR.length} · ${adimAd(adimSimdi)}</div>` +
+    (s ? `<div style="font-size:14px;opacity:.7;margin-top:-10px">Sırada: ${adimAd(s)} — ${adimAcik(s)}</div>` : "");
+}
 function hazirKarti(baslik, metin, dugme) {
   return new Promise((ok) => {
     const k = document.createElement("div"); k.id = "hazirKart";
     Object.assign(k.style, { position: "fixed", inset: "0", zIndex: "19", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "16px",
       background: "rgba(15,20,27,.94)", color: "#e6edf3", font: "20px system-ui", textAlign: "center", padding: "16px" });
-    k.innerHTML = `<div style="font-size:26px">${baslik}</div><div style="max-width:640px;line-height:1.5;opacity:.9">${metin}</div>
+    k.innerHTML = `${adimSatiri()}<div style="font-size:26px">${baslik}</div><div style="max-width:640px;line-height:1.5;opacity:.9">${metin}</div>
       <button style="font:inherit;font-size:22px;padding:12px 30px;border-radius:12px;border:2px solid #facc15;background:#1c2633;color:#facc15;cursor:pointer">${dugme}</button>`;
     document.body.append(k);
     k.querySelector("button").onclick = (e) => { e.stopPropagation(); k.remove(); setTimeout(ok, 400); };
@@ -863,6 +923,7 @@ function hazirKarti(baslik, metin, dugme) {
 }
 async function bakarakKalibrasyon() {
   if (!BAKIS.ACIK) return;
+  adimBasla("bakarak");
   await hazirKarti("👀 1. bölüm: sadece bakın",
     `Ekranda <b>sarı noktalar</b> sırayla çıkacak (${BAKIS.TUR * 9} nokta, yaklaşık ${Math.round(BAKIS.TUR * 9 * (BAKIS.BEKLE + BAKIS.TOPLA) / 10) * 10} sn).<br>Her noktaya <b>bakın ve küçülene kadar gözünüzü üzerinde tutun</b>. <b>Tıklamayın.</b><br>Başınızı oynatmadan, yalnız gözünüzle takip edin.`, "Hazırım");
   bakarakSuruyor = true; bakisNokta = [];
@@ -922,6 +983,7 @@ function basKur() {
 }
 async function basTuru() {
   if (!BASTUR.ACIK) return;
+  adimBasla("bas");
   await hazirKarti("🙆 Baş turu (yaklaşık 25 sn)",
     `${BASTUR.NOKTA.length} sarı nokta çıkacak. <b>Gözünüzü noktadan ayırmadan</b> başınızı yavaşça çevirin:<br>önce <b>sağa-sola</b>, sonra <b>yukarı-aşağı</b> (ekranda yazacak).<br>Büyük hareket gerekmez, derste nasıl kıpırdıyorsanız öyle. <b>Tıklamayın.</b>`, "Hazırım");
   glFazBasla("bas_turu");
@@ -969,6 +1031,8 @@ async function guideStart() {
   wgAyarla(false);   // WebGazer yalnız gerektiğinde çalışır (kare hızı)
   tlog(`═══ kalibrasyon başladı: 1) yüz profili 2) bakarak 9 nokta${BASTUR.ACIK ? " + baş turu (3 nokta)" : ""} 3) 5 noktaya birer tıklama (düzeltme)${KONTROL ? " 4) 5 kontrol noktası (yalnız test)" : ""} ═══`);
   $("#startCard").style.display = "none";
+  if (adimSimdi !== "ayar") adimKur(false);   // kamera ayarı hemen önce yapıldıysa liste onunla kuruldu
+  adimBasla("profil");
   if (!(await faceProfile())) {
     tlog("kalibrasyon durdu: yüz profili alınamadı");
     $("#resTxt").innerHTML = "Yüz yeterince görülemedi.<br><span class='muted'>Kameraya düz bakın, ışığı kontrol edin.</span>";
@@ -981,6 +1045,7 @@ async function guideStart() {
   GLK.sure.profilSon = simdi();
   $("#panel").style.display = "none";
   if (DEPO && (await depoKalibrasyon())) {
+    adimBasla("depoKontrol");
     await hazirKarti("✅ Kontrol (5 nokta)", "Depo kalibrasyonu bitti. Şimdi 5 sarı noktaya <b>bakın ve bir kez tıklayın</b> (yalnız ölçüm).<br>Ardından bizim kalibrasyon gelecek.", "Başla");
     guide = { round: "KD", dogrula: "kontrolDepo", targets: kontrolNoktalari(), total: 5, startN: clicks.length, ozet: "", meds: [] };
     $("#guide").style.display = "block";
@@ -993,6 +1058,7 @@ async function bizimAkis() {
   await bakarakKalibrasyon();
   if (modelBk) await basTuru();
   if (modelBk) {
+    adimBasla("duzeltme");
     await hazirKarti("👆 2. bölüm: 5 nokta", `Şimdi 5 sarı nokta çıkacak. Her birine <b>bakın ve bir kez tıklayın</b>.${KONTROL ? '<br><span style="opacity:.75">Ardından ölçüm için 5 nokta daha var (yalnız bu test sayfasında).</span>' : ""}`, "Başla");
     guide = { round: "düzeltme", targets: dogrulamaNoktalari(), total: 5, startN: clicks.length, ozet: "", meds: [] };
     $("#guide").style.display = "block";
@@ -1007,6 +1073,7 @@ async function bizimAkis() {
 const DEPO = new URLSearchParams(location.search).get("kalibre") === "depo";
 let depoModel = null;
 async function depoKalibrasyon() {
+  adimBasla("depo");
   tlog("DEPO kalibrasyonu başladı (TugraKarademir/eyetracker gaze.js calibrate, webgaze): 13 nokta bakarak + 9 rastgele doğrulama noktası");
   const kalBas = (window.kalLog ||= []).length, yuzOnce = gaze.report?.yuz;
   const k = gaze._close.bind(gaze);
@@ -1026,6 +1093,7 @@ async function depoKalibrasyon() {
   return true;
 }
 async function tiklamaliBasla() {
+  adimBasla("tiklama");
   if (BAKIS.ACIK) await hazirKarti("👆 2. bölüm: bakın ve tıklayın", "Şimdi sarı noktalar yine çıkacak. Her birine <b>bakın, sonra üstüne tıklayın</b>.<br>Bitince yine 5 noktalık kontrol var.", "Başla");
   guide = { round: 1, targets: guidePoints(1), total: 9, startN: clicks.length, ozet: "", meds: [] };
   tlog(`hedef alanı: pencere ${innerWidth}x${innerHeight}, ekranda sol üst (${Math.round(gaze._off().x)}, ${Math.round(gaze._off().y)}), ekran ${screen.width}x${screen.height}${document.fullscreenElement ? " (tam ekran)" : ""}`);
@@ -1057,7 +1125,7 @@ function kameraBirlesik() {
 }
 async function guideFinish(neden) {
   const g = guide; guideStop();
-  glFazBitir(); GLK.sure.bitis = simdi(); GLK.bitti = true;
+  glFazBitir(); GLK.sure.bitis = simdi(); GLK.bitti = true; adimBasla("sonuc");
   const m = clicks.filter((c) => c.err != null), V = m.filter((c) => c.dogrulama === "kontrol"), last = V.length ? V : m.slice(-TEST.LAST);
   { // Bakarak + 5 tıklamalı düzeltme: düzeltme tıklamaları (öğretmeden önce ölçülür) ve kontrol noktaları (hiç öğretilmez)
     const K = clicks.filter((c) => c.dogrulama === "kontrol"), D = clicks.filter((c) => !c.dogrulama);
@@ -1261,7 +1329,7 @@ async function guideDone(t) {
       $("#guide").style.display = "block";
     }
     if (!KONTROL) { await guideFinish("kalibrasyon tamam (kontrol atlandı)"); return; }
-    glFazBasla("kontrol");
+    adimBasla("kontrol"); glFazBasla("kontrol");
     guide.dogrula = "kontrol"; guide.round = "K"; guide.targets = kontrolNoktalari(); guide.total = guide.targets.length; guide.startN = clicks.length;
     toast("Son 5 nokta (ölçüm): bakın ve bir kez tıklayın", 3000);
     tlog(`KONTROL başladı: ${guide.targets.length} yeni nokta; model bunlardan öğrenmez, sonuç bunlardan hesaplanır`); guideShow(); return;
@@ -1490,6 +1558,7 @@ function wgKameraBilgi() {
 
 // ---- 1) Kamera ayarı (gazelab "kamera ve yüz konumlandırma" adımı + yakınlaştırma)
 async function kameraAyari() {
+  adimKur(true); adimBasla("ayar");
   const track = video.srcObject?.getVideoTracks()[0];
   const cap = track?.getCapabilities?.() || {}, donanim = !!cap.zoom;
   const zMax = donanim ? cap.zoom.max : 3, zMin = donanim ? cap.zoom.min : 1;
@@ -1576,6 +1645,7 @@ async function kameraAyari() {
 
 // ---- 2) GazeLab doğrulaması: 5 nokta, 0,9 sn yerleşme + 1,5 sn toplama, tıklama yok; modeller öğrenmez
 async function gazelabDogrulama() {
+  adimBasla("gazelab");
   await hazirKarti("🔵 3. bölüm: GazeLab doğrulaması (5 nokta)",
     `Mavi nokta 5 yere sırayla gidecek. <b>Tıklamayın, yalnız noktaya bakın</b> (~13 sn).<br><span style="opacity:.75">Doğruluk ve kesinlik GazeLab'deki gibi bu noktalardan hesaplanır; modeller bu noktalardan öğrenmez.</span>`, "Başla");
   glFazBasla("gazelab_dogrulama");
@@ -1767,7 +1837,7 @@ $("#baslaBtn").onclick = async () => {
 // Kalibrasyon sürerken tam ekrandan çıkılırsa: kayda yaz + geri dönme düğmesi göster
 const tamDon = document.createElement("button"); tamDon.id = "tamDon";
 tamDon.textContent = "⛶ Tam ekrana dön";
-Object.assign(tamDon.style, { position: "fixed", top: "10px", left: "50%", transform: "translateX(-50%)", zIndex: "12", display: "none",
+Object.assign(tamDon.style, { position: "fixed", top: "24px", left: "50%", transform: "translateX(-50%)", zIndex: "12", display: "none",
   font: "15px system-ui", padding: "8px 16px", borderRadius: "10px", border: "1px solid #facc15", background: "#1c2633", color: "#facc15", cursor: "pointer" });
 document.body.append(tamDon);
 tamDon.onclick = () => document.documentElement.requestFullscreen?.().catch(() => {});
