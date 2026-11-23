@@ -116,6 +116,8 @@ def ornek_ekle(con, lesson, sid, t, row):
 
 
 def kurulum_ekle(con, lesson, sid, t, setup):
+    if not _kayitli(con, lesson, sid):
+        return False
     s = json.dumps(setup, ensure_ascii=False, sort_keys=True)
     son = con.execute("SELECT setup FROM setups WHERE lesson_code=? AND sid=?"
                       " ORDER BY rowid DESC LIMIT 1", (lesson, sid)).fetchone()
@@ -127,6 +129,8 @@ def kurulum_ekle(con, lesson, sid, t, setup):
 
 
 def kalibrasyon_ekle(con, lesson, sid, t, report):
+    if not _kayitli(con, lesson, sid):
+        return False
     at = report.get("at")
     if at is not None and con.execute(
             "SELECT 1 FROM calibrations WHERE lesson_code=? AND sid=? AND at=?",
@@ -139,6 +143,8 @@ def kalibrasyon_ekle(con, lesson, sid, t, report):
 
 
 def olay_ekle(con, lesson, sid, t, kind, data):
+    if sid is not None and not _kayitli(con, lesson, sid):
+        return   # demo / kayıtsız öğrenci olayı yazılmaz
     with con:
         con.execute("INSERT INTO events VALUES(?,?,?,?,?)",
                     (lesson, sid, t, kind, _js(data)))

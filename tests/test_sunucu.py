@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import threading
 import unittest
+import unittest.mock
 import urllib.request
 import zlib
 from http.server import ThreadingHTTPServer
@@ -242,6 +243,19 @@ class SunucuOrnek(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][0], "alert")
         self.assertEqual(json.loads(rows[0][1]), {"kind": "attention", "text": "A düşük"})
+
+    def test_demo_olaylari_yazilmaz(self):
+        kod, key, _ = self.ogrenci()
+        cls = server.CLASSES[kod]
+        cls["students"]["d1"] = server.make_student("d1", "Demo", demo=True)
+        cls["students"]["d1"]["sim"] = server.make_sim()
+        cls["students"]["d1"]["hand"] = True
+        post(self.base, "/api/event", {"code": kod, "key": key, "type": "lower_hand", "id": "d1"})
+        with server.LOCK:
+            with unittest.mock.patch.object(server.random, "random", return_value=0.0):
+                server.simulate_demo(cls, server.now())
+        self.assertEqual(server.KAYIT.execute(
+            "SELECT COUNT(*) FROM events WHERE sid='d1'").fetchone()[0], 0)
 
     def test_restore_ogrenciyi_kayda_yazar(self):
         cls = {"code": "RST1", "name": "R", "topic": "", "created": server.now(), "ended": None,

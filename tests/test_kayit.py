@@ -55,8 +55,18 @@ class KayitTest(unittest.TestCase):
         self.assertIsNone(sp[m2])
         self.assertEqual(aktif_materyal(con, "D1"), m2)
 
-    def test_kurulum_anahtar_sirasi_onemsiz(self):
+    def test_kayitsiz_ogrenci_olay_kurulum_kal_yazilmaz(self):
         con = ac(":memory:")
+        olay_ekle(con, "D1", "demo1", 1, "hand", {"up": True})
+        self.assertFalse(kurulum_ekle(con, "D1", "demo1", 1, {"a": 1}))
+        self.assertFalse(kalibrasyon_ekle(con, "D1", "demo1", 1, {"at": 1}))
+        olay_ekle(con, "D1", None, 1, "end", None)
+        n = [con.execute("SELECT COUNT(*) FROM " + t).fetchone()[0]
+             for t in ("events", "setups", "calibrations")]
+        self.assertEqual(n, [1, 0, 0])
+
+    def test_kurulum_anahtar_sirasi_onemsiz(self):
+        con = kur()
         self.assertTrue(kurulum_ekle(con, "D1", "s1", 1, {"a": 1, "b": 2}))
         self.assertFalse(kurulum_ekle(con, "D1", "s1", 2, {"b": 2, "a": 1}))
 
