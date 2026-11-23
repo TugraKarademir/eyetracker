@@ -102,6 +102,7 @@
 <div id="yuzDot"></div>
 <div id="startCard"><div id="resTxt" style="font-size:17px;margin-bottom:14px"></div><button id="startBtn">↻ Yeniden kalibre et</button>
   <div style="margin-top:10px;display:flex;gap:8px;justify-content:center"><button id="raporBtn" style="background:#1c2633;border:1px solid #3a4756;font-size:14px">📊 İstatistikler</button>
+  <button id="noktaBtn" style="background:#1c2633;border:1px solid #3a4756;font-size:14px;display:none">🎯 Noktaları göster</button>
   <button id="ayarBtn" style="background:#1c2633;border:1px solid #3a4756;font-size:14px">📷 Kamera ayarı</button></div></div>
 <video id="cam" autoplay playsinline muted></video>
 
@@ -412,7 +413,7 @@ function line(x1, y1, x2, y2, color) {
 }
 
 document.addEventListener("pointerdown", (e) => {
-  if (!gaze || e.target.closest("#panel") || e.target.closest("#guide") || e.target.closest("#startCard") || e.target.closest("#tamDon") || e.target.closest("#baslaKart") || e.target.closest("#hazirKart") || e.target.closest("#glRapor") || e.target.closest(".gaze-ov") || camBusy || bakarakSuruyor) return;
+  if (!gaze || e.target.closest("#panel") || e.target.closest("#guide") || e.target.closest("#startCard") || e.target.closest("#tamDon") || e.target.closest("#baslaKart") || e.target.closest("#hazirKart") || e.target.closest("#glRapor") || e.target.closest("#sonucKat") || e.target.closest(".gaze-ov") || camBusy || bakarakSuruyor) return;
   // Rehberli mod: yalnız sarı hedeflere tıklanır; etiket tıklanan piksel değil hedefin merkezi (göz oraya bakıyor)
   const tgt = guide ? guide.targets.find((t) => Math.hypot(t.x - e.clientX, t.y - e.clientY) < GUIDE.HIT) : null;
   if (guide && !tgt) { toast("Sarı hedeflerden birine bakıp üstüne tıklayın.", 1500); return; }
@@ -490,7 +491,7 @@ document.addEventListener("pointerdown", (e) => {
   const goz = { acik: avg((b) => (b.raw[4] + b.raw[5]) / 2), kirpma: avg((b) => b.eyes?.blink), asagi: avg((b) => b.eyes?.down),
                 basYaw: avg((b) => b.raw[6]), basPitch: avg((b) => b.raw[7]),
                 yaw3: avg((b) => b.pose3?.yaw), pitch3: avg((b) => b.pose3?.pitch), uzak: avg((b) => b.pose3?.dist), irisX: avg((b) => b.irisMm?.sag && b.irisMm?.sol ? (b.irisMm.sag[0] + b.irisMm.sol[0]) / 2 : null), irisY: avg((b) => b.irisMm?.sag && b.irisMm?.sol ? (b.irisMm.sag[1] + b.irisMm.sol[1]) / 2 : null) };
-  clicks.push({ x: cx, y: cy, sx, sy, err, ok, cellOk, v, goz, f: meanVec(win.map((b) => b.raw)), dogrulama: dogrula });
+  clicks.push({ x: cx, y: cy, sx, sy, err, ok, cellOk, v, goz, ornek: win.length, f: meanVec(win.map((b) => b.raw)), dogrulama: dogrula });
   tiklamaOz.push({ n: clicks.length, x: Math.round(cx), y: Math.round(cy), sx: Math.round(sx), sy: Math.round(sy), ornek: win.length,
     raw: meanVec(win.map((b) => b.raw)).map((z) => +z.toFixed(5)), bs: GOZ_BS.map((k) => +(ortalama(win, (b) => b.bs?.[k]) ?? 0).toFixed(4)),
     pose3: ["yaw", "pitch", "roll", "dist"].map((k) => { const z = ortalama(win, (b) => b.pose3?.[k]); return z == null ? null : +z.toFixed(3); }),
@@ -1030,7 +1031,7 @@ async function guideStart() {
   document.querySelectorAll(".mark,.line").forEach((n) => n.remove());
   wgAyarla(false);   // WebGazer yalnız gerektiğinde çalışır (kare hızı)
   tlog(`═══ kalibrasyon başladı: 1) yüz profili 2) bakarak 9 nokta${BASTUR.ACIK ? " + baş turu (3 nokta)" : ""} 3) 5 noktaya birer tıklama (düzeltme)${KONTROL ? " 4) 5 kontrol noktası (yalnız test)" : ""} ═══`);
-  $("#startCard").style.display = "none";
+  $("#startCard").style.display = "none"; $("#sonucKat")?.remove(); $("#noktaBtn").style.display = "none";
   if (adimSimdi !== "ayar") adimKur(false);   // kamera ayarı hemen önce yapıldıysa liste onunla kuruldu
   adimBasla("profil");
   if (!(await faceProfile())) {
@@ -1194,6 +1195,7 @@ async function guideFinish(neden) {
   if (dosya) $("#resTxt").innerHTML += `<br><span class="muted" style="font-size:12px">Kayıt bilgisayara gönderildi: ${dosya}</span>`;
   $("#startBtn").textContent = "↻ Yeniden kalibre et"; $("#startCard").style.display = "block";
   glRaporGoster();
+  $("#noktaBtn").style.display = ""; sonucGoster();   // ölçüm bitti: tahminler artık gösterilebilir
 }
 // Konsol kaydını sunucuya gönder (test_kayitlari/ altına yazılır). Telefondan konsol kopyalamak zor olduğu için.
 let tanıOnce = null;
@@ -1341,6 +1343,7 @@ async function guideDone(t) {
 $("#guideBtn").onclick = () => { sesAc(); $("#startCard").style.display = "none"; guideStart(); };
 $("#startBtn").onclick = () => { sesAc(); $("#startCard").style.display = "none"; guideStart(); };
 $("#raporBtn").onclick = (e) => { e.stopPropagation(); glRaporGoster(); };
+$("#noktaBtn").onclick = (e) => { e.stopPropagation(); sonucGoster(); };
 $("#ayarBtn").onclick = async (e) => { e.stopPropagation(); $("#startCard").style.display = "none"; await kameraAyari(); guideStart(); };
 $("#detBtn").onclick = () => { const pn = $("#panel"); pn.style.display = pn.style.display === "none" ? "" : "none"; };
 showYuz();
@@ -1789,6 +1792,59 @@ function glRaporGoster() {
     if (c === "kapat") R.remove(); else csvIndir({ yontem: Y, oturum: O, asama: A }[c], c); };
   R.addEventListener("pointerdown", (e) => e.stopPropagation(), true);
   document.body.append(R);
+}
+// ---- Sonuç katmanı (RealEye'daki "click accuracy" görünümü): her noktada hedef (mavi), seçili yöntemin tahmini (turuncu), arada çizgi.
+// Yalnız ölçüm bittikten sonra açılır (guideFinish / "Noktaları göster"); hiçbir modele öğretmez. Ölçülmeyen nokta "veri yok".
+// Koordinatlar ölçüm anındaki pencere pikselidir (pencere boyutu sonradan değiştiyse yerler kayar; uyarı yazılır).
+const SONUC = { yontem: "biz", kaynak: "kontrol" };
+function sonucNoktalar(kaynak, k) {
+  if (kaynak === "kontrol") return clicks.filter((c) => c.dogrulama === "kontrol").map((c) => {
+    const v = c.v?.[k]; return { tx: c.x, ty: c.y, px: v ? v.x : null, py: v ? v.y : null, err: v ? v.err : null, n: v ? c.ornek ?? null : null }; });
+  const P = GLK.dog?.yontem?.[k]?.points || [];
+  return (GLK.dog?.noktalar || []).map((q) => { const p = P.find((z) => z.tx === q.x && z.ty === q.y);
+    return { tx: q.x, ty: q.y, px: p ? p.mx : null, py: p ? p.my : null, err: p ? p.err : null, n: p ? p.n : null }; });
+}
+function sonucGoster() {
+  if (!GLK.bitti || guide) return;   // ölçüm sürerken tahmin gösterilmez
+  $("#sonucKat")?.remove();
+  const K = clicks.filter((c) => c.dogrulama === "kontrol");
+  const keys = Object.keys(YONTEM).filter((k) => K.some((c) => c.v?.[k]) || GLK.dog?.yontem?.[k]);
+  if (!keys.includes(SONUC.yontem)) SONUC.yontem = keys.includes("biz") ? "biz" : keys[0] || "biz";
+  if (SONUC.kaynak === "kontrol" && !K.length && GLK.dog) SONUC.kaynak = "gazelab";
+  const S = document.createElement("div"); S.id = "sonucKat";
+  Object.assign(S.style, { position: "fixed", inset: "0", zIndex: "22", background: "rgba(15,20,27,.97)", color: "#e6edf3", font: "14px system-ui", cursor: "default" });
+  const sel = "font:inherit;background:#1c2633;color:inherit;border:1px solid #3a4756;border-radius:8px;padding:4px 6px;max-width:42vw";
+  S.innerHTML = `<div style="position:absolute;left:0;right:0;bottom:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:rgba(20,27,36,.95);border-top:1px solid #2a3542">
+      <b>🎯 Nokta doğruluğu</b>
+      <select id="snY" style="${sel}">${keys.map((k) => `<option value="${k}"${k === SONUC.yontem ? " selected" : ""}>${esc2(YONTEM[k])}</option>`).join("") || '<option value="biz">veri yok</option>'}</select>
+      <select id="snK" style="${sel}"><option value="kontrol"${SONUC.kaynak === "kontrol" ? " selected" : ""}>Kontrol noktaları (tıklamalı, öğretilmedi)</option>
+        <option value="gazelab"${SONUC.kaynak === "gazelab" ? " selected" : ""}>GazeLab doğrulaması (tıklamasız)</option></select>
+      <span id="snOzet"></span><span style="flex:1"></span>
+      <button id="snKapat" style="font:inherit;padding:6px 14px;border-radius:8px;border:1px solid #3a4756;background:#1c2633;color:inherit;cursor:pointer">✕ Kapat</button></div>
+    <svg id="snSvg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></svg>`;
+  const ciz = () => {
+    const k = SONUC.yontem, L = sonucNoktalar(SONUC.kaynak, k), W = innerWidth, H = innerHeight;
+    const E = L.filter((q) => q.err != null).map((q) => q.err), ort = E.length ? Math.round(E.reduce((a, b) => a + b, 0) / E.length) : null;
+    const pw = GLK.recs.find((r) => r.stimulus_id === (SONUC.kaynak === "kontrol" ? "kontrol" : "gazelab_dogrulama"))?.rect;
+    const boyut = pw && (pw.viewW !== W || pw.viewH !== H) ? ` · ⚠ pencere ölçümde ${pw.viewW}×${pw.viewH}, şimdi ${W}×${H} (yerler kayık)` : "";
+    S.querySelector("#snOzet").innerHTML = !L.length ? "bu kaynakta nokta yok (aşama yapılmadı)"
+      : E.length ? `ortalama <b>${ort} px</b> · medyan <b>${Math.round(med(E))} px</b> · n = ${E.length} / ${L.length} nokta${boyut}` : `veri yok (${L.length} noktanın hiçbirinde bu yöntem ölçülmedi)${boyut}`;
+    const kl = (v, a, b) => Math.min(Math.max(v, a), b), birim = SONUC.kaynak === "kontrol" ? "kare" : "örnek";
+    S.querySelector("#snSvg").innerHTML = L.map((q) => {
+      let s = `<circle cx="${q.tx}" cy="${q.ty}" r="9" fill="#3b82f6" stroke="#fff" stroke-width="2"/>`;
+      const ly = q.ty > H - 90 ? q.ty - 16 : q.ty + 26, anc = q.tx > W - 160 ? "end" : q.tx < 160 ? "start" : "middle";
+      if (q.err == null) return s + `<text x="${q.tx}" y="${ly}" fill="#8a94a3" font-size="13" text-anchor="${anc}">veri yok</text>`;
+      const px = kl(q.px, 6, W - 6), py = kl(q.py, 6, H - 6), disarida = px !== q.px || py !== q.py;
+      s = `<line x1="${q.tx}" y1="${q.ty}" x2="${px}" y2="${py}" stroke="#f59e0b" stroke-width="1.5" opacity=".8"/>` + s +
+        `<circle cx="${px}" cy="${py}" r="7" fill="#f97316"${disarida ? ' stroke="#fff" stroke-dasharray="2 2"' : ""}/>`;
+      return s + `<text x="${q.tx}" y="${ly}" fill="#e6edf3" font-size="13" text-anchor="${anc}">${q.n ?? "?"} ${birim} · ${q.err} px${disarida ? " (tahmin ekran dışı)" : ""}</text>`;
+    }).join("");
+  };
+  S.querySelector("#snY").onchange = (e) => { SONUC.yontem = e.target.value; ciz(); };
+  S.querySelector("#snK").onchange = (e) => { SONUC.kaynak = e.target.value; ciz(); };
+  S.querySelector("#snKapat").onclick = (e) => { e.stopPropagation(); S.remove(); };
+  S.addEventListener("pointerdown", (e) => e.stopPropagation(), true);
+  document.body.append(S); ciz();
 }
 function glPaket() {
   if (!GLK.recs.length && !GLK.dog && !GLK.cur) return null;
