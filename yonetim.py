@@ -270,10 +270,38 @@ def _secili(con, dersler):
 
 
 def _grup_ozet(rs):
-    o = _ozet(rs)
-    return {"bakma_pct": o["bakma_pct"], "ort_dikkat": o["ort_dikkat"],
-            "n": o["n_ornek"], "n_bakma": o["n_bakma"],   # n_bakma: bakma_pct'ye katılan öğrenci
-            "n_ogrenci": len({(r["lesson_code"], r["sid"]) for r in rs})}
+    """Grup değeri = ders × öğrenci (lesson_code, sid) başına değerlerin ortalaması (örnek ağırlıklı havuz değil).
+    Her ölçünün n'i = o ölçüye değer veren ders × öğrenci sayısı; n_ornek yalnız ikincil bilgi."""
+    kisi = {}
+    for r in rs:
+        kisi.setdefault((r["lesson_code"], r["sid"]), []).append(r)
+    bak, dik, ene, duy = [], [], [], []
+    for krs in kisi.values():
+        b = []
+        for r in krs:
+            if r["gaze_cal"] == 1:
+                sh = _j(r["share"], {})
+                if isinstance(sh, dict) and sh:   # _ozet ile aynı tanım
+                    b.append(sh.get("materyal") or 0)
+        if b:
+            bak.append(100 * sum(b) / len(b))
+        for hedef, alan in ((dik, "attention"), (ene, "energy")):
+            v = _ort(r[alan] for r in krs)
+            if v is not None:
+                hedef.append(v)
+        e = [r["emotion"] for r in krs if r["emotion"] is not None]
+        if e:
+            duy.append({k: e.count(k) / len(e) for k in set(e)})
+    dag = {}
+    for d in duy:   # öğrenci başına duygu payları, öğrenciler üzerinden ortalama
+        for k, v in d.items():
+            dag[k] = dag.get(k, 0) + v / len(duy)
+    return {"bakma_pct": round(_ort(bak)) if bak else None, "n_bakma": len(bak),
+            "ort_dikkat": _yuv(_ort(dik)), "n_dikkat": len(dik),
+            "ort_enerji": _yuv(_ort(ene)), "n_enerji": len(ene),
+            "duygu_pct": {k: round(100 * v) for k, v in sorted(dag.items())},
+            "baskin_duygu": max(dag, key=dag.get) if dag else None, "n_duygu": len(duy),
+            "n_ogrenci": len(kisi), "n_ornek": len(rs)}
 
 
 def _materyalli_ornekler(con, codes):

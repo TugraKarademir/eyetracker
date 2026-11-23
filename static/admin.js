@@ -377,19 +377,26 @@ function fiksasyonlar(code) {
 }
 // Tek öğrencinin ham satırlarından (yalnız kalibreli, tam ekran bakışlı) I-VT. fiksasyonlar() ve öğrenci veri grafiği aynı kuralı kullanır.
 // Segment: pencere boyutu ya da materyal değişince ya da 250 ms'den uzun boşlukta kesilir (fiksasyon materyal sınırını aşmaz).
-// Dönen: { fix: [{mid,start,end,dur}], sac: [{start,end,dur}], segs: [[[tm, px, py, mid], …], …] } ya da pencere kaydı yoksa null.
+// Dönen: { fix: [{mid,start,end,dur}], sac: [{start,end,dur}] | null, sacHz, segs: [[[tm, px, py, mid], …], …] } ya da pencere kaydı yoksa null.
+// Fiksasyonlar GazeLab kuralıyla 400 ms'den uzunsa parçalara bölünür: sayı "I-VT parçası" sayısıdır.
+// Sakkad (iki fiksasyon arası ≤ maxSacc ms) ancak örnek aralığı yeterince kısaysa ölçülebilir: bir segmentte 2 × medyan aralık > maxSacc ise
+// sac = null ("ölçülemez"; ~10 Hz'de I-VT süzgeci hız tepesini 150 ms'den uzun yayar, 0 sakkad ölçüm değil yapı gereğidir).
 function ogrenciIvt(rows, kurulumlar) {
   const kur = (kurulumlar || []).map((k) => ({ t: k.t, m: /^(\d+)x(\d+)$/.exec(k.setup?.pencere || "") })).filter((k) => k.m);
   if (!kur.length) return null;
   const boyut = (t) => { let s = kur[0]; for (const k of kur) if (k.t <= t) s = k; return [+s.m[1], +s.m[2]]; };
   const rs = rows.filter((r) => r.cal && Array.isArray(r.gaze) && r.gaze.length).sort((a, b) => a.t - b.t);
-  const out = { fix: [], sac: [], segs: [] };
+  const out = { fix: [], sac: [], sacHz: null, segs: [] }, araliklar = [];
+  let olcumsuz = false;
   let seg = [], onceki = null, wh = null;
   const bitir = () => {
     if (seg.length) out.segs.push(seg);
     if (seg.length >= 3) {
       const I = GL.ivt(seg), mid = seg[0][3];
       for (const f of I.fixations) out.fix.push({ mid, start: f.start, end: f.end, dur: f.dur });
+      const d = seg.slice(1).map((p, i) => p[0] - seg[i][0]).sort((x, y) => x - y), md = d[d.length >> 1];
+      araliklar.push(...d);
+      if (2 * md > I.opts.maxSacc) olcumsuz = true;
       // GL.ivt sakkadı: ardışık iki fiksasyon arası, 0 < süre ≤ maxSacc (aynı koşul; sayısı I.saccades ile aynı)
       for (let k = 1; k < I.fixations.length; k++) {
         const a = I.fixations[k - 1], b = I.fixations[k], dur = b.start - a.end;
@@ -408,6 +415,8 @@ function ogrenciIvt(rows, kurulumlar) {
     }
   }
   bitir();
+  if (araliklar.length) { araliklar.sort((x, y) => x - y); const md = araliklar[araliklar.length >> 1]; if (md > 0) out.sacHz = 1000 / md; }
+  if (olcumsuz) out.sac = null;
   return out;
 }
 // Bakış hızı (°/s, tahmin): GL.ivt'nin içindeki hesapla aynı (noiseWin ms medyan süzgeç, piksel × GL.DEG_PER_PX / sn).
@@ -427,6 +436,7 @@ function hizSerisi(seg) {
   }
   return out;
 }
+const FIKS_PARCA = "Fiksasyon sayısı “I-VT parçası” sayısıdır: GazeLab kuralıyla 400 ms'den uzun fiksasyon eşit parçalara bölünür.";
 function fiksOzet(list) {
   return { n: list.length, ort: list.length ? Math.round(list.reduce((a, f) => a + f.dur, 0) / list.length) : null,
            ogr: new Set(list.map((f) => f.sid)).size };
@@ -512,7 +522,7 @@ async function viewDers([code], live) {
     </div>
     <div class="card"><h3>Materyaller</h3><div class="tbl"><table>
       <tr><th>Tür</th><th>Materyal</th><th>Ekranda</th><th title="Kalibreli öğrencilerin bakışının materyal bölgesindeki payı">Materyale bakma</th><th>Ort. dikkat</th><th>Baskın duygu</th>
-        <th title="I-VT (GL.ivt), tam ekran bakıştan; derece dönüşümü tahmin">Fiksasyon (tahmin)</th><th>Isı haritası</th></tr>
+        <th title="I-VT (GL.ivt), tam ekran bakıştan; derece dönüşümü tahmin">Fiksasyon (I-VT parçası, tahmin)</th><th>Isı haritası</th></tr>
       ${d.materyaller.map((m) => `<tr class="click" data-mat="${m.id}">
         <td>${kindChip(m.kind)}</td><td><a href="#materyal/${enc(L.code)}/${m.id}">${esc(m.name)}</a></td>
         <td class="num">${m.sure_sn ? mmss(m.sure_sn) : '<span class="yok">gösterilmedi</span>'}</td>
@@ -524,7 +534,7 @@ async function viewDers([code], live) {
     </table></div>
     ${d.materyaller.length ? "" : '<div class="muted" style="padding:10px 4px">Bu derste materyal tanımlanmamış.</div>'}
     <div class="note">Materyale bakma ve ısı haritası yalnız iyi kalibreli öğrencilerden (materyale bakma n = ortalamaya en az bir örnekle katılan öğrenci). Fiksasyon: sayı · ortalama süre,
-      tam ekran bakış örneklerinden I-VT (30°/s, 80–400 ms); piksel→derece dönüşümü tahmindir, konum materyal üzerine eşlenmez.<span id="pYok"></span></div></div>
+      tam ekran bakış örneklerinden I-VT (30°/s, 80–400 ms); piksel→derece dönüşümü tahmindir, konum materyal üzerine eşlenmez. ${FIKS_PARCA}<span id="pYok"></span></div></div>
     <div class="card"><h3>Öğrenciler</h3><div class="tbl"><table>
       <tr><th>Öğrenci</th><th>Kod</th><th>Kalite</th><th>Son kal. hatası</th><th>Kamerada</th><th>Kalibreli</th><th>Örnekleme</th>
         <th>Ort. dikkat</th><th>Baskın duygu</th><th>Materyale bakma</th><th>✋</th><th>Sohbet</th></tr>
@@ -657,11 +667,11 @@ async function viewMateryal([code, idS], live) {
       sat("Ort. dikkat", ol(ortalama(secili.map((r) => r.att)), secili.filter((r) => r.att != null).length, fix1, "örnek")) +
       sat("Ort. enerji", ol(ortalama(secili.map((r) => r.en)), secili.filter((r) => r.en != null).length, fix1, "örnek")) +
       sat("Baskın duygu", `${emoS(baskin(secili.map((r) => r.emo)))}${nTag(secili.filter((r) => r.emo).length, "örnek")}`) +
-      sat("Fiksasyon (tahmin)", fx == null ? '<span class="yok">hesaplanamadı</span>' : fx.n ? `${fx.n} · ort. ${fx.ort} ms${nTag(fx.ogr, "öğr.")}` : `${YOK}${nTag(0, "öğr.")}`);
+      sat("Fiksasyon (I-VT parçası, tahmin)", fx == null ? '<span class="yok">hesaplanamadı</span>' : fx.n ? `${fx.n} · ort. ${fx.ort} ms${nTag(fx.ogr, "öğr.")}` : `${YOK}${nTag(0, "öğr.")}`);
     $("#mNot").innerHTML = `Isı haritası ve bakış ölçüleri yalnız iyi kalibreli örneklerden. ` +
       (dis.length ? `Dışarıda kalan: ${dis.length} örnek (kalibresiz ya da kaba kalibrasyon)${disS.length ? `, ${disS.length} öğrencinin hiç bakış verisi yok` : ""}. ` : "") +
       (img ? "Noktalar görselin içerik alanına eşlenir." : m.hasImage ? "Görsel yüklenemedi; boş 16:9 tuval." : "Bu materyalin görseli yok; boş 16:9 tuval.") +
-      " Fiksasyon sayısı tam ekran bakıştan I-VT ile; derece dönüşümü tahmin." +
+      " Fiksasyon sayısı tam ekran bakıştan I-VT ile; derece dönüşümü tahmin. " + FIKS_PARCA +
       (F && F.pencereYok.length ? ` Pencere boyutu yok: ${F.pencereYok.length} öğrenci (fiksasyona girmedi).` : "");
   };
   guncelle();
@@ -797,11 +807,13 @@ function cizGrafik(canvas, G, V, sel) {
     if (thr < V.vmax) { ctx.strokeStyle = GR_RENK.sac; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(P.l, Yv(thr)); ctx.lineTo(w - P.r, Yv(thr)); ctx.stroke(); ctx.setLineDash([]); sag(thr + " eşik", Yv(thr) + 4, GR_RENK.sac); }
   } else yok("hiz", o.bakis.length ? "veri yok — pencere boyutu kaydı yok" : "veri yok");
   // fiksasyon / sakkad şeridi
-  b = kutu.fs; yaz("Fiks./sakkad", 4, b.y + 12);
+  b = kutu.fs; yaz(I && !I.sac ? "Fiksasyon" : "Fiks./sakkad", 4, b.y + 12);
   ctx.fillStyle = cssVar("var(--surface-2)"); ctx.fillRect(P.l, b.y, iw, b.h);
   if (I) {
     ctx.fillStyle = GR_RENK.fix; for (const f of I.fix) ctx.fillRect(X(f.start / 1000), b.y, Math.max(1, X(f.end / 1000) - X(f.start / 1000)), b.h);
-    ctx.fillStyle = GR_RENK.sac; for (const s of I.sac) ctx.fillRect(X(s.start / 1000), b.y + 3, Math.max(1, X(s.end / 1000) - X(s.start / 1000)), b.h - 6);
+    if (I.sac) { ctx.fillStyle = GR_RENK.sac; for (const s of I.sac) ctx.fillRect(X(s.start / 1000), b.y + 3, Math.max(1, X(s.end / 1000) - X(s.start / 1000)), b.h - 6); }
+    else { ctx.textAlign = "right"; ctx.fillStyle = "rgba(0,0,0,.6)"; const tx = "sakkad: ölçülemez", tw = ctx.measureText(tx).width;
+      ctx.fillRect(w - P.r - tw - 10, b.y + 1, tw + 8, b.h - 2); yaz(tx, w - P.r - 6, b.y + 12, "#fff"); ctx.textAlign = "start"; }
   } else yok("fs", "veri yok");
   // materyal şeridi
   b = kutu.mat; yaz("Materyal", 4, b.y + 12);
@@ -858,8 +870,11 @@ function sekmeGrafik(el, G, _e, live) {
     <dl class="ozet ozet-gen" id="sOz"></dl>
     <div class="note">X/Y: tam ekran bakış, pencereye göre (0–100; pencere dışı −20…120 kırpılı), yalnız iyi kalibreli örnekler. Hız ve fiksasyon/sakkad:
       I-VT (GL.ivt: ${GL.IVT_DEFAULTS.velThr}°/s, ${GL.IVT_DEFAULTS.minFix}–${GL.IVT_DEFAULTS.maxFix} ms), piksel = pencere oranı × kurulumdaki pencere boyutu,
-      derece = piksel × ${GL.DEG_PER_PX} (varsayım) → <b>tahmin</b>; hız ekseninin üstü kırpılı (${V.vmax}°/s). Materyal şeridi: öğretmenin “şimdi bu” kayıtları. Dikkat/enerji/duygu: 2 sn örnekler.</div></div>`;
+      derece = piksel × ${GL.DEG_PER_PX} (varsayım) → <b>tahmin</b>; hız ekseninin üstü kırpılı (${V.vmax}°/s).
+      ${FIKS_PARCA} Aralık özeti: fiksasyon/sakkad başlangıcı aralıktaysa tüm süresi sayılır.
+      ${I && !I.sac ? `Sakkad ölçülemez: örnekleme ~${I.sacHz ? Math.round(I.sacHz) : "?"} Hz; I-VT sakkad koşulu (≤${GL.IVT_DEFAULTS.maxSacc} ms) için ≥~${fix1(2000 / GL.IVT_DEFAULTS.maxSacc)} Hz gerekir.` : ""} Materyal şeridi: öğretmenin “şimdi bu” kayıtları. Dikkat/enerji/duygu: 2 sn örnekler.</div></div>`;
   const cv = $("#og");
+  const sacYok = () => `<span class="yok">ölçülemez</span> <span class="muted small">— örnekleme ~${I.sacHz ? Math.round(I.sacHz) : "?"} Hz; I-VT sakkad koşulu (≤${GL.IVT_DEFAULTS.maxSacc} ms) için ≥~${fix1(2000 / GL.IVT_DEFAULTS.maxSacc)} Hz gerekir</span>`;
   let sel = null;
   const ciz = () => cizGrafik(cv, G, V, sel);
   const ozet = () => {
@@ -870,14 +885,14 @@ function sekmeGrafik(el, G, _e, live) {
     const orn = o.ornekler.filter((r) => r[0] >= a && r[0] <= b);
     let fx = YOK, ort = YOK, sk = YOK;
     if (I) {
-      const F = I.fix.filter((f) => ic(f.start)), S = I.sac.filter((s) => ic(s.start));
+      const F = I.fix.filter((f) => ic(f.start)), S = I.sac ? I.sac.filter((s) => ic(s.start)) : null;
       fx = `${F.length}${nTag(nokta, "nokta")}`;
       ort = F.length ? `${Math.round(F.reduce((x, f) => x + f.dur, 0) / F.length)} ms${nTag(F.length, "fiks.")}` : `${YOK}${nTag(0, "fiks.")}`;
-      sk = `${S.length}${nTag(nokta, "nokta")}`;
+      sk = S ? `${S.length}${nTag(nokta, "nokta")}` : sacYok();
     }
     $("#sOz").innerHTML =
       satir("Aralık", `${G.rel(a)} – ${G.rel(b)} (${mmss(b - a)})`) +
-      satir("Fiksasyon sayısı (tahmin)", fx) + satir("Ort. fiksasyon süresi (tahmin)", ort) + satir("Sakkad sayısı (tahmin)", sk) +
+      satir("Fiksasyon (I-VT parçası, tahmin)", fx) + satir("Ort. fiksasyon süresi (tahmin)", ort) + satir("Sakkad sayısı (tahmin)", sk) +
       satir("Bakış noktası", nokta ? String(nokta) : YOK) +
       satir("Ort. dikkat", ol(ortalama(orn.map((r) => r[1])), orn.filter((r) => r[1] != null).length, fix1, "örnek")) +
       satir("Ort. enerji", ol(ortalama(orn.map((r) => r[2])), orn.filter((r) => r[2] != null).length, fix1, "örnek")) +
@@ -981,7 +996,11 @@ async function viewKarsilastirma(_p, live) {
   const secili = KARS.secili ?? kodlar;
   const r = secili.length ? await aapi("karsilastirma?dersler=" + enc(secili.join(","))) : null;
   if (!live()) return;
-  const hucre = (g) => `<td class="num">${ol(g.bakma_pct, g.n_bakma, pctF, "öğr.")}</td><td class="num" style="color:${levelColor(g.ort_dikkat)}">${ol(g.ort_dikkat, g.n, fix1, "örnek")}</td>`;
+  // grup değerleri ders × öğrenci başına ortalama (yonetim._grup_ozet); birim: tür tablosunda ders × öğrenci, eşleşik hücrede ders
+  const hucre = (g, b = "ders×öğr.") => `<td class="num">${ol(g.bakma_pct, g.n_bakma, pctF, b)}</td>
+    <td class="num" style="color:${levelColor(g.ort_dikkat)}">${ol(g.ort_dikkat, g.n_dikkat, fix1, b)}</td><td class="num">${ol(g.ort_enerji, g.n_enerji, fix1, b)}</td>`;
+  const duyguS = (g) => (g.baskin_duygu == null ? `${YOK}${nTag(0, "ders×öğr.")}` : `${emoS(g.baskin_duygu)}${nTag(g.n_duygu, "ders×öğr.")}<br><span class="muted small">${
+    Object.entries(g.duygu_pct || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${esc(EMO[k] ? EMO[k].label : k)} %${v}`).join(" · ")}</span>`);
   const fark = (a, b, f) => (a == null || b == null ? YOK : f(b - a));
   const isaretli = (v, f = String) => (v > 0 ? "+" : "") + f(v);
   APP.innerHTML = `
@@ -994,21 +1013,25 @@ async function viewKarsilastirma(_p, live) {
     ${!r ? `<div class="card">${YOK} <span class="muted small">— ders seçilmedi.</span></div>` : `
     <div class="card"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h3 style="margin:0">Materyal türüne göre</h3>
         <button class="btn sm" id="kCsv" title="Uzun biçim: ders × öğrenci × materyal × ölçü">${secili.length === 1 ? `CSV (uzun) — ${esc(secili[0])}` : "CSV (uzun) — tüm dersler"}</button></div>
-      <div class="tbl"><table><tr><th>Tür</th><th title="Kalibreli öğrencilerin bakışının materyal bölgesindeki payı">Materyale bakma</th><th>Ort. dikkat</th><th>Öğrenci</th><th>2 sn örnek</th></tr>
-        ${["insan", "yz", "diger"].map((k) => { const g = r.tur[k]; return `<tr><td>${kindChip(k)}</td>${hucre(g)}<td class="num">${g.n_ogrenci}</td><td class="num">${g.n}</td></tr>`; }).join("")}
+      <div class="tbl"><table><tr><th>Tür</th><th title="Kalibreli öğrencilerin bakışının materyal bölgesindeki payı">Materyale bakma</th><th>Ort. dikkat</th><th>Ort. enerji</th><th>Duygu (baskın · dağılım)</th><th>Ders × öğrenci</th><th title="İkincil bilgi; ortalamalar örnek ağırlıklı değildir">2 sn örnek</th></tr>
+        ${["insan", "yz", "diger"].map((k) => { const g = r.tur[k]; return `<tr><td>${kindChip(k)}</td>${hucre(g)}<td>${duyguS(g)}</td><td class="num">${g.n_ogrenci}</td><td class="num muted">${g.n_ornek}</td></tr>`; }).join("")}
       </table></div>
-      <div class="note">Materyale bakma: yalnız iyi kalibreli örneklerden (n = ortalamaya katılan öğrenci; ders × öğrenci). Ort. dikkat: o türdeki tüm 2 sn örnekler (n = örnek).
-        Fiksasyon, enerji ve duygu dağılımı bu tabloda yok: enerji ve baskın duygu CSV (uzun) içinde, fiksasyon ders/materyal sayfalarında (tahmin).
+      <div class="note">Her değer <b>öğrenci başına</b> hesaplanır: önce her ders × öğrenci için kendi ortalaması (o türdeki örneklerinden), sonra bunların ortalaması
+        (çok örneği olan öğrenci ağır basmaz). n = o ölçüye değer veren ders × öğrenci sayısı; 2 sn örnek yalnız ikincil bilgidir.
+        Materyale bakma yalnız iyi kalibreli örneklerden. Duygu dağılımı: her öğrencinin duygu payları, öğrenciler üzerinden ortalama.
+        Fiksasyon türe göre bu tabloda yok (ders/materyal sayfalarında, tahmin).
         ${secili.length > 1 && secili.length < liste.length ? "CSV yalnız tek ders ya da tüm dersler için alınabilir; seçim CSV'ye uygulanmaz." : ""}</div></div>
     <div class="card"><h3>Eşleştirilmiş katılımcılar (aynı kişi hem insan hem YZ materyali gördü)</h3>
       ${r.eslesik.length ? `<div class="tbl"><table>
-        <tr><th>Katılımcı</th><th>İnsan: bakma</th><th>İnsan: dikkat</th><th>YZ: bakma</th><th>YZ: dikkat</th><th>Fark (YZ − insan): bakma</th><th>Fark: dikkat</th></tr>
-        ${r.eslesik.map((e) => `<tr><td><b>${esc(e.katilimci)}</b></td>${hucre(e.insan)}${hucre(e.yz)}
+        <tr><th>Katılımcı</th><th>İnsan: bakma</th><th>İnsan: dikkat</th><th>İnsan: enerji</th><th>YZ: bakma</th><th>YZ: dikkat</th><th>YZ: enerji</th>
+          <th>Fark (YZ − insan): bakma</th><th>Fark: dikkat</th><th>Fark: enerji</th></tr>
+        ${r.eslesik.map((e) => `<tr><td><b>${esc(e.katilimci)}</b></td>${hucre(e.insan, "ders")}${hucre(e.yz, "ders")}
           <td class="num">${fark(e.insan.bakma_pct, e.yz.bakma_pct, (v) => isaretli(v) + " puan")}</td>
-          <td class="num">${fark(e.insan.ort_dikkat, e.yz.ort_dikkat, (v) => isaretli(Math.round(v * 10) / 10, fix1))}</td></tr>`).join("")}
+          <td class="num">${fark(e.insan.ort_dikkat, e.yz.ort_dikkat, (v) => isaretli(Math.round(v * 10) / 10, fix1))}</td>
+          <td class="num">${fark(e.insan.ort_enerji, e.yz.ort_enerji, (v) => isaretli(Math.round(v * 10) / 10, fix1))}</td></tr>`).join("")}
       </table></div>` : `<p>${YOK} <span class="muted small">— seçili derslerde hem insan hem YZ materyali görmüş kodlu katılımcı yok.</span></p>`}
       <div class="note">Eşleştirme katılımcı koduna göre, dersler arası. Kodsuz öğrenci (ders × öğrenci): <b>${r.kodsuz_n}</b> — eşleştirmeye girmedi.
-        Fark yalnız iki değer de varsa hesaplanır.</div></div>`}`;
+        Hücre değeri: katılımcının o türdeki ders değerlerinin ortalaması (n = ders). Fark yalnız iki değer de varsa hesaplanır.</div></div>`}`;
   const kutular = () => [...APP.querySelectorAll(".kdersler input")];
   $("#kHep").onclick = () => kutular().forEach((c) => (c.checked = true));
   $("#kHic").onclick = () => kutular().forEach((c) => (c.checked = false));

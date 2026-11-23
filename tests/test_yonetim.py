@@ -141,9 +141,32 @@ class YonetimTest(unittest.TestCase):
         self.assertEqual(r["eslesik"][0]["insan"]["bakma_pct"], 75)
         self.assertEqual(r["eslesik"][0]["yz"]["bakma_pct"], 40)
         self.assertEqual(r["kodsuz_n"], 1)
-        self.assertEqual(r["tur"]["insan"]["n"], 3)
+        self.assertEqual(r["tur"]["insan"]["n_ornek"], 3)
         self.assertEqual(r["eslesik"][0]["insan"]["n_bakma"], 1)
         self.assertEqual(r["eslesik"][0]["insan"]["n_ogrenci"], 1)
+
+    def test_karsilastirma_ogrenci_basina_ortalama(self):
+        # s1: 4 örnek, s2: 1 örnek, s3: kalibresiz 1 örnek. Havuz (örnek ağırlıklı) ortalama farklı çıkardı.
+        con = ac(":memory:")
+        ders_ekle(con, "D1", "D", "K", 1)
+        for sid in ("s1", "s2", "s3"):
+            ogrenci_ekle(con, "D1", sid, sid, None, 1, False)
+        m = materyal_ekle(con, "D1", "I", "insan")
+        materyal_sec(con, "D1", m, 2)
+        for t in (3, 5, 7, 9):
+            ornek_ekle(con, "D1", "s1", t, satir(share={"materyal": 1.0}, attention=80, energy=50))
+        ornek_ekle(con, "D1", "s2", 5, satir(share={"materyal": 0.0}, attention=20, energy=10, emotion="mutlu"))
+        ornek_ekle(con, "D1", "s3", 5, satir(gaze_cal=0, share=None, attention=50, energy=30, emotion="mutlu"))
+        g = yonetim.karsilastirma(con)["tur"]["insan"]
+        self.assertEqual(g["bakma_pct"], 50)        # havuz: 80
+        self.assertEqual(g["n_bakma"], 2)           # s3 kalibresiz: bakmaya katılmaz
+        self.assertEqual(g["n_ogrenci"], 3)
+        self.assertEqual(g["ort_dikkat"], 50.0)     # havuz: 65
+        self.assertEqual(g["n_dikkat"], 3)
+        self.assertEqual(g["ort_enerji"], 30.0)     # havuz: 40
+        self.assertEqual(g["baskin_duygu"], "mutlu")  # havuz: notr (4/6)
+        self.assertEqual(g["duygu_pct"], {"mutlu": 67, "notr": 33})
+        self.assertEqual(g["n_ornek"], 6)
 
     def test_csv_uzun_basliklar(self):
         con, _, _ = kur()
