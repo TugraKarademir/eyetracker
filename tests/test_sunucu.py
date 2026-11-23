@@ -273,11 +273,6 @@ class SunucuOrnek(unittest.TestCase):
         self.assertEqual(sids, ["s_1"])
 
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SunucuYonetim(unittest.TestCase):
     ANAHTAR = "test-anahtar"
 
@@ -311,6 +306,12 @@ class SunucuYonetim(unittest.TestCase):
         self.assertFalse(h.admin_ok({}))
         h.client_address = ("127.0.0.1", 5555)
         self.assertTrue(h.admin_ok({}))
+        h.headers = {"X-Admin-Key": self.ANAHTAR, "X-Forwarded-For": "127.0.0.1"}
+        h.client_address = ("192.168.1.5", 5555)
+        self.assertFalse(h.admin_ok({}))
+        h.client_address = ("::ffff:127.0.0.1", 5555)
+        self.assertFalse(h.admin_ok({}))
+        h.client_address = ("127.0.0.1", 5555)
         h.headers = {}
         self.assertFalse(h.admin_ok({"admin": "x"}))
         self.assertTrue(h.admin_ok({"admin": self.ANAHTAR}))
@@ -373,3 +374,7 @@ class SunucuYonetim(unittest.TestCase):
         self.assertEqual(ham(self.base, yol + "&admin=yanlis", None, "GET")[0], 403)
         st, b, _ = ham(self.base, yol + "&admin=" + self.ANAHTAR, None, "GET")
         self.assertEqual((st, b), (200, PNG1))
+
+
+if __name__ == "__main__":
+    unittest.main()

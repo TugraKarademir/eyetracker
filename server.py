@@ -192,27 +192,34 @@ LOCK = threading.RLock()
 _ADMIN_KEY = None
 
 
+_ADMIN_LOCK = threading.Lock()
+
+
 def yonetici_anahtari():
-    """Sıra: DERSNABZI_ADMIN_KEY ortam değişkeni, data/yonetici_anahtari.txt, yoksa üretip dosyaya yaz. Tembel + önbellekli."""
+    """Sıra: DERSNABZI_ADMIN_KEY ortam değişkeni, data/yonetici_anahtari.txt, yoksa üretip dosyaya yaz. Tembel, önbellekli, kilitli."""
     global _ADMIN_KEY
     if _ADMIN_KEY:
         return _ADMIN_KEY
-    anahtar = os.environ.get("DERSNABZI_ADMIN_KEY", "").strip()
-    if not anahtar:
-        yol = os.path.join(DATA, "yonetici_anahtari.txt")
-        try:
-            with open(yol, encoding="utf-8") as f:
-                anahtar = f.read().strip()
-        except OSError:
-            anahtar = ""
+    with _ADMIN_LOCK:
+        if _ADMIN_KEY:
+            return _ADMIN_KEY
+        anahtar = os.environ.get("DERSNABZI_ADMIN_KEY", "").strip()
         if not anahtar:
-            anahtar = secrets.token_urlsafe(18)
-            os.makedirs(DATA, exist_ok=True)
-            with open(yol, "w", encoding="utf-8") as f:
-                f.write(anahtar)
-            print(f"Yönetici anahtarı (yönetim ekranı): {anahtar}  (data/yonetici_anahtari.txt)")
-    _ADMIN_KEY = anahtar
-    return anahtar
+            yol = os.path.join(DATA, "yonetici_anahtari.txt")
+            try:
+                with open(yol, encoding="utf-8") as f:
+                    anahtar = f.read().strip()
+            except OSError:
+                anahtar = ""
+            if not anahtar:
+                anahtar = secrets.token_urlsafe(18)
+                os.makedirs(DATA, exist_ok=True)
+                fd = os.open(yol, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(anahtar)
+                print(f"Yönetici anahtarı (yönetim ekranı): {anahtar}  (data/yonetici_anahtari.txt)")
+        _ADMIN_KEY = anahtar
+        return anahtar
 CLASSES = {}
 MATERYAL_MAX = 10 * 1024 * 1024   # yüklenen materyal görseli üst sınırı
 
@@ -1237,6 +1244,7 @@ def main():
     except AttributeError:
         pass
     restore_active()
+    yonetici_anahtari()   # başlangıçta üret/yaz; konsolda görünsün
     threading.Thread(target=ticker, daemon=True).start()
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     srv.daemon_threads = True
