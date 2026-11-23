@@ -18,3 +18,4 @@ test_kayitlari/
 
 # graphify kod grafiği (otomatik üretilir)
 graphify-out/
+.superpowers/
