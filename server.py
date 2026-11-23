@@ -188,6 +188,7 @@ HEAT_DECAY = 0.92           # canlı ısı haritası saniyelik sönüm (~8 sn ya
 
 LOCK = threading.RLock()
 CLASSES = {}
+MATERYAL_MAX = 10 * 1024 * 1024   # yüklenen materyal görseli üst sınırı
 
 DEMO_NAMES = ["Ayşe Y.", "Mehmet K.", "Zeynep A.", "Can D.", "Elif S.", "Burak T.",
               "Selin Ö.", "Emre Ç.", "Deniz B.", "Ece G.", "Kerem Ş.", "Naz U."]
@@ -706,6 +707,82 @@ class Handler(BaseHTTPRequestHandler):
     def teacher_ok(self, cls, key):
         return bool(key) and secrets.compare_digest(str(key).encode("utf-8"), cls["teacher_key"].encode("utf-8"))
 
+    def gorsel_yetkili(self, cls_code, q):
+        """Materyal görseli okuma yetkisi. Şimdilik yalnız öğretmen anahtarı; yönetici anahtarı+yerel erişim eklenecek."""
+        cls = load_class(cls_code)
+        return bool(cls) and self.teacher_ok(cls, q.get("key"))
+
+    def materials_list(self, q):
+        with LOCK:
+            cls = CLASSES.get(q.get("code", "").upper())
+            if not cls or cls["ended"]:
+                return self.err("Sınıf bulunamadı", 404)
+            if not self.teacher_ok(cls, q.get("key")):
+                return self.err("Yetkisiz", 403)
+            lst = [{"id": m["id"], "idx": m["idx"], "name": m["name"], "kind": m["kind"],
+                    "hasImage": bool(m["image_path"])} for m in kayit.materyaller(KAYIT, cls["code"])]
+            return self.send_json({"materials": lst, "active": kayit.aktif_materyal(KAYIT, cls["code"])})
+
+    def material_image(self, q):
+        code = q.get("code", "").upper()
+        with LOCK:
+            if not self.gorsel_yetkili(code, q):
+                return self.err("Yetkisiz", 403)
+            try:
+                mid = int(q.get("id", ""))
+            except ValueError:
+                return self.err("Geçersiz id")
+            m = next((x for x in kayit.materyaller(KAYIT, code) if x["id"] == mid), None)
+            full = os.path.normpath(os.path.join(DATA, m["image_path"])) if m and m["image_path"] else None
+            base = os.path.normpath(os.path.join(DATA, "materyaller"))
+            if not full or os.path.commonpath([full, base]) != base or not os.path.isfile(full):
+                return self.err("Görsel yok", 404)
+            with open(full, "rb") as f:
+                data = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png" if full.endswith(".png") else "image/jpeg")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def material_upload(self, q):
+        """POST /api/material?code=&key=&name=&kind= ; gövde = PNG/JPEG baytları (boş = görselsiz). En çok 10 MB."""
+        q = {k: v[0] for k, v in q.items()}
+        n = int(self.headers.get("Content-Length") or 0)
+        if n < 0 or n > MATERYAL_MAX:
+            self.close_connection = True          # gövde okunmadı; bağlantı yeniden kullanılmasın
+            return self.err("Görsel en çok 10 MB olabilir", 413)
+        raw = self.rfile.read(n) if n else b""
+        with LOCK:
+            cls = CLASSES.get(q.get("code", "").upper())
+            if not cls or cls["ended"]:
+                return self.err("Sınıf bulunamadı", 404)
+            if not self.teacher_ok(cls, q.get("key")):
+                return self.err("Yetkisiz", 403)
+            name = (q.get("name") or "").strip()[:80]
+            if not name:
+                return self.err("Materyal adı gerekli")
+            ext = None
+            if raw:
+                if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+                    ext = "png"
+                elif raw.startswith(b"\xff\xd8\xff"):
+                    ext = "jpg"
+                else:
+                    return self.err("Yalnız PNG veya JPEG", 415)
+            try:
+                mid = kayit.materyal_ekle(KAYIT, cls["code"], name, q.get("kind", ""))
+            except ValueError as e:
+                return self.err(str(e))
+            if ext:
+                rel = "materyaller/%s/%d.%s" % (cls["code"], mid, ext)
+                os.makedirs(os.path.join(DATA, "materyaller", cls["code"]), exist_ok=True)
+                with open(os.path.join(DATA, rel), "wb") as f:
+                    f.write(raw)
+                kayit.materyal_gorsel(KAYIT, mid, rel)
+            return self.send_json({"id": mid})
+
     # GET
     def do_GET(self):
         u = urlparse(self.path)
@@ -736,6 +813,10 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if u.path == "/api/materials":
+            return self.materials_list(q)
+        if u.path == "/api/material/image":
+            return self.material_image(q)
         if u.path == "/api/class":
             with LOCK:
                 cls = load_class(q.get("code", "").upper())
@@ -831,6 +912,8 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path == "/api/testlog":
             return self.test_log()
+        if u.path == "/api/material":
+            return self.material_upload(parse_qs(u.query))
         try:
             b = self.body()
         except (ValueError, UnicodeDecodeError, RecursionError):
@@ -966,6 +1049,14 @@ class Handler(BaseHTTPRequestHandler):
         elif typ == "announce":
             cls["announce"] = {"t": t, "text": str(b.get("text") or "").strip()[:300]}
             push(cls, {"type": "announce", "announce": cls["announce"]}, role="student")
+        elif typ == "material":
+            mid = b.get("id")
+            if mid is not None and (isinstance(mid, bool) or mid not in
+                                    [m["id"] for m in kayit.materyaller(KAYIT, cls["code"])]):
+                return self.err("Materyal bulunamadı")
+            kayit.materyal_sec(KAYIT, cls["code"], mid, t)
+            kayit.olay_ekle(KAYIT, cls["code"], None, t, "material", {"id": mid})
+            push(cls, {"type": "material", "active": mid}, role="teacher")
         elif typ == "demo":
             add_demo_students(cls, max(1, min(12, int(b.get("count") or 6))))
         elif typ == "end":

@@ -43,6 +43,12 @@
   .heat { width: 100%; aspect-ratio: 16/9; display: block; border-radius: 10px; }
   .stu .gz { font-size: 12px; color: var(--muted); margin-top: 8px; }
   @media (max-width: 760px) { .gaze-grid { grid-template-columns: 1fr; } }
+  .mat-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .mat { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  .mat.active { border-color: var(--accent); background: var(--accent-soft); }
+  .mat img, .mat .noimg { width: 44px; height: 32px; object-fit: cover; border-radius: 6px; background: var(--surface-2); flex: none; }
+  .mat .mn { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mat .badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--surface-2); color: var(--muted); flex: none; }
   .empty { text-align: center; padding: 40px 16px; color: var(--muted); }
   @media (max-width: 1050px) { .layout { grid-template-columns: 1fr; padding: 16px; } }
 </style>
@@ -157,6 +163,19 @@
       <h3>Konu ve duyuru</h3>
       <form class="row" id="topicForm"><input id="topicIn" placeholder="Güncel konu"><button class="btn sm">Güncelle</button></form>
       <form class="row" id="annForm" style="margin-top:8px"><input id="annIn" placeholder="Öğrencilere duyuru"><button class="btn sm">Gönder</button></form>
+    </div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <h3 style="margin:0">Materyaller</h3>
+        <button class="btn sm" id="matNone" title="Şu an hiçbir materyal gösterilmiyor">Hiçbiri</button>
+      </div>
+      <div class="mat-list" id="matList"><div class="small muted">Henüz materyal yok.</div></div>
+      <form id="matForm" style="display:flex;flex-direction:column;gap:6px">
+        <input id="matName" required maxlength="80" placeholder="Materyal adı">
+        <select id="matKind"><option value="insan">İnsan yapımı</option><option value="yz">YZ üretimi</option><option value="diger">Diğer</option></select>
+        <input id="matFile" type="file" accept="image/png,image/jpeg">
+        <button class="btn sm primary">Ekle</button>
+      </form>
     </div>
     <div class="card chat">
       <h3>Sohbet</h3>

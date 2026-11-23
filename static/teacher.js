@@ -30,6 +30,7 @@ function start(code, key) {
   $("#hdr").classList.remove("hidden");
   $("#codeBox").textContent = code;
   connect();
+  loadMaterials();
 }
 
 function connect() {
@@ -67,6 +68,7 @@ function handle(m) {
     case "chat": addChat(m.msg); return;
     case "hand": if (m.up) toast(`✋ ${m.name} söz istiyor`); return;
     case "reaction": floatEmoji(m.emoji); return;
+    case "material": MAT.active = m.active; renderMaterials(); return;
     case "signal": window.LIVE?.onSignal(m); return;
     case "ended": window.LIVE?.stop(true); es.close(); location.href = "/report.html?code=" + CODE; return;
   }
@@ -166,6 +168,46 @@ $("#codeBox").onclick = () => {
   const link = `${location.origin}/student.html?code=${CODE}`;
   navigator.clipboard?.writeText(link).then(() => toast("Katılım bağlantısı kopyalandı: " + link), () => toast(link));
 };
+// ---------------------------------------------------------------- materyaller
+const MAT = { list: [], active: null };
+const MAT_KIND = { insan: "İnsan", yz: "YZ", diger: "Diğer" };
+const matQ = () => `code=${CODE}&key=${encodeURIComponent(KEY)}`;
+
+async function loadMaterials() {
+  try {
+    const r = await api(`/api/materials?${matQ()}`);
+    MAT.list = r.materials; MAT.active = r.active;
+    renderMaterials();
+  } catch (err) { toast(err.message); }
+}
+
+function renderMaterials() {
+  const el = $("#matList");
+  if (!MAT.list.length) { el.innerHTML = '<div class="small muted">Henüz materyal yok.</div>'; return; }
+  el.innerHTML = MAT.list.map((m) => `<div class="mat ${m.id === MAT.active ? "active" : ""}">
+    ${m.hasImage ? `<img alt="" src="/api/material/image?${matQ()}&id=${m.id}">` : '<span class="noimg"></span>'}
+    <span class="mn" title="${esc(m.name)}">${esc(m.name)}</span>
+    <span class="badge">${MAT_KIND[m.kind] || esc(m.kind)}</span>
+    <button class="btn sm" data-mat="${m.id}" ${m.id === MAT.active ? "disabled" : ""}>Şimdi bu</button></div>`).join("");
+}
+
+const selectMaterial = (id) => api("/api/event", { code: CODE, key: KEY, type: "material", id })
+  .then(() => { MAT.active = id; renderMaterials(); }).catch((err) => toast(err.message));
+$("#matList").onclick = (e) => { const b = e.target.closest("[data-mat]"); if (b) selectMaterial(Number(b.dataset.mat)); };
+$("#matNone").onclick = () => selectMaterial(null);
+$("#matForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const f = $("#matFile").files[0];
+  try {
+    const r = await fetch(`/api/material?${matQ()}&name=${encodeURIComponent($("#matName").value.trim())}&kind=${$("#matKind").value}`,
+      { method: "POST", body: f || new Blob([]) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "Yükleme başarısız");
+    $("#matForm").reset();
+    await loadMaterials();
+  } catch (err) { toast(err.message); }
+};
+
 addEventListener("resize", () => lastState && drawLineChart($("#chart"), lastState.timeline, CHART_SERIES));
 
 // Açılış
