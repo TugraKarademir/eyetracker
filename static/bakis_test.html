@@ -45,6 +45,10 @@
   #startCard button { font: 600 17px system-ui; padding: 10px 22px; border-radius: 10px; border: 0; background: #0d9488; color: #fff; cursor: pointer; }
   #cam { position: fixed; right: 12px; bottom: 12px; width: 200px; border-radius: 10px; transform: scaleX(-1); opacity: .8; z-index: 2; pointer-events: none; }
   .toast-wrap { pointer-events: none; }
+#basUyari { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); z-index: 30; display: none; pointer-events: none;
+  background: rgba(127, 29, 29, .95); color: #fff; border: 2px solid #f87171; border-radius: 12px; padding: 12px 22px;
+  font: 20px system-ui; text-align: center; box-shadow: 0 6px 24px rgba(0,0,0,.4); }
+#basUyari small { display: block; font-size: 15px; opacity: .9; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -1406,6 +1410,8 @@ function glFazBitir() {
   c.rect.kameraKare = d.kameraKare != null && c.d0.kameraKare != null ? d.kameraKare - c.d0.kameraKare : null;
   c.rect.rafHz = +(c.raf / (c.rect.exposureMs / 1000)).toFixed(1); c.rect.uzunGorev = { n: c.uzunN, ms: Math.round(c.uzunMs), enUzun: Math.round(c.uzunMax) };
   c.rect.wgGecis = c.wgGecis; c.rect.uzunGorevDestek = UZUN.destek;
+  if (bu.gorunur) { c.basUyariMs = (c.basUyariMs || 0) + (simdi() - bu.basla); bu.gorunur = false; bu.disari = bu.iceri = null; basUyariGoster(false); }
+  c.rect.basUyari = { n: c.basUyariN || 0, sn: +((c.basUyariMs || 0) / 1000).toFixed(1) };
   { const n = (d.islemeN || 0) - c.d0.islemeN;
     c.rect.islemeMs = n ? Math.round(((d.islemeMs || 0) - c.d0.islemeMs) / n) : null; c.rect.toplamMs = n ? Math.round(((d.toplamMs || 0) - c.d0.toplamMs) / n) : null; }
   c.head = c.headRaw.map(([t, s]) => { const h = GL.headDelta(s, GLK.headBase);
@@ -1423,8 +1429,45 @@ try {
     for (const e of list.getEntries()) { c.uzunN++; c.uzunMs += e.duration; c.uzunMax = Math.max(c.uzunMax, e.duration); } }).observe({ type: "longtask", buffered: false });
   UZUN.destek = true;
 } catch {}
+// ---- Baş hareketi uyarısı (RealEye'daki "You have moved too much" gibi): baş, bakarak kalibrasyondaki ortalama duruştan
+// GazeLab sınırlarının (±12°, mesafe ±%15, kayma %35) dışına 0,6 sn'den uzun çıkarsa ekranın üstünde uyarı çıkar; 0,4 sn
+// sınır içinde kalınca kaybolur. Ölçümü durdurmaz (veri olduğu gibi kaydedilir), uyarı sayısı ve süresi aşama tablosuna yazılır.
+// Baş turunda (baş bilerek çevrilir) uyarı verilmez. ?uyari=0 ile kapanır.
+const BAS_UYARI = { ACIK: new URLSearchParams(location.search).get("uyari") !== "0", CIK_MS: 600, DON_MS: 400,
+  FAZLAR: ["bakarak", "duzeltme", "gazelab_dogrulama", "kontrol", "depo_kontrol"] };
+const bu = { disari: null, iceri: null, gorunur: false, basla: 0 };
+function basUyariGoster(goster, d) {
+  let el = document.getElementById("basUyari");
+  if (!el) { el = document.createElement("div"); el.id = "basUyari"; document.body.append(el); }
+  if (goster) {
+    const L = GL.LIMITS, neden = [];
+    if (Math.abs(d.yaw) > L.angle) neden.push("başınızı yana çevirdiniz");
+    if (Math.abs(d.pitch) > L.angle) neden.push("başınızı yukarı/aşağı eğdiniz");
+    if (Math.abs(d.roll) > L.angle) neden.push("başınızı yana yatırdınız");
+    if (d.scale > 100 + L.scale) neden.push("ekrana yaklaştınız");
+    if (d.scale < 100 - L.scale) neden.push("ekrandan uzaklaştınız");
+    if (d.shift > L.shift) neden.push("yerinizden kaydınız");
+    el.innerHTML = `⚠ Çok hareket ettiniz<small>${neden.join(", ") || "baş konumu değişti"} — lütfen kalibrasyondaki konuma dönün ve başınızı sabit tutun</small>`;
+  }
+  el.style.display = goster ? "block" : "none";
+}
+function basUyariKontrol(hs) {
+  const c = GLK.cur;
+  if (!BAS_UYARI.ACIK || !hs || !c || !BAS_UYARI.FAZLAR.includes(c.stimulus_id)) { if (bu.gorunur) { bu.gorunur = false; basUyariGoster(false); } bu.disari = bu.iceri = null; return; }
+  // referans: kalibrasyon bitince GLK.headBase; bakarak sırasında o ana kadarki ortalama (en az 15 kare)
+  const ref = GLK.headBase || (GLK.bazOrnek.length >= 15 ? GL.headAverage(GLK.bazOrnek) : null);
+  const d = ref && GL.headDelta(hs, ref); if (!d) return;
+  const t = simdi(), out = GL.headOut([0, d.yaw, d.pitch, d.roll, d.scale, d.shift]);
+  if (out) { bu.iceri = null; bu.disari ??= t;
+    if (!bu.gorunur && t - bu.disari >= BAS_UYARI.CIK_MS) { bu.gorunur = true; bu.basla = t; c.basUyariN = (c.basUyariN || 0) + 1;
+      tlog(`baş uyarısı (${c.stimulus_id}): yaw ${d.yaw.toFixed(0)}° pitch ${d.pitch.toFixed(0)}° roll ${d.roll.toFixed(0)}° mesafe %${d.scale.toFixed(0)} kayma %${d.shift.toFixed(0)}`); }
+    if (bu.gorunur) basUyariGoster(true, d);
+  } else { bu.disari = null; bu.iceri ??= t;
+    if (bu.gorunur && t - bu.iceri >= BAS_UYARI.DON_MS) { bu.gorunur = false; c.basUyariMs = (c.basUyariMs || 0) + (t - bu.basla); basUyariGoster(false); } }
+}
 function glKare(l) {   // her yeni MediaPipe karesinde (start() içindeki tampon döngüsü)
   const hs = GL.headSample(l);
+  basUyariKontrol(hs);
   if (GLK.baz && hs) GLK.bazOrnek.push(hs);
   const c = GLK.cur; if (!c) return;
   const t = Math.round(simdi() - c.t0);
@@ -1613,7 +1656,7 @@ function glFazTablosu() {
       "Bizim örnek": biz.length, "Bizim Hz": span ? r1(biz.length / span) : null, "WebGazer örnek": r.gaze.wg?.length || 0,
       "WebGazer Hz": r.gaze.wg?.length > 1 ? r1(r.gaze.wg.length / ((r.gaze.wg.at(-1)[0] - r.gaze.wg[0][0]) / 1000)) : null,
       "Fare olay": r.mouse.length, "Tıklama": r.mouse.filter((m) => m[3] === "click").length,
-      "Baş sınır dışı %": hs ? r0(hs.outPct) : null, "Baş maks yaw/pitch/roll °": hs ? `${r0(hs.yaw)}/${r0(hs.pitch)}/${r0(hs.roll)}` : null,
+      "Baş sınır dışı %": hs ? r0(hs.outPct) : null, "Baş uyarısı (adet / sn)": r.rect.basUyari ? `${r.rect.basUyari.n} / ${r.rect.basUyari.sn}` : null, "Baş maks yaw/pitch/roll °": hs ? `${r0(hs.yaw)}/${r0(hs.pitch)}/${r0(hs.roll)}` : null,
       "Ort. mesafe % (kal.=100)": hs ? r0(hs.dist) : null, "Pencere": `${r.rect.viewW}×${r.rect.viewH}`, "Modele giden": r.rect.islenen, "Yakınlaştırma": r.rect.zoom };
   });
 }
