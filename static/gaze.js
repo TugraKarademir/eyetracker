@@ -116,6 +116,30 @@ function gzSolve(A, B) {
 // WebGazer yöntemi (wg_yama.js): 120 göz yaması değeri. İlk 4 sabit sıfır: gzExpand'in göz terimleri boş kalır,
 // yani model yalnız WebGazer'ın öznitelikleriyle (bizim ridge çözücüsüyle) çalışır.
 const gzWgOz = (w) => [0, 0, 0, 0, ...w];
+// 3B göz küresi (JEOresearch/EyeTracker Webcam3DTracker fikri): bakış yönü = iris − göz küresi merkezi, kamera ekseninde açı.
+// Oradaki gibi tek anlık "c" kalibrasyonu yok: küre merkezi göz köşelerinin ortasından yüzün arka yönünde göz genişliğinin
+// 0,25'i kadar geride varsayılır (göz ~30 mm, köşe düzlemi küre merkezinin ~7-8 mm önünde). Baş ekseni yüz noktalarından
+// (yanak 234→454 sağa, alın 10→çene 152 aşağı). Ekrana çevirmeyi sabit açı aralığı değil, kalibrasyon noktalarından ridge öğrenir.
+// Çıktı (ilk 4'ü gzExpand'de karesel terim alır): [sağ yaw, sağ pitch, sol yaw, sol pitch (derece/30), göz x, göz y (0-1), ölçek]
+function gzKure(lm, w, h) {
+  const P = (i) => [lm[i].x * w, lm[i].y * h, lm[i].z * w];
+  const fark = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const birim = (a) => { const n = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / n, a[1] / n, a[2] / n]; };
+  const capraz = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const sag = birim(fark(P(454), P(234)));
+  let ileri = birim(capraz(sag, fark(P(152), P(10))));
+  if (ileri[2] > 0) ileri = ileri.map((v) => -v);   // kameraya doğru: z küçülür
+  const goz = (a, b, iris) => {
+    const A = P(a), B = P(b), I = P(iris), r = 0.25 * Math.hypot(...fark(A, B));
+    const m = [0, 1, 2].map((k) => (A[k] + B[k]) / 2 - ileri[k] * r), g = fark(I, m);
+    return [Math.atan2(g[0], -g[2]) * 180 / Math.PI / 30, Math.atan2(g[1], -g[2]) * 180 / Math.PI / 30];
+  };
+  const R = goz(GZ.EYE_R.a, GZ.EYE_R.b, 468), L = goz(GZ.EYE_L.a, GZ.EYE_L.b, 473);
+  const ex = (lm[33].x + lm[133].x + lm[362].x + lm[263].x) / 4, ey = (lm[33].y + lm[133].y + lm[362].y + lm[263].y) / 4;
+  const olcek = Math.hypot((lm[468].x - lm[473].x) * w, (lm[468].y - lm[473].y) * h) / w * 10;
+  const v = [...R, ...L, ex, ey, olcek];
+  return v.every(Number.isFinite) ? v : null;
+}
 class GazeModel {
   fit(F, Y, lam = 10) {
     this.F = F; this.Y = Y;
@@ -265,6 +289,7 @@ class GazeTracker {
       let wgp = null;
       if (typeof wgYama === "function") { try { wgp = wgYama(this.video, p); } catch { wgp = null; } }
       this.latest.wgp = wgp;
+      try { this.latest.kure = gzKure(lm, w, h); } catch { this.latest.kure = null; }
       // İsteğe bağlı kanca (bakış testi: yakın göz). Aynı karenin landmark pikselleriyle çağrılır.
       if (this.onLandmarks) { try { this.latest.yakin = this.onLandmarks(p, lm); } catch (e) { this.latest.yakinHata = String(e?.message || e); } }
       // Yüz konumu (normalize 0-1): el kaldırma algılayıcısı başa göre karar verir
