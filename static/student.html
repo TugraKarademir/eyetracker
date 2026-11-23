@@ -35,6 +35,9 @@
     .self-col { display: grid !important; grid-template-columns: 200px 1fr; }
   }
   @media (max-width: 560px) { .self-col { grid-template-columns: 1fr; } }
+  /* Geniş ekranda kamera, sayfa aşağı kaydırılınca da görünür kalır (üst çubuğun hemen altında):
+     HSEmotion / bakış panellerine bakarken yüz görüntüsü aynı anda izlenebilsin. */
+  @media (min-width: 1101px) { #camCard { position: sticky; top: 72px; z-index: 5; box-shadow: 0 8px 24px rgba(0,0,0,.25); } }
 </style>
 </head>
 <body>
@@ -69,6 +72,7 @@
       <li>Öğretmeninize yalnızca <b>dikkat %, enerji % ve genel duygu etiketi</b> gibi sayılar iletilir.</li>
       <li>Analizi istediğiniz an <b>duraklatabilirsiniz</b> (bu sürede panelde çevrim dışı görünürsünüz).</li>
       <li>İsterseniz <b>bakış takibi</b> açılır: ekranın hangi bölümüne (ör. ders materyali, sohbet) baktığınız tahmin edilir. Öğretmene yalnızca bölge adı ve materyal üzerindeki yaklaşık bakış noktaları gider.</li>
+      <li>Araştırma için ders verileri (dikkat, enerji, duygu etiketi, bakış noktaları, kalibrasyon sonucu, cihaz ve kamera ayarı; <b>görüntü değil</b>) adınız ve katılımcı kodunuzla birlikte dersi yürüten bilgisayardaki sunucuda saklanır; yalnızca araştırmacı görür.</li>
       <li>Duygu ve bakış tahminleri yaklaşıktır ve hata yapabilir.</li>
     </ul>
     <label class="row" style="font-weight:500;gap:10px"><input type="checkbox" id="agree" style="width:auto"> Okudum, kabul ediyorum.</label>
@@ -80,7 +84,7 @@
 <!-- 3. Ders -->
 <div class="layout hidden" id="classView">
   <div class="self-col" style="display:flex;flex-direction:column;gap:16px">
-    <div class="card" style="padding:10px">
+    <div class="card" id="camCard" style="padding:10px">
       <div class="video-wrap"><video id="video" autoplay muted playsinline></video><div class="vbadge" id="vbadge">Hazırlanıyor…</div></div>
       <div class="row" style="margin-top:10px;justify-content:space-between">
         <span class="small muted">🔒 Görüntü cihazınızda kalır</span>
