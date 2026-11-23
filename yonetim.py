@@ -272,7 +272,8 @@ def _secili(con, dersler):
 def _grup_ozet(rs):
     o = _ozet(rs)
     return {"bakma_pct": o["bakma_pct"], "ort_dikkat": o["ort_dikkat"],
-            "n": o["n_ornek"]}
+            "n": o["n_ornek"], "n_bakma": o["n_bakma"],   # n_bakma: bakma_pct'ye katılan öğrenci
+            "n_ogrenci": len({(r["lesson_code"], r["sid"]) for r in rs})}
 
 
 def _materyalli_ornekler(con, codes):

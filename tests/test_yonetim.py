@@ -142,6 +142,8 @@ class YonetimTest(unittest.TestCase):
         self.assertEqual(r["eslesik"][0]["yz"]["bakma_pct"], 40)
         self.assertEqual(r["kodsuz_n"], 1)
         self.assertEqual(r["tur"]["insan"]["n"], 3)
+        self.assertEqual(r["eslesik"][0]["insan"]["n_bakma"], 1)
+        self.assertEqual(r["eslesik"][0]["insan"]["n_ogrenci"], 1)
 
     def test_csv_uzun_basliklar(self):
         con, _, _ = kur()

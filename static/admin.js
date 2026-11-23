@@ -1,6 +1,6 @@
 // Yönetim ekranı (araştırmacı paneli). Tek sayfa, adres karmasıyla gezinme.
 // Kural: tahmini/eksik veri ölçülmüş gibi gösterilmez. Her ölçünün yanında n; değer yoksa "veri yok" (asla 0).
-// Görünüm eklemek için: bir view fonksiyonu yaz, ROUTES tablosuna ekle (Task 8: ogrenci, karsilastirma, katilimcilar).
+// Görünüm eklemek için: bir view fonksiyonu yaz, ROUTES tablosuna ekle.
 "use strict";
 
 // ---------------------------------------------------------------- durum, anahtar
@@ -43,15 +43,17 @@ function askKey(msg = "") {
 }
 
 // ---------------------------------------------------------------- API
-async function aapiResp(path) {
+async function aapiResp(path, body) {
   let r;
-  try { r = await fetch("/api/admin/" + path, { headers: { "X-Admin-Key": KEY || "" }, cache: "no-store" }); }
+  const headers = { "X-Admin-Key": KEY || "" };
+  if (body) headers["Content-Type"] = "application/json";
+  try { r = await fetch("/api/admin/" + path, body ? { method: "POST", headers, body: JSON.stringify(body) } : { headers, cache: "no-store" }); }
   catch { throw new Error("Sunucuya ulaşılamadı."); }
   if (r.status === 403) { askKey("Anahtar geçersiz ya da bu bilgisayardan açılmıyor."); throw new Yetkisiz(); }
   if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || `İstek başarısız (${r.status})`); }
   return r;
 }
-const aapi = async (path) => (await aapiResp(path)).json();
+const aapi = async (path, body) => (await aapiResp(path, body)).json();
 const enc = encodeURIComponent;
 const gorselUrl = (code, id) => `/api/material/image?code=${enc(code)}&id=${enc(id)}&admin=${enc(KEY || "")}`;
 
@@ -362,29 +364,9 @@ function fiksasyonlar(code) {
     for (const r of rows) if (r.cal && Array.isArray(r.gaze) && r.gaze.length) (bySid.get(r.sid) || bySid.set(r.sid, []).get(r.sid)).push(r);
     const out = { list: [], ogrenci: new Set(), pencereYok: [] };
     for (const [sid, rs] of bySid) {
-      const kur = ((await ogrenciVeri(code, sid)).kurulumlar || [])
-        .map((k) => ({ t: k.t, m: /^(\d+)x(\d+)$/.exec(k.setup?.pencere || "") })).filter((k) => k.m);
-      if (!kur.length) { out.pencereYok.push(sid); continue; }
-      const boyut = (t) => { let s = kur[0]; for (const k of kur) if (k.t <= t) s = k; return [+s.m[1], +s.m[2]]; };
-      rs.sort((a, b) => a.t - b.t);
-      let seg = [], onceki = null, wh = null;
-      const bitir = () => {
-        if (seg.length >= 3) for (const f of GL.ivt(seg).fixations) {
-          out.list.push({ sid, mid: seg[0][3], start: f.start, dur: f.dur });   // segment tek materyalli
-        }
-        seg = [];
-      };
-      for (const r of rs) {
-        const b = boyut(r.t);
-        // pencere boyutu ya da gösterilen materyal değişince segment kesilir (fiksasyon materyal sınırını aşmaz)
-        if (!wh || b[0] !== wh[0] || b[1] !== wh[1] || (seg.length && seg[seg.length - 1][3] !== r.mid)) { bitir(); wh = b; onceki = null; }
-        for (const g of r.gaze) {
-          const tm = r.t * 1000 + g[0];
-          if (onceki != null && (tm - onceki > 250 || tm < onceki)) bitir();
-          seg.push([tm, g[1] * wh[0], g[2] * wh[1], r.mid]); onceki = tm;
-        }
-      }
-      bitir();
+      const I = ogrenciIvt(rs, (await ogrenciVeri(code, sid)).kurulumlar);
+      if (!I) { out.pencereYok.push(sid); continue; }
+      for (const f of I.fix) out.list.push({ sid, mid: f.mid, start: f.start, dur: f.dur });
       out.ogrenci.add(sid);
     }
     return out;
@@ -392,6 +374,58 @@ function fiksasyonlar(code) {
   p.catch(() => _fiks.delete(code));
   _fiks.set(code, p);
   return p;
+}
+// Tek öğrencinin ham satırlarından (yalnız kalibreli, tam ekran bakışlı) I-VT. fiksasyonlar() ve öğrenci veri grafiği aynı kuralı kullanır.
+// Segment: pencere boyutu ya da materyal değişince ya da 250 ms'den uzun boşlukta kesilir (fiksasyon materyal sınırını aşmaz).
+// Dönen: { fix: [{mid,start,end,dur}], sac: [{start,end,dur}], segs: [[[tm, px, py, mid], …], …] } ya da pencere kaydı yoksa null.
+function ogrenciIvt(rows, kurulumlar) {
+  const kur = (kurulumlar || []).map((k) => ({ t: k.t, m: /^(\d+)x(\d+)$/.exec(k.setup?.pencere || "") })).filter((k) => k.m);
+  if (!kur.length) return null;
+  const boyut = (t) => { let s = kur[0]; for (const k of kur) if (k.t <= t) s = k; return [+s.m[1], +s.m[2]]; };
+  const rs = rows.filter((r) => r.cal && Array.isArray(r.gaze) && r.gaze.length).sort((a, b) => a.t - b.t);
+  const out = { fix: [], sac: [], segs: [] };
+  let seg = [], onceki = null, wh = null;
+  const bitir = () => {
+    if (seg.length) out.segs.push(seg);
+    if (seg.length >= 3) {
+      const I = GL.ivt(seg), mid = seg[0][3];
+      for (const f of I.fixations) out.fix.push({ mid, start: f.start, end: f.end, dur: f.dur });
+      // GL.ivt sakkadı: ardışık iki fiksasyon arası, 0 < süre ≤ maxSacc (aynı koşul; sayısı I.saccades ile aynı)
+      for (let k = 1; k < I.fixations.length; k++) {
+        const a = I.fixations[k - 1], b = I.fixations[k], dur = b.start - a.end;
+        if (dur > 0 && dur <= I.opts.maxSacc) out.sac.push({ start: a.end, end: b.start, dur });
+      }
+    }
+    seg = [];
+  };
+  for (const r of rs) {
+    const b = boyut(r.t);
+    if (!wh || b[0] !== wh[0] || b[1] !== wh[1] || (seg.length && seg[seg.length - 1][3] !== r.mid)) { bitir(); wh = b; onceki = null; }
+    for (const g of r.gaze) {
+      const tm = r.t * 1000 + g[0];
+      if (onceki != null && (tm - onceki > 250 || tm < onceki)) bitir();
+      seg.push([tm, g[1] * wh[0], g[2] * wh[1], r.mid]); onceki = tm;
+    }
+  }
+  bitir();
+  return out;
+}
+// Bakış hızı (°/s, tahmin): GL.ivt'nin içindeki hesapla aynı (noiseWin ms medyan süzgeç, piksel × GL.DEG_PER_PX / sn).
+function hizSerisi(seg) {
+  const n = seg.length, half = GL.IVT_DEFAULTS.noiseWin / 2, fx = [], fy = [];
+  const med = (a) => { a.sort((p, q) => p - q); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+  let a = 0, b = 0;
+  for (let i = 0; i < n; i++) {
+    while (b < n && seg[b][0] <= seg[i][0] + half) b++;
+    while (seg[a][0] < seg[i][0] - half) a++;
+    const w = seg.slice(a, b); fx[i] = med(w.map((p) => p[1])); fy[i] = med(w.map((p) => p[2]));
+  }
+  const out = [];
+  for (let i = 1; i < n; i++) {
+    const dt = (seg[i][0] - seg[i - 1][0]) / 1000;
+    if (dt > 0) out.push([seg[i][0], (Math.hypot(fx[i] - fx[i - 1], fy[i] - fy[i - 1]) * GL.DEG_PER_PX) / dt]);
+  }
+  return out;
 }
 function fiksOzet(list) {
   return { n: list.length, ort: list.length ? Math.round(list.reduce((a, f) => a + f.dur, 0) / list.length) : null,
@@ -460,10 +494,10 @@ async function viewDers([code], live) {
     if (o.kind === "hand" && o.data?.up) el[o.sid] = (el[o.sid] || 0) + 1;
     if (o.kind === "chat") sohbet[o.sid] = (sohbet[o.sid] || 0) + 1;
   }
-  const i = esik.iyi, o = esik.orta;
   APP.innerHTML = `
     <div class="head"><div class="muted small"><a href="#dersler">Dersler</a> / ${esc(L.code)}</div>
-      <h1>${esc(L.name || L.code)}</h1>
+      <div class="row" style="justify-content:space-between;flex-wrap:wrap"><h1>${esc(L.name || L.code)}</h1>
+        <button class="btn sm" id="dCsvHam" title="Bu dersin tüm 2 sn örnekleri (bakış, bölge payları, kurulum dışı)">CSV (ham)</button></div>
       <div class="muted small">${tarih(L.created)} · süre ${t1 != null ? mmss(t1 - L.created) + " (dk:sn)" : "veri yok"}${L.ended == null ? ' · <span class="pill">bitmedi (süre son örneğe göre)</span>' : ""}
         · veri anı: ${saatS(an)} · Konu: ${esc(L.topic || "—")} · ${d.ogrenciler.length} öğrenci · ${d.materyaller.length} materyal</div></div>
     <div class="card">
@@ -507,9 +541,8 @@ async function viewDers([code], live) {
         <td class="num">${el[s.sid] || 0}</td><td class="num">${sohbet[s.sid] || 0}</td></tr>`; }).join("")}
     </table></div>
     ${d.ogrenciler.length ? "" : '<div class="muted" style="padding:10px 4px">Bu derse kayıtlı (demo olmayan) öğrenci yok.</div>'}
-    <div class="note">Kalite notu (yalnız filtre ve uyarı içindir, veri silmez): <b>iyi</b> = kamerada ≥%${i.kamerada}, kalibreli ≥%${i.kalibreli},
-      örnekleme ≥${i.hz} Hz ve son kalibrasyon hatası ≤${i.hata} px (hata kaydı yoksa bu koşula bakılmaz); <b>orta</b> = kamerada ≥%${o.kamerada}, kalibreli ≥%${o.kalibreli};
-      geri kalanı <b>düşük</b>. Örnekleme: kalibreli 2 sn örneklerdeki tam ekran bakış noktası / saniye.</div></div>`;
+    <div class="note">${esikNotu(esik)}</div></div>`;
+  $("#dCsvHam").onclick = () => csvIndir("ham", L.code).catch((e) => { if (!(e instanceof Yetkisiz)) toast(e.message); });
 
   const tl = $("#tl");
   const ciz = () => {
@@ -541,6 +574,12 @@ async function viewDers([code], live) {
     }
     if (F.pencereYok.length) $("#pYok").textContent = ` Pencere boyutu yok: ${F.pencereYok.length} öğrenci (fiksasyona girmedi).`;
   }).catch((e) => { if (!(e instanceof Yetkisiz)) hata("td[data-fiks]"); });
+}
+function esikNotu(esik) {
+  const i = esik.iyi, o = esik.orta;
+  return `Kalite notu (yalnız filtre ve uyarı içindir, veri silmez): <b>iyi</b> = kamerada ≥%${i.kamerada}, kalibreli ≥%${i.kalibreli},
+    örnekleme ≥${i.hz} Hz ve son kalibrasyon hatası ≤${i.hata} px (hata kaydı yoksa bu koşula bakılmaz); <b>orta</b> = kamerada ≥%${o.kamerada}, kalibreli ≥%${o.kalibreli};
+    geri kalanı <b>düşük</b>. Örnekleme: kalibreli 2 sn örneklerdeki tam ekran bakış noktası / saniye.`;
 }
 function kaliteRozet(n) {
   const c = { iyi: "var(--good)", orta: "var(--warn)", "düşük": "var(--bad)" }[n];
@@ -632,9 +671,379 @@ async function viewMateryal([code, idS], live) {
   APP.querySelectorAll("input[name=mod]").forEach((r) => (r.onchange = () => { MAT_SEC.mod = r.value; guncelle(); }));
 }
 
-// ---------------------------------------------------------------- henüz yazılmamış görünümler (Task 8)
-function viewSonra(baslik) {
-  return async () => { APP.innerHTML = `<div class="card"><h2>${esc(baslik)}</h2><p class="muted">Bu görünüm sonraki adımda eklenecek.</p></div>`; };
+// ---------------------------------------------------------------- görünüm 4: öğrenci
+const OGR = { sekme: "kalite", mid: null, mod: "isi" };
+const SEKMELER = [["kalite", "Kalite"], ["grafik", "Veri grafiği"], ["isi", "Isı haritası"], ["kurulum", "Kurulum"], ["olaylar", "Olaylar"]];
+const OLAY_AD = { hand: "El", lower_hand: "El indirildi (öğretmen)", chat: "Sohbet", reaction: "Tepki", alert: "Uyarı",
+                  topic: "Konu", material: "Materyal", end: "Ders bitti" };
+const satir = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
+
+async function viewOgrenci([code, sid], live) {
+  const [d, esik] = await Promise.all([aapi(`ders?code=${enc(code)}`), _esik || aapi("kalite_esik")]);
+  _esik = esik;
+  if (!live()) return;
+  if (d.ders.ended == null) onbellekTemizle(d.ders.code);
+  const [o, rows] = await Promise.all([ogrenciVeri(d.ders.code, sid), hamOrnekler(d.ders.code)]);
+  const an = new Date();
+  if (!live()) return;
+  const L = d.ders, ad = adlar(d.ogrenciler), K = o.kalite, pc = o.bilgi.participant_code;
+  const mine = rows.filter((r) => r.sid === sid), kal = mine.filter((r) => r.cal);
+  const G = {
+    L, o, mine, kal, mats: new Map(d.materyaller.map((m) => [m.id, m])), spans: d.spans,
+    I: o.bakis.length ? ogrenciIvt(mine, o.kurulumlar) : null,
+    rel: (t) => mmss(t - L.created),
+  };
+  APP.innerHTML = `
+    <div class="head"><div class="muted small"><a href="#dersler">Dersler</a> / <a href="#ders/${enc(L.code)}">${esc(L.name || L.code)}</a> / öğrenci</div>
+      <h1>${esc(ad(sid))} ${kaliteRozet(K.not)}</h1>
+      <div class="muted small">${pc ? "Katılımcı kodu " + esc(pc) : "kodsuz (karşılaştırmada eşleştirmeye girmez)"} · derse giriş ${tarih(o.bilgi.joined)}
+        · ${o.ornekler.length} örnek (2 sn) · veri anı: ${saatS(an)}${L.ended == null ? ' · <span class="pill">bitmedi</span>' : ""}</div></div>
+    <div class="tabs" role="tablist">${SEKMELER.map(([k, t]) => `<button type="button" data-s="${k}">${t}</button>`).join("")}</div>
+    <div id="sekme"></div>`;
+  const ac = (k) => {
+    OGR.sekme = k; onResize = null; ipucu(null);
+    APP.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.s === k));
+    ({ kalite: sekmeKalite, grafik: sekmeGrafik, isi: sekmeIsi, kurulum: sekmeKurulum, olaylar: sekmeOlaylar })[k]($("#sekme"), G, esik, live);
+  };
+  APP.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => ac(b.dataset.s)));
+  ac(SEKMELER.some(([k]) => k === OGR.sekme) ? OGR.sekme : "kalite");
+}
+
+function sekmeKalite(el, G, esik) {
+  const { o, kal } = G, K = o.kalite, n = o.ornekler.length;
+  const ic = o.bakis.filter((p) => p[1] >= 0 && p[1] <= 1 && p[2] >= 0 && p[2] <= 1).length;
+  const kalRows = o.kalibrasyonlar;
+  el.innerHTML = `
+    <div class="card"><h3>Kalite</h3><dl class="ozet ozet-gen">
+      ${satir("Kalite notu", kaliteRozet(K.not) + (K.kal_hata == null ? ' <span class="yok">kalibrasyon hatası: veri yok</span>' : ""))}
+      ${satir("Kamerada görünme", ol(K.kamerada_pct, n, pctF, "örnek"))}
+      ${satir("Kalibreli zaman", ol(K.kalibreli_pct, n, pctF, "örnek"))}
+      ${satir("Bakış pencere içinde", ol(o.bakis.length ? Math.round((100 * ic) / o.bakis.length) : null, o.bakis.length, pctF, "nokta"))}
+      ${satir("Örnekleme", ol(K.hz, kal.length, (v) => fix1(v) + " Hz", "kalibreli örnek"))}
+      ${satir("Son kalibrasyon hatası", val(K.kal_hata, (v) => Math.round(v) + " px"))}
+      ${satir("Kalibrasyon sayısı", String(kalRows.length))}
+      ${satir("Baş uyarıları", YOK)}
+    </dl>
+    <div class="note">${esikNotu(esik)}${K.kal_hata == null && K.not === "iyi" ? " <b>Bu öğrencide kalibrasyon hatası kaydı yok; “iyi” notu hata koşuluna bakılmadan verildi.</b>" : ""}
+      Bakış pencere içinde: iyi kalibreli örneklerdeki tam ekran bakış noktalarından pencere sınırı (0–1) içinde kalanların payı.
+      Baş uyarıları bu sürümde derse kaydedilmiyor.</div></div>
+    <div class="card"><h3>Kalibrasyonlar</h3>${kalRows.length ? `<div class="tbl"><table>
+      <tr><th>Zaman</th><th>Hata</th><th>Titreme</th><th>3×3 isabet</th><th title="55 cm uzaklık ve 96 dpi varsayımıyla">Derece (tahmin)</th><th>Durum</th><th>Yöntem</th><th>Kamera</th></tr>
+      ${kalRows.map((k) => { const r = k.report && typeof k.report === "object" ? k.report : {}; const num = (v) => (typeof v === "number" ? v : null);
+        return `<tr><td class="num">${G.rel(k.t)}</td><td class="num">${val(num(r.acc), (v) => Math.round(v) + " px")}</td>
+          <td class="num">${val(num(r.prec), (v) => Math.round(v) + " px")}</td><td class="num">${val(num(r.hit3), pctF)}</td>
+          <td class="num">${val(num(r.deg), (v) => "~" + fix1(v) + "°")}</td>
+          <td>${r.coarse === true ? '<span class="pill" style="color:var(--bad)">kaba — bakış kaydedilmez</span>' : r.coarse === false ? '<span class="pill" style="color:var(--good)">iyi</span>' : YOK}</td>
+          <td>${r.yontem ? esc(r.yontem) : YOK}</td><td>${r.kamera ? esc(r.kamera) : YOK}</td></tr>`; }).join("")}
+    </table></div>` : `<p>${YOK} <span class="muted small">— kalibrasyon kaydı yok; bu öğrencinin bakış ölçüleri hesaplanmaz.</span></p>`}
+    <div class="note">Zaman: ders başından (dk:sn). Hata: kalibrasyon sonrası ölçülen ortalama/medyan uzaklık (px). Derece değerleri tahmindir.</div></div>`;
+}
+
+// --- veri grafiği
+const GR_PANEL = [["xy", 130], ["hiz", 80], ["fs", 16], ["mat", 16], ["att", 100], ["emo", 14]];
+const GR_PAD = { l: 100, r: 12, t: 8, b: 22 }, GR_ARA = 10;
+const GR_RENK = { x: "#0f9d8a", y: "#a855f7", hiz: "#3b4252", fix: "#1f9d55", sac: "#d64545" };
+function grafikVeri(G) {
+  const { o, I } = G;
+  const ts = o.ornekler.map((r) => r[0]);
+  const lo = [], hi = [];
+  if (ts.length) { lo.push(ts[0] - 2); hi.push(ts[ts.length - 1]); }
+  if (o.bakis.length) { lo.push(o.bakis[0][0] / 1000); hi.push(o.bakis[o.bakis.length - 1][0] / 1000); }
+  if (!lo.length) return null;
+  const tA = Math.min(...lo), tB = Math.max(...hi, tA + 10);
+  const hiz = I ? I.segs.map(hizSerisi) : null;
+  let vmax = 100;
+  if (hiz) {
+    const v = hiz.flat().map((p) => p[1]).sort((a, b) => a - b);
+    if (v.length) vmax = Math.min(1000, Math.max(60, Math.ceil((v[Math.floor(v.length * 0.95)] * 1.3) / 50) * 50));
+  }
+  return { tA, tB, hiz, vmax };
+}
+function cizGrafik(canvas, G, V, sel) {
+  const T = tuval(canvas); if (!T) return;
+  const { ctx, w, h } = T, { o, I } = G, P = GR_PAD;
+  const iw = w - P.l - P.r, X = (s) => P.l + ((s - V.tA) / (V.tB - V.tA)) * iw;
+  const muted = cssVar("var(--muted)"), border = cssVar("var(--border)");
+  ctx.font = "11px system-ui, sans-serif"; ctx.lineJoin = "round";
+  const kutu = {}; let y = P.t;
+  for (const [k, hh] of GR_PANEL) { kutu[k] = { y, h: hh }; y += hh + GR_ARA; }
+  const yaz = (s, x, yy, c = muted) => { ctx.fillStyle = c; ctx.fillText(s, x, yy); };
+  const sag = (s, yy, c = muted) => { ctx.textAlign = "right"; yaz(s, P.l - 4, yy, c); ctx.textAlign = "start"; };   // eksen değeri
+  const yok = (k, s) => { const b = kutu[k]; ctx.fillStyle = muted; ctx.font = "italic 12px system-ui, sans-serif"; ctx.fillText(s, P.l + 8, b.y + b.h / 2 + 4); ctx.font = "11px system-ui, sans-serif"; };
+  const cizgi = (pts, Y, kes, col, lw = 1.3) => {
+    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.beginPath();
+    let onceki = null;
+    for (const [s, v] of pts) { const x = X(s), yy = Y(v); onceki != null && s - onceki <= kes ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy); onceki = s; }
+    ctx.stroke();
+  };
+  // seçim (arkada)
+  if (sel) { ctx.fillStyle = "rgba(47,111,219,.10)"; ctx.fillRect(X(sel[0]), P.t, X(sel[1]) - X(sel[0]), y - GR_ARA - P.t); }
+  // X / Y (%)
+  let b = kutu.xy; const bxy = b, Yxy = (v) => bxy.y + bxy.h * (1 - (Math.min(120, Math.max(-20, v)) + 20) / 140);
+  ctx.strokeStyle = border; ctx.lineWidth = 1;
+  for (const v of [0, 50, 100]) { const yy = Yxy(v); ctx.beginPath(); ctx.moveTo(P.l, yy); ctx.lineTo(w - P.r, yy); ctx.stroke(); sag("%" + v, yy + 4); }
+  yaz("X / Y (%)", 4, b.y + 12);
+  if (o.bakis.length) {
+    cizgi(o.bakis.map((p) => [p[0] / 1000, p[1] * 100]), Yxy, 0.25, GR_RENK.x);
+    cizgi(o.bakis.map((p) => [p[0] / 1000, p[2] * 100]), Yxy, 0.25, GR_RENK.y);
+  } else yok("xy", "veri yok — iyi kalibreli bakış örneği yok");
+  // hız
+  b = kutu.hiz; const bv = b, Yv = (v) => bv.y + bv.h * (1 - Math.min(v, V.vmax) / V.vmax);
+  ctx.strokeStyle = border; ctx.beginPath(); ctx.moveTo(P.l, b.y + b.h); ctx.lineTo(w - P.r, b.y + b.h); ctx.stroke();
+  yaz("Hız °/s", 4, b.y + 12); yaz("(tahmin)", 4, b.y + 25); sag(String(V.vmax), b.y + 10);
+  if (V.hiz) {
+    for (const s of V.hiz) cizgi(s.map(([tm, v]) => [tm / 1000, v]), Yv, 0.25, GR_RENK.hiz);
+    const thr = GL.IVT_DEFAULTS.velThr;
+    if (thr < V.vmax) { ctx.strokeStyle = GR_RENK.sac; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(P.l, Yv(thr)); ctx.lineTo(w - P.r, Yv(thr)); ctx.stroke(); ctx.setLineDash([]); sag(thr + " eşik", Yv(thr) + 4, GR_RENK.sac); }
+  } else yok("hiz", o.bakis.length ? "veri yok — pencere boyutu kaydı yok" : "veri yok");
+  // fiksasyon / sakkad şeridi
+  b = kutu.fs; yaz("Fiks./sakkad", 4, b.y + 12);
+  ctx.fillStyle = cssVar("var(--surface-2)"); ctx.fillRect(P.l, b.y, iw, b.h);
+  if (I) {
+    ctx.fillStyle = GR_RENK.fix; for (const f of I.fix) ctx.fillRect(X(f.start / 1000), b.y, Math.max(1, X(f.end / 1000) - X(f.start / 1000)), b.h);
+    ctx.fillStyle = GR_RENK.sac; for (const s of I.sac) ctx.fillRect(X(s.start / 1000), b.y + 3, Math.max(1, X(s.end / 1000) - X(s.start / 1000)), b.h - 6);
+  } else yok("fs", "veri yok");
+  // materyal şeridi
+  b = kutu.mat; yaz("Materyal", 4, b.y + 12);
+  ctx.fillStyle = cssVar("var(--surface-2)"); ctx.fillRect(P.l, b.y, iw, b.h);
+  for (const s of G.spans) {
+    const a = Math.max(s.t_start, V.tA), e = Math.min(s.t_end ?? V.tB, V.tB); if (e <= a) continue;
+    const m = G.mats.get(s.material_id);
+    ctx.fillStyle = kindOf(m?.kind).color; ctx.fillRect(X(a), b.y, X(e) - X(a), b.h);
+    ctx.save(); ctx.beginPath(); ctx.rect(X(a), b.y, X(e) - X(a), b.h); ctx.clip(); yaz(m ? m.name : "?", X(a) + 4, b.y + 12, "#fff"); ctx.restore();
+  }
+  // dikkat / enerji
+  b = kutu.att; const ba = b, Ya = (v) => ba.y + ba.h * (1 - v / 100);
+  ctx.strokeStyle = border; ctx.lineWidth = 1;
+  for (const v of [0, 50, 100]) { const yy = Ya(v); ctx.beginPath(); ctx.moveTo(P.l, yy); ctx.lineTo(w - P.r, yy); ctx.stroke(); sag(String(v), yy + 4); }
+  yaz("Dikkat", 4, b.y + 12, cssVar("var(--c-att)")); yaz("Enerji", 4, b.y + 25, cssVar("var(--c-en)"));
+  for (const [i, c] of [[1, "var(--c-att)"], [2, "var(--c-en)"]]) {
+    const pts = o.ornekler.filter((r) => r[i] != null).map((r) => [r[0] - 1, r[i]]);
+    cizgi(pts, Ya, 4.5, cssVar(c), 2);
+  }
+  // duygu
+  b = kutu.emo; yaz("Duygu", 4, b.y + 11);
+  for (const r of o.ornekler) {
+    if (!r[3]) continue;
+    ctx.fillStyle = EMO[r[3]] ? cssVar(EMO[r[3]].color) : "#999"; ctx.fillRect(X(r[0] - 2), b.y, Math.max(1, X(r[0]) - X(r[0] - 2)), b.h);
+  }
+  // zaman ekseni
+  const yb = y - GR_ARA;
+  for (let i = 0; i <= 6; i++) {
+    const s = V.tA + ((V.tB - V.tA) * i) / 6, str = G.rel(s), tw = ctx.measureText(str).width;
+    yaz(str, Math.min(Math.max(X(s) - tw / 2, P.l), w - P.r - tw), yb + 16);
+  }
+  if (sel) { ctx.strokeStyle = "#2f6fdb"; ctx.lineWidth = 1; for (const s of sel) { ctx.beginPath(); ctx.moveTo(X(s), P.t); ctx.lineTo(X(s), yb); ctx.stroke(); } }
+  canvas._g = { iw, tA: V.tA, tB: V.tB };
+}
+const ayristirSure = (s) => {
+  s = String(s).trim(); let m;
+  if ((m = /^(\d+):([0-5]?\d)$/.exec(s))) return +m[1] * 60 + +m[2];
+  return /^\d+(\.\d+)?$/.test(s) ? +s : null;
+};
+function sekmeGrafik(el, G, _e, live) {
+  const V = grafikVeri(G);
+  if (!V) { el.innerHTML = `<div class="card">${YOK} <span class="muted small">— bu öğrencinin hiç örneği yok.</span></div>`; return; }
+  const { o, I, L } = G;
+  el.innerHTML = `<div class="card">
+    <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px"><h3 style="margin:0">Veri grafiği</h3>
+      <div class="legend"><span style="--c:${GR_RENK.x}">X (pencerenin %'si)</span><span style="--c:${GR_RENK.y}">Y (pencerenin %'si)</span>
+        <span style="--c:${GR_RENK.hiz}">Hız (tahmin)</span><span style="--c:${GR_RENK.fix}">Fiksasyon</span><span style="--c:${GR_RENK.sac}">Sakkad</span>
+        ${Object.values(KIND).map((k) => `<span style="--c:${k.color}">${k.label}</span>`).join("")}</div></div>
+    <canvas id="og" class="og"></canvas>
+    <div class="legend" style="margin-top:6px">Duygu: ${Object.values(EMO).map((e) => `<span style="--c:${e.color}">${e.label}</span>`).join("")}</div>
+    <form class="secim" id="secF"><span class="muted small">Zaman aralığı (ders başından dk:sn; grafikte sürükleyerek de seçilir)</span>
+      <label>Başlangıç <input id="sA" size="6" placeholder="0:00"></label><label>Bitiş <input id="sB" size="6" placeholder="0:00"></label>
+      <button class="btn sm primary">Uygula</button><button class="btn sm" type="button" id="sTum">Tümü</button><span class="error" id="sErr"></span></form>
+    <dl class="ozet ozet-gen" id="sOz"></dl>
+    <div class="note">X/Y: tam ekran bakış, pencereye göre (0–100; pencere dışı −20…120 kırpılı), yalnız iyi kalibreli örnekler. Hız ve fiksasyon/sakkad:
+      I-VT (GL.ivt: ${GL.IVT_DEFAULTS.velThr}°/s, ${GL.IVT_DEFAULTS.minFix}–${GL.IVT_DEFAULTS.maxFix} ms), piksel = pencere oranı × kurulumdaki pencere boyutu,
+      derece = piksel × ${GL.DEG_PER_PX} (varsayım) → <b>tahmin</b>; hız ekseninin üstü kırpılı (${V.vmax}°/s). Materyal şeridi: öğretmenin “şimdi bu” kayıtları. Dikkat/enerji/duygu: 2 sn örnekler.</div></div>`;
+  const cv = $("#og");
+  let sel = null;
+  const ciz = () => cizGrafik(cv, G, V, sel);
+  const ozet = () => {
+    const [a, b] = sel || [V.tA, V.tB];
+    $("#sA").value = G.rel(a); $("#sB").value = G.rel(b);
+    const ic = (ms) => ms / 1000 >= a && ms / 1000 <= b;
+    const nokta = o.bakis.filter((p) => ic(p[0])).length;
+    const orn = o.ornekler.filter((r) => r[0] >= a && r[0] <= b);
+    let fx = YOK, ort = YOK, sk = YOK;
+    if (I) {
+      const F = I.fix.filter((f) => ic(f.start)), S = I.sac.filter((s) => ic(s.start));
+      fx = `${F.length}${nTag(nokta, "nokta")}`;
+      ort = F.length ? `${Math.round(F.reduce((x, f) => x + f.dur, 0) / F.length)} ms${nTag(F.length, "fiks.")}` : `${YOK}${nTag(0, "fiks.")}`;
+      sk = `${S.length}${nTag(nokta, "nokta")}`;
+    }
+    $("#sOz").innerHTML =
+      satir("Aralık", `${G.rel(a)} – ${G.rel(b)} (${mmss(b - a)})`) +
+      satir("Fiksasyon sayısı (tahmin)", fx) + satir("Ort. fiksasyon süresi (tahmin)", ort) + satir("Sakkad sayısı (tahmin)", sk) +
+      satir("Bakış noktası", nokta ? String(nokta) : YOK) +
+      satir("Ort. dikkat", ol(ortalama(orn.map((r) => r[1])), orn.filter((r) => r[1] != null).length, fix1, "örnek")) +
+      satir("Ort. enerji", ol(ortalama(orn.map((r) => r[2])), orn.filter((r) => r[2] != null).length, fix1, "örnek")) +
+      satir("Baskın duygu", `${emoS(baskin(orn.map((r) => r[3])))}${nTag(orn.filter((r) => r[3]).length, "örnek")}`) +
+      (I || !o.bakis.length ? "" : satir("Not", '<span class="yok">pencere boyutu kaydı yok: fiksasyon hesaplanamadı</span>'));
+  };
+  ciz(); ozet(); onResize = ciz;
+  const sAt = (ev) => { const g = cv._g || { iw: 1, tA: V.tA, tB: V.tB }; return Math.min(V.tB, Math.max(V.tA, g.tA + ((ev.offsetX - GR_PAD.l) / g.iw) * (g.tB - g.tA))); };
+  let surukle = null, bekle = false;
+  cv.onmousedown = (ev) => { surukle = sAt(ev); };
+  cv.onmousemove = (ev) => {
+    if (surukle == null || bekle) return;
+    const s = sAt(ev); sel = [Math.min(surukle, s), Math.max(surukle, s)];
+    bekle = true; requestAnimationFrame(() => { bekle = false; if (live()) ciz(); });
+  };
+  const birak = (ev) => {
+    if (surukle == null) return;
+    const s = sAt(ev);
+    sel = Math.abs(s - surukle) < ((V.tB - V.tA) / (cv._g?.iw || 1)) * 3 ? null : [Math.min(surukle, s), Math.max(surukle, s)];
+    surukle = null; ciz(); ozet();
+  };
+  cv.onmouseup = birak; cv.onmouseleave = birak;
+  $("#sTum").onclick = () => { sel = null; $("#sErr").textContent = ""; ciz(); ozet(); };
+  $("#secF").onsubmit = (e) => {
+    e.preventDefault();
+    const a = ayristirSure($("#sA").value), b = ayristirSure($("#sB").value);
+    if (a == null || b == null || b <= a) { $("#sErr").textContent = "dk:sn biçiminde, bitiş başlangıçtan sonra olmalı"; return; }
+    $("#sErr").textContent = "";
+    sel = [Math.max(V.tA, L.created + a), Math.min(V.tB, L.created + b)];
+    if (sel[1] <= sel[0]) sel = null;
+    ciz(); ozet();
+  };
+}
+
+function sekmeIsi(el, G, _e, live) {
+  const { L, mine } = G, mats = [...G.mats.values()];
+  if (!mats.length) { el.innerHTML = `<div class="card">${YOK} <span class="muted small">— bu derste materyal yok.</span></div>`; return; }
+  const sayi = (id) => mine.filter((r) => r.mid === id).length;
+  if (!G.mats.has(OGR.mid)) OGR.mid = (mats.find((m) => sayi(m.id)) || mats[0]).id;
+  el.innerHTML = `<div class="mat-grid"><div class="card">
+      <div class="opts"><label>Materyal <select id="oMat">${mats.map((m) => `<option value="${m.id}">${esc(kindOf(m.kind).label + ": " + m.name)} (${sayi(m.id)} örnek)</option>`).join("")}</select></label>
+        <span><label><input type="radio" name="omod" value="isi"> Isı haritası</label><label><input type="radio" name="omod" value="sis"> Sis</label></span></div>
+      <canvas id="oBig" class="big"></canvas><div class="note" id="oNot"></div></div>
+    <div class="card"><h3>Özet</h3><dl class="ozet" id="oOz"></dl></div></div>`;
+  $("#oMat").value = OGR.mid;
+  APP.querySelector(`input[name=omod][value=${OGR.mod}]`).checked = true;
+  const ciz = async () => {
+    const m = G.mats.get(OGR.mid), rs = mine.filter((r) => r.mid === m.id), kal = rs.filter((r) => r.cal);
+    const I = isiIzgara(kal), img = await gorselYukle(L.code, m);
+    if (!live() || OGR.mid !== m.id || !$("#oBig")) return;
+    cizMateryal($("#oBig"), { grid: I.grid, img, mod: OGR.mod });
+    const bk = bakmaPct(rs);
+    $("#oOz").innerHTML = satir("2 sn örnek", `${rs.length}${nTag(kal.length, "kalibreli")}`) +
+      satir("Isı haritası noktası", I.nokta ? String(I.nokta) : YOK) + satir("Materyale bakma", ol(bk.v, bk.n, pctF, "örnek")) +
+      satir("Ekranda kalma (tüm ders)", m.sure_sn ? mmss(m.sure_sn) : '<span class="yok">gösterilmedi</span>');
+    $("#oNot").textContent = (rs.length && !kal.length ? "Bu materyalde öğrencinin iyi kalibreli örneği yok: bakış verisi yok. " : !rs.length ? "Öğrencinin bu materyal sırasında örneği yok. " : "") +
+      "Yalnız iyi kalibreli örneklerin materyal üzerindeki noktaları; noktalar görselin içerik alanına eşlenir.";
+  };
+  ciz(); onResize = ciz;
+  $("#oMat").onchange = (e) => { OGR.mid = +e.target.value; ciz(); };
+  APP.querySelectorAll("input[name=omod]").forEach((r) => (r.onchange = () => { OGR.mod = r.value; ciz(); }));
+}
+
+const KUR_ALAN = [["kamera", "Kamera"], ["fps", "Kamera fps"], ["ekran", "Ekran"], ["pencere", "Pencere"], ["dpr", "DPR"], ["fs", "Tam ekran"],
+                  ["tarayici", "Tarayıcı"], ["uzaklikCm", "Uzaklık (tahmin)"], ["islemeFps", "İşleme fps"]];
+function sekmeKurulum(el, G) {
+  const k = G.o.kurulumlar;
+  const bic = (a, v) => (v == null || v === "" ? YOK : a === "fs" ? (v ? "evet" : "hayır") : a === "uzaklikCm" ? `~${esc(v)} cm` : esc(v));
+  el.innerHTML = `<div class="card"><h3>Kurulum (zaman içinde)</h3>${k.length ? `<div class="tbl"><table>
+      <tr><th>Zaman</th>${KUR_ALAN.map(([, t]) => `<th>${t}</th>`).join("")}</tr>
+      ${k.map((r, i) => { const s = r.setup || {}, p = i ? k[i - 1].setup || {} : null;
+        return `<tr><td class="num">${G.rel(r.t)}</td>${KUR_ALAN.map(([a]) => `<td class="num${p && JSON.stringify(p[a]) !== JSON.stringify(s[a]) ? " degisti" : ""}">${bic(a, s[a])}</td>`).join("")}</tr>`; }).join("")}
+    </table></div>` : `<p>${YOK} <span class="muted small">— kurulum kaydı yok.</span></p>`}
+    <div class="note">Her satır bir değişiklik (aynı kurulum tekrar yazılmaz); değişen hücre vurgulu. Uzaklık: MediaPipe yüz ölçüsünden tahmin.
+      İşleme fps 5'in katına yuvarlı. Cihaz türü kaydedilmiyor.</div></div>`;
+}
+
+function sekmeOlaylar(el, G) {
+  const ay = (e) => {
+    const d = e.data;
+    if (e.kind === "hand") return d?.up ? "kaldırdı" : "indirdi";
+    if (e.kind === "chat") return esc(d?.text ?? "");
+    if (e.kind === "reaction") return esc(d?.emoji ?? "");
+    return d == null ? "" : `<code>${esc(JSON.stringify(d))}</code>`;
+  };
+  const ev = G.o.olaylar;
+  el.innerHTML = `<div class="card"><h3>Olaylar (ham)</h3>${ev.length ? `<div class="tbl"><table>
+      <tr><th>Zaman</th><th>Tür</th><th>Ayrıntı</th></tr>
+      ${ev.map((e) => `<tr><td class="num">${G.rel(e.t)}</td><td>${esc(OLAY_AD[e.kind] || e.kind)}</td><td>${ay(e)}</td></tr>`).join("")}
+    </table></div>` : `<p>${YOK} <span class="muted small">— bu öğrenciye ait olay yok.</span></p>`}
+    <div class="note">Yalnız bu öğrenciye ait olaylar; sınıf geneli olaylar (konu, materyal, uyarı, bitiş) ders sayfasındaki zaman çizelgesinde.</div></div>`;
+}
+
+// ---------------------------------------------------------------- görünüm 5: karşılaştırma (insan / YZ)
+const KARS = { secili: null };   // null = tüm dersler
+async function viewKarsilastirma(_p, live) {
+  const liste = await aapi("dersler");
+  if (!live()) return;
+  const kodlar = liste.map((d) => d.code);
+  if (KARS.secili) KARS.secili = KARS.secili.filter((c) => kodlar.includes(c));
+  const secili = KARS.secili ?? kodlar;
+  const r = secili.length ? await aapi("karsilastirma?dersler=" + enc(secili.join(","))) : null;
+  if (!live()) return;
+  const hucre = (g) => `<td class="num">${ol(g.bakma_pct, g.n_bakma, pctF, "öğr.")}</td><td class="num" style="color:${levelColor(g.ort_dikkat)}">${ol(g.ort_dikkat, g.n, fix1, "örnek")}</td>`;
+  const fark = (a, b, f) => (a == null || b == null ? YOK : f(b - a));
+  const isaretli = (v, f = String) => (v > 0 ? "+" : "") + f(v);
+  APP.innerHTML = `
+    <div class="head"><h1>Karşılaştırma — insan / YZ materyali</h1>
+      <div class="muted small">Seçili dersler boyunca, örnekler o an ekrandaki materyalin türüne göre gruplanır (materyalsiz örnekler girmez).</div></div>
+    <form class="card" id="kF"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h3 style="margin:0">Dersler (${secili.length}/${liste.length})</h3>
+        <div class="row"><button type="button" class="btn sm" id="kHep">Hepsi</button><button type="button" class="btn sm" id="kHic">Hiçbiri</button><button class="btn sm primary">Uygula</button></div></div>
+      <div class="kdersler">${liste.map((d) => `<label><input type="checkbox" value="${esc(d.code)}"${secili.includes(d.code) ? " checked" : ""}>
+        ${esc(d.name || d.code)} <span class="muted small">${esc(d.code)} · ${tarih(d.created)}</span></label>`).join("") || '<span class="muted">Kayıtlı ders yok.</span>'}</div></form>
+    ${!r ? `<div class="card">${YOK} <span class="muted small">— ders seçilmedi.</span></div>` : `
+    <div class="card"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h3 style="margin:0">Materyal türüne göre</h3>
+        <button class="btn sm" id="kCsv" title="Uzun biçim: ders × öğrenci × materyal × ölçü">${secili.length === 1 ? `CSV (uzun) — ${esc(secili[0])}` : "CSV (uzun) — tüm dersler"}</button></div>
+      <div class="tbl"><table><tr><th>Tür</th><th title="Kalibreli öğrencilerin bakışının materyal bölgesindeki payı">Materyale bakma</th><th>Ort. dikkat</th><th>Öğrenci</th><th>2 sn örnek</th></tr>
+        ${["insan", "yz", "diger"].map((k) => { const g = r.tur[k]; return `<tr><td>${kindChip(k)}</td>${hucre(g)}<td class="num">${g.n_ogrenci}</td><td class="num">${g.n}</td></tr>`; }).join("")}
+      </table></div>
+      <div class="note">Materyale bakma: yalnız iyi kalibreli örneklerden (n = ortalamaya katılan öğrenci; ders × öğrenci). Ort. dikkat: o türdeki tüm 2 sn örnekler (n = örnek).
+        Fiksasyon, enerji ve duygu dağılımı bu tabloda yok: enerji ve baskın duygu CSV (uzun) içinde, fiksasyon ders/materyal sayfalarında (tahmin).
+        ${secili.length > 1 && secili.length < liste.length ? "CSV yalnız tek ders ya da tüm dersler için alınabilir; seçim CSV'ye uygulanmaz." : ""}</div></div>
+    <div class="card"><h3>Eşleştirilmiş katılımcılar (aynı kişi hem insan hem YZ materyali gördü)</h3>
+      ${r.eslesik.length ? `<div class="tbl"><table>
+        <tr><th>Katılımcı</th><th>İnsan: bakma</th><th>İnsan: dikkat</th><th>YZ: bakma</th><th>YZ: dikkat</th><th>Fark (YZ − insan): bakma</th><th>Fark: dikkat</th></tr>
+        ${r.eslesik.map((e) => `<tr><td><b>${esc(e.katilimci)}</b></td>${hucre(e.insan)}${hucre(e.yz)}
+          <td class="num">${fark(e.insan.bakma_pct, e.yz.bakma_pct, (v) => isaretli(v) + " puan")}</td>
+          <td class="num">${fark(e.insan.ort_dikkat, e.yz.ort_dikkat, (v) => isaretli(Math.round(v * 10) / 10, fix1))}</td></tr>`).join("")}
+      </table></div>` : `<p>${YOK} <span class="muted small">— seçili derslerde hem insan hem YZ materyali görmüş kodlu katılımcı yok.</span></p>`}
+      <div class="note">Eşleştirme katılımcı koduna göre, dersler arası. Kodsuz öğrenci (ders × öğrenci): <b>${r.kodsuz_n}</b> — eşleştirmeye girmedi.
+        Fark yalnız iki değer de varsa hesaplanır.</div></div>`}`;
+  const kutular = () => [...APP.querySelectorAll(".kdersler input")];
+  $("#kHep").onclick = () => kutular().forEach((c) => (c.checked = true));
+  $("#kHic").onclick = () => kutular().forEach((c) => (c.checked = false));
+  $("#kF").onsubmit = (e) => {
+    e.preventDefault();
+    const s = kutular().filter((c) => c.checked).map((c) => c.value);
+    KARS.secili = s.length === kodlar.length ? null : s;
+    route();
+  };
+  if (r) $("#kCsv").onclick = () => csvIndir("uzun", secili.length === 1 ? secili[0] : null).catch((e) => { if (!(e instanceof Yetkisiz)) toast(e.message); });
+}
+
+// ---------------------------------------------------------------- katılımcılar
+async function viewKatilimcilar(_p, live) {
+  const liste = await aapi("katilimcilar");
+  if (!live()) return;
+  APP.innerHTML = `
+    <div class="head"><h1>Katılımcılar</h1><div class="muted small">Kalıcı katılımcı kodları. Öğrenci derse girerken adının yanında bu kodu yazar; kod dersler arasında aynı kalır.</div></div>
+    <form class="card filters" id="kpF"><div class="grow"><label for="kpKod">Yeni kod</label><input id="kpKod" maxlength="20" placeholder="ör. P03" autocomplete="off" required></div>
+      <div><button class="btn primary">Ekle</button></div><div class="error" id="kpErr" style="flex-basis:100%"></div></form>
+    <div class="card"><h3>Kodlar (${liste.length})</h3>${liste.length ? `<div class="tbl"><table><tr><th>Kod</th><th>Oluşturma</th></tr>
+      ${liste.map((p) => `<tr><td><b>${esc(p.code)}</b></td><td class="num">${tarih(p.created)}</td></tr>`).join("")}</table></div>`
+      : '<p class="muted">Henüz katılımcı kodu yok.</p>'}
+      <div class="note">Biçim: A–Z, 0–9, _ ve - (1–20 karakter); küçük harf büyüğe çevrilir. Aynı kod ikinci kez eklenmez.</div></div>`;
+  $("#kpKod").focus();
+  $("#kpF").onsubmit = async (e) => {
+    e.preventDefault();
+    const kod = $("#kpKod").value.trim();
+    if (!kod) return;
+    try {
+      const r = await aapi("katilimci", { kod });
+      toast(liste.some((p) => p.code === r.kod) ? `${r.kod} zaten vardı` : `${r.kod} eklendi`);
+      route();
+    } catch (err) { if (!(err instanceof Yetkisiz)) $("#kpErr").textContent = err.message; }
+  };
 }
 
 // ---------------------------------------------------------------- yönlendirme
@@ -643,9 +1052,9 @@ const ROUTES = {
   dersler: { view: viewDersler },
   ders: { view: viewDers, dersli: true },
   materyal: { view: viewMateryal, dersli: true },
-  ogrenci: { view: viewSonra("Öğrenci"), dersli: true },
-  karsilastirma: { view: viewSonra("Karşılaştırma (insan / YZ)") },
-  katilimcilar: { view: viewSonra("Katılımcılar") },
+  ogrenci: { view: viewOgrenci, dersli: true },
+  karsilastirma: { view: viewKarsilastirma },
+  katilimcilar: { view: viewKatilimcilar },
 };
 
 function karma() {

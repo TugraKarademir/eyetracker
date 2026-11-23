@@ -13,6 +13,7 @@
   .topbar select { width: auto; max-width: 240px; padding: 6px 10px; font-size: 13px; }
   .topbar .chk { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; }
   .topbar .chk input { width: auto; }
+  .topbar .btn { white-space: nowrap; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
   th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
@@ -41,6 +42,20 @@
   .tip { position: fixed; pointer-events: none; background: var(--text); color: var(--bg); font-size: 12px; padding: 6px 8px; border-radius: 8px; z-index: 40; white-space: nowrap; }
   .head h1 { margin: 2px 0 4px; }
   body.anahtarsiz .topbar > :not(.brand):not(.spacer) { display: none; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--border); }
+  .tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; font: inherit; font-weight: 600; font-size: 14px; color: var(--muted); cursor: pointer; }
+  .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+  #sekme { display: flex; flex-direction: column; gap: 16px; }
+  .og { width: 100%; height: 436px; display: block; cursor: crosshair; user-select: none; }
+  .secim { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 12px 0 10px; font-size: 13px; }
+  .secim label { display: inline-flex; gap: 6px; align-items: center; margin: 0; font-weight: 500; }
+  .secim input { width: 70px; padding: 5px 8px; }
+  dl.ozet-gen { grid-template-columns: max-content auto; max-width: 560px; }
+  dl.ozet-gen dd { text-align: left; }
+  td.degisti { font-weight: 700; background: var(--accent-soft); }
+  .kdersler { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; max-height: 240px; overflow-y: auto; }
+  .kdersler label { display: flex; gap: 8px; align-items: center; margin: 0; font-weight: 500; font-size: 14px; }
+  .kdersler input { width: auto; }
   .note { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
   @media (max-width: 900px) { .mat-grid { grid-template-columns: 1fr; } .wrap { padding: 16px; } .topbar { flex-wrap: wrap; } }
 </style>
@@ -52,8 +67,8 @@
   <span class="spacer"></span>
   <select id="dersSec" title="Ders seç"><option value="">Ders seç…</option></select>
   <label class="chk" title="Ad yerine katılımcı kodu (kodsuz öğrenciler: kodsuz-N)"><input type="checkbox" id="gizle"> Adları gizle</label>
-  <button class="btn sm" id="csvUzun" title="Uzun biçim: ders × öğrenci × materyal × ölçü">CSV</button>
-  <button class="btn sm hidden" id="csvHam" title="Bu dersin ham örnekleri">Ham CSV</button>
+  <button class="btn sm" id="csvUzun" title="Uzun biçim: ders × öğrenci × materyal × ölçü">CSV (uzun)</button>
+  <button class="btn sm hidden" id="csvHam" title="Bu dersin ham örnekleri">CSV (ham)</button>
   <button class="btn sm" id="cikis" title="Anahtarı bu sekmeden sil">Çıkış</button>
 </header>
 <main class="wrap" id="app"><div class="card">Yükleniyor…</div></main>
