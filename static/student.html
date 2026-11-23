@@ -52,6 +52,8 @@
     <input id="jCode" required maxlength="6" placeholder="ör. K7M2QX" style="text-transform:uppercase;letter-spacing:.15em;font-weight:700">
     <label for="jName">Adınız</label>
     <input id="jName" required maxlength="40" placeholder="Ad Soyad">
+    <label for="jPcode">Katılımcı kodu (araştırmacının verdiği, ör. P01)</label>
+    <input id="jPcode" maxlength="20" placeholder="isteğe bağlı" autocomplete="off" style="text-transform:uppercase">
     <button class="btn primary" style="width:100%;margin-top:18px">Devam</button>
     <div class="error" id="jErr"></div>
   </form>
@@ -60,6 +62,7 @@
 <!-- 2. Rıza -->
 <div class="center-wrap hidden" id="consentView">
   <div class="card form-card" style="max-width:520px">
+    <div class="error" id="jWarn"></div>
     <h2>Kamera ve analiz izni</h2>
     <ul class="consent muted">
       <li>Kameranız <b>yalnızca bu tarayıcıda</b> analiz edilir; görüntü kaydedilmez ve kimseye gönderilmez.</li>

@@ -28,11 +28,14 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+import kayit
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
 DATA = os.path.join(ROOT, "data")
 TEST_DIR = os.path.join(ROOT, "test_kayitlari")   # bakış testi kayıtları (telefondan da gelir)
 os.makedirs(DATA, exist_ok=True)
+KAYIT = kayit.ac(os.path.join(DATA, "dersler.db"))   # kalıcı ders kaydı; yazmalar LOCK altında
 
 # ---- Bakış testi verileri GazeLab biçiminde (gazelab/server.py şeması + yöntem sütunu + yöntem özeti)
 GL_DB = os.path.join(TEST_DIR, "gazelab.db")
@@ -855,6 +858,7 @@ class Handler(BaseHTTPRequestHandler):
                          "reaction_counts": {}, "topic_log": [{"t": t, "topic": topic}] if topic else []}
         ensure_gaze_fields(CLASSES[code])
         persist(CLASSES[code])
+        kayit.ders_ekle(KAYIT, code, name, topic, t)
         self.send_json({"code": code, "key": CLASSES[code]["teacher_key"]})
 
     def join(self, b):
@@ -866,12 +870,19 @@ class Handler(BaseHTTPRequestHandler):
         name = str(b.get("name") or "").strip()[:40]
         if not name:
             return self.err("İsim gerekli.")
+        pcode = str(b.get("pcode") or "").strip().upper() or None
+        if pcode and not re.match(r"^[A-Z0-9_-]{1,20}$", pcode):
+            return self.err("Katılımcı kodu yalnız harf, rakam, - ve _ içerebilir (en çok 20).")
         sid = b.get("sid")
         if sid in cls["students"] and cls["students"][sid]["name"] == name:
             return self.send_json({"sid": sid, "name": cls["students"][sid]["name"]})
         sid = "s_" + secrets.token_hex(6)
         cls["students"][sid] = make_student(sid, name)
-        self.send_json({"sid": sid, "name": name})
+        kayit.ogrenci_ekle(KAYIT, cls["code"], sid, name, pcode, now(), False)
+        out = {"sid": sid, "name": name}
+        if pcode and not kayit.katilimci_var(KAYIT, pcode):
+            out["kodBilinmiyor"] = True
+        self.send_json(out)
 
     def metrics(self, b):
         cls = CLASSES.get(str(b.get("code") or "").upper())
@@ -961,6 +972,7 @@ class Handler(BaseHTTPRequestHandler):
             cls["ended"] = t
             push(cls, {"type": "ended"})
             persist(cls)
+            kayit.ders_bitir(KAYIT, cls["code"], t)
         else:
             return self.err("Bilinmeyen olay")
         self.send_json({"ok": True})

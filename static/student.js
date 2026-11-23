@@ -5,16 +5,18 @@ const params = new URLSearchParams(location.search);
 $("#jCode").value = (params.get("code") || "").toUpperCase();
 const prev = store.get("dn_student") || {};
 if (prev.name) $("#jName").value = prev.name;
+if (prev.pcode) $("#jPcode").value = prev.pcode;
 
 const show = (id) => ["joinView", "consentView", "classView", "endView"].forEach((v) => $("#" + v).classList.toggle("hidden", v !== id));
 
 $("#joinForm").onsubmit = async (e) => {
   e.preventDefault(); $("#jErr").textContent = "";
-  const code = $("#jCode").value.trim().toUpperCase(), name = $("#jName").value.trim();
+  const code = $("#jCode").value.trim().toUpperCase(), name = $("#jName").value.trim(), pcode = $("#jPcode").value.trim().toUpperCase();
   try {
-    const r = await api("/api/join", { code, name, sid: prev[code] });
+    const r = await api("/api/join", { code, name, pcode, sid: prev[code] });
     CODE = code; SID = r.sid;
-    store.set("dn_student", { ...prev, name, [code]: r.sid });
+    store.set("dn_student", { ...prev, name, pcode, [code]: r.sid });
+    $("#jWarn").textContent = r.kodBilinmiyor ? "Bu katılımcı kodu tanımlı değil — araştırmacıya danışın. Ders kaydı yine alınacak." : "";
     show("consentView");
   } catch (err) { $("#jErr").textContent = err.message; }
 };
