@@ -164,7 +164,7 @@ const ozB = (b) => [...gzModelFeatures(b.raw), ...GOZ_BS.map((k) => b.bs?.[k] ??
 let wgCalisiyor = true, wgDurTimer = null;
 function wgAyarla(calis) {
   if (!wg || calis === wgCalisiyor) return;
-  wgCalisiyor = calis; try { calis ? wg.resume() : wg.pause(); } catch {}
+  wgCalisiyor = calis; if (GLK?.cur) GLK.cur.wgGecis++; try { calis ? wg.resume() : wg.pause(); } catch {}
 }
 addEventListener("pointermove", (e) => {
   if (!wg || wgN < 1 || !guide?.targets?.length || bakarakSuruyor) return;
@@ -1044,7 +1044,7 @@ async function guideFinish(neden) {
     if (H.length >= 5) tlog(`KARIŞIM (iyimser, tüm veriyle): ${KARISIM_W.map((w) => `biz %${Math.round(100 * w)}→${Math.round(med(H.map((h) => Math.hypot(w * h.biz[0] + (1 - w) * h.wg[0] - h.x, w * h.biz[1] + (1 - w) * h.wg[1] - h.y))))}`).join(" · ")} px`);
     { const Yt = glYontemTablosu(), At = glFazTablosu(), Ot = glOturumTablosu();
       tlog(`TABLO yöntemler: ${Yt.map((r) => `${r.Kod} kontrol ${r["Kontrol medyan px"] ?? "-"} · GL ${r["GL doğruluk px"] ?? "-"}±${r["GL kesinlik px"] ?? "-"} · ${r["Örnekleme Hz"] ?? "-"} Hz`).join(" | ")}`, { yontemTablosu: Yt });
-      tlog(`TABLO aşamalar: ${At.map((r) => `${r["Aşama"]} ${r["Süre sn"]} sn, kamera ${r["Kamera fps (gerçek)"] ?? "-"} fps → işlenen ${r["İşleme fps"]} fps (${r["Toplam ms/kare"] ?? "-"} ms/kare), yüz %${r["Yüz bulunan %"]}, baş sınır dışı %${r["Baş sınır dışı %"] ?? "-"}`).join(" | ")}`, { asamaTablosu: At });
+      tlog(`TABLO aşamalar: ${At.map((r) => `${r["Aşama"]} ${r["Süre sn"]} sn, kamera ${r["Kamera fps (gerçek)"] ?? "-"} fps → işlenen ${r["İşleme fps"]} fps (${r["Toplam ms/kare"] ?? "-"} ms/kare), çizim ${r["Ekran çizim Hz (rAF)"] ?? "-"} Hz, uzun görev ${r["Uzun görev adet"] ?? "-"}/${r["Uzun görev toplam ms"] ?? "-"} ms, WebGazer aç/kapa ${r["WebGazer aç/kapa"] ?? "-"}, yüz %${r["Yüz bulunan %"]}, baş sınır dışı %${r["Baş sınır dışı %"] ?? "-"}`).join(" | ")}`, { asamaTablosu: At });
       tlog(`TABLO oturum: ${Ot.map((r) => `${r["Ölçü"]}: ${r["Değer"]}`).join(" · ")}`, { oturumTablosu: Ot });
       console.table(Yt); console.table(At); console.table(Ot); }
     tlog("Tüm veri: konsolda copy(testLog) yazıp yapıştırabilirsiniz");
@@ -1319,6 +1319,7 @@ function glTahmin(b, o) {
 function glReset() {
   glFazBitir(); GLK.recs = []; GLK.bazOrnek = []; GLK.headBase = null; GLK.dog = null; GLK.bitti = false;
   GLK.sure = { basla: simdi() }; GLK.basEpoch = Date.now() / 1000;
+  GLK.oturumId = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[b % 62]).join("").slice(0, 8);
 }
 function glFazBasla(ad) {
   glFazBitir();
@@ -1326,7 +1327,7 @@ function glFazBasla(ad) {
   GLK.cur = { stimulus_id: ad, order_idx: GLK.recs.length, started_at: Date.now() / 1000, t0: simdi(),
     rect: { left: 0, top: 0, scale: 1, viewW: innerWidth, viewH: innerHeight, width: innerWidth, height: innerHeight },
     gaze: {}, headRaw: [], mouse: [], d0: { kare: d.kare || 0, yuz: d.yuz || 0, kameraKare: d.kameraKare ?? null, islemeMs: d.islemeMs || 0, toplamMs: d.toplamMs || 0, islemeN: d.islemeN || 0 },
-    kirpma: 0, lastHead: -1e9, lastMove: -1e9 };
+    kirpma: 0, lastHead: -1e9, lastMove: -1e9, raf: 0, uzunN: 0, uzunMs: 0, uzunMax: 0, wgGecis: 0 };
   GLK.sure[ad + "Bas"] = simdi();
 }
 function glFazBitir() {
@@ -1336,14 +1337,25 @@ function glFazBitir() {
   c.rect.kare = (d.kare || 0) - c.d0.kare; c.rect.yuzKare = (d.yuz || 0) - c.d0.yuz; c.rect.kirpmaKare = c.kirpma;
   c.rect.islenen = d.islenen || null; c.rect.zoom = gaze?.zoom || 1;
   c.rect.kameraKare = d.kameraKare != null && c.d0.kameraKare != null ? d.kameraKare - c.d0.kameraKare : null;
+  c.rect.rafHz = +(c.raf / (c.rect.exposureMs / 1000)).toFixed(1); c.rect.uzunGorev = { n: c.uzunN, ms: Math.round(c.uzunMs), enUzun: Math.round(c.uzunMax) };
+  c.rect.wgGecis = c.wgGecis; c.rect.uzunGorevDestek = UZUN.destek;
   { const n = (d.islemeN || 0) - c.d0.islemeN;
     c.rect.islemeMs = n ? Math.round(((d.islemeMs || 0) - c.d0.islemeMs) / n) : null; c.rect.toplamMs = n ? Math.round(((d.toplamMs || 0) - c.d0.toplamMs) / n) : null; }
   c.head = c.headRaw.map(([t, s]) => { const h = GL.headDelta(s, GLK.headBase);
     return h ? [t, +h.yaw.toFixed(1), +h.pitch.toFixed(1), +h.roll.toFixed(1), +h.scale.toFixed(1), +h.shift.toFixed(1)] : null; }).filter(Boolean);
-  for (const k of ["headRaw", "d0", "lastHead", "lastMove", "kirpma", "t0"]) delete c[k];
+  for (const k of ["headRaw", "d0", "lastHead", "lastMove", "kirpma", "t0", "raf", "uzunN", "uzunMs", "uzunMax", "wgGecis"]) delete c[k];
   GLK.sure[c.stimulus_id + "Son"] = simdi();
   GLK.recs.push(c);
 }
+// Ekran çizim hızı (requestAnimationFrame) ve uzun görevler: sayfa yavaşladığında ana iş parçacığı mı (uzun görev çok) yoksa
+// GPU/çizim mi (uzun görev yok ama rAF az) ayrılsın. Chrome'da "longtask" gözlemcisi var; yoksa yalnız rAF ölçülür.
+const UZUN = { destek: false };
+(function rafSay() { if (GLK.cur) GLK.cur.raf++; requestAnimationFrame(rafSay); })();
+try {
+  new PerformanceObserver((list) => { const c = GLK.cur; if (!c) return;
+    for (const e of list.getEntries()) { c.uzunN++; c.uzunMs += e.duration; c.uzunMax = Math.max(c.uzunMax, e.duration); } }).observe({ type: "longtask", buffered: false });
+  UZUN.destek = true;
+} catch {}
 function glKare(l) {   // her yeni MediaPipe karesinde (start() içindeki tampon döngüsü)
   const hs = GL.headSample(l);
   if (GLK.baz && hs) GLK.bazOrnek.push(hs);
@@ -1527,6 +1539,9 @@ function glFazTablosu() {
     const span = biz.length > 1 ? (biz.at(-1)[0] - biz[0][0]) / 1000 : 0;
     return { "Aşama": ad[r.stimulus_id] || r.stimulus_id, "Süre sn": r1(sn), "Kamera fps (gerçek)": sn && r.rect.kameraKare != null ? r1(r.rect.kameraKare / sn) : null,
       "İşlenen kare": r.rect.kare, "İşleme fps": sn ? r1(r.rect.kare / sn) : null, "MediaPipe ms/kare": r.rect.islemeMs ?? null, "Toplam ms/kare": r.rect.toplamMs ?? null,
+      "Ekran çizim Hz (rAF)": r.rect.rafHz ?? null, "Uzun görev adet": r.rect.uzunGorevDestek ? r.rect.uzunGorev?.n ?? null : "ölçülemedi",
+      "Uzun görev toplam ms": r.rect.uzunGorevDestek ? r.rect.uzunGorev?.ms ?? null : null, "En uzun görev ms": r.rect.uzunGorevDestek ? r.rect.uzunGorev?.enUzun ?? null : null,
+      "WebGazer aç/kapa": r.rect.wgGecis ?? null,
       "Yüz bulunan %": r.rect.kare ? r0(100 * r.rect.yuzKare / r.rect.kare) : null, "Kırpma kare": r.rect.kirpmaKare,
       "Bizim örnek": biz.length, "Bizim Hz": span ? r1(biz.length / span) : null, "WebGazer örnek": r.gaze.wg?.length || 0,
       "WebGazer Hz": r.gaze.wg?.length > 1 ? r1(r.gaze.wg.length / ((r.gaze.wg.at(-1)[0] - r.gaze.wg[0][0]) / 1000)) : null,
@@ -1599,7 +1614,7 @@ function glPaket() {
   if (!GLK.recs.length && !GLK.dog && !GLK.cur) return null;
   const b = GLK.dog?.yontem?.biz, d = GL.deviceInfo();
   return {
-    session: { participant: null, status: GLK.bitti ? "completed" : "started", device: d, accuracy_px: b ? r1(b.acc) : null, precision_px: b ? r1(b.prec) : null,
+    session: { id: GLK.oturumId || null, participant: null, status: GLK.bitti ? "completed" : "started", device: d, accuracy_px: b ? r1(b.acc) : null, precision_px: b ? r1(b.prec) : null,
       created_at: GLK.basEpoch, completed_at: GLK.bitti ? Date.now() / 1000 : null,
       meta: { camera: GLK.kamera, wgCamera: wgKameraBilgi(), kameraAyari: GLK.ayar, head: { base: GLK.headBase, limits: GL.LIMITS }, dogrulama: GLK.dog,
               sure: Object.fromEntries(Object.entries(GLK.sure).map(([k, v]) => [k, Math.round(v - (GLK.sure.basla || 0))])), diag: gaze?.diag || null } },

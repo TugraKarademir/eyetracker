@@ -70,9 +70,14 @@ def gl_num(v):
 def gl_kaydet(g, log_file):
     """bakis_test.html glPaket() → SQLite. Oturum kimliği gazelab gibi 8 karakter."""
     se = g.get("session") if isinstance(g.get("session"), dict) else {}
-    sid = secrets.token_urlsafe(6)[:8]
+    # Aynı test birden çok kez gönderilebilir (yüz kaybolunca otomatik gönderim): istemci kimliği varsa eski kayıt silinip yenisi yazılır
+    cid = str(se.get("id") or "")
+    sid = cid if re.fullmatch(r"[A-Za-z0-9_-]{6,16}", cid) else secrets.token_urlsafe(6)[:8]
     tab = g.get("tablolar") if isinstance(g.get("tablolar"), dict) else {}
     with GL_LOCK, gl_db() as con:
+        for t in ("recordings", "method_stats", "phase_stats", "session_stats"):
+            con.execute(f"DELETE FROM {t} WHERE session_id=?", (sid,))
+        con.execute("DELETE FROM sessions WHERE id=?", (sid,))
         con.execute("INSERT INTO sessions(id,study_id,participant,status,device,accuracy_px,precision_px,meta,created_at,completed_at,log_file)"
                     " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                     (sid, "bakis_testi", None, str(se.get("status") or "started")[:20], json.dumps(se.get("device") or {}),
