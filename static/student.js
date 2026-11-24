@@ -1,6 +1,6 @@
 // Öğrenci tarafı
 let gaze = null;
-let CODE = null, SID = null, analyzer = null, stream = null, es = null, paused = false, handUp = false, sendTimer = null;
+let CODE = null, SID = null, AD = null, analyzerHazir = false, analyzer = null, stream = null, es = null, paused = false, handUp = false, sendTimer = null;
 const params = new URLSearchParams(location.search);
 // Öğrenci yalnız bakışı kalibre eder ve etkileşir; ekran alanı, bakış noktası, duygu paneli ve el hareketi ayarları
 // yalnız ?gelismis=1 ile görünür. Gizliyken el hareketi ve HSEmotion her zaman açık çalışır (onay metni kapsar).
@@ -16,14 +16,17 @@ $("#joinForm").onsubmit = async (e) => {
   e.preventDefault(); $("#jErr").textContent = "";
   const code = $("#jCode").value.trim().toUpperCase(), name = $("#jName").value.trim();
   try {
-    const r = await api("/api/join", { code, name, sid: prev[code] });
-    CODE = code; SID = r.sid;
+    // KVKK onayı (sınıf testi 25.11): onay kutusu işaretlenmeden form gönderilmez; sunucu onaysız katılımı reddeder
+    const r = await api("/api/join", { code, name, sid: prev[code], onay: { surum: ONAY_SURUM, t: Date.now() / 1000 } });
+    CODE = code; SID = r.sid; AD = name;
     store.set("dn_student", { ...prev, name, [code]: r.sid });
     show("consentView");
   } catch (err) { $("#jErr").textContent = err.message; }
 };
 
-$("#agree").onchange = (e) => ($("#camBtn").disabled = !e.target.checked);
+const ONAY_SURUM = "2026-11-25";   // katılım formundaki bilgilendirme metninin sürümü (metin değişirse artırın)
+$("#agree").onchange = (e) => ($("#joinBtn").disabled = !e.target.checked);
+$("#joinBtn").disabled = !$("#agree").checked;   // tarayıcı geri gelince kutuyu işaretli bırakmış olabilir
 
 $("#camBtn").onclick = async () => {
   $("#cErr").textContent = "";
@@ -46,7 +49,8 @@ $("#camBtn").onclick = async () => {
     analyzer = new FocusAnalyzer($("#video"), { onUpdate: renderMe, getEyes: () => gaze?.face || null, getProfile: () => (gaze?.report ? { ...(gaze.report.profil || {}), yuz: gaze.report.yuz || null } : null) });
     await analyzer.load((t) => ($("#vbadge").textContent = t));
     $("#vbadge").textContent = "Kalibrasyon: ekrana bakın…";
-    analyzer.start();
+    analyzerHazir = true;
+    if (!kalCerceve) analyzer.start();   // bakış testi açıksa kapanınca başlar (iki MediaPipe aynı anda çalışmasın)
     sendTimer = setInterval(sendMetrics, 2000);
   } catch (err) {
     console.error(err);
@@ -122,7 +126,24 @@ function kurulumBilgi() {
   return { kamera: st.width ? `${st.width}x${st.height}` : null, fps: st.frameRate ? Math.round(st.frameRate) : null,
     ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, dpr: +(devicePixelRatio || 1).toFixed(2),
     fs: !!document.fullscreenElement, tarayici: ad ? `${ad} ${m[2]}` : "", uzaklikCm: Number.isFinite(dist) ? Math.round(dist) : null, islemeFps: fps != null ? Math.round(fps / 5) * 5 : null,
-    isci: d ? !!d.isci : null, gecikmeMs };
+    isci: d ? !!d.isci : null, gecikmeMs, cihaz2: cihaz2() };
+}
+// Cihaz bilgisi (sınıf testi): tarayıcının verdiği kadarı, vermediği null (uydurma yok). GPU adı WebGL'den bir kez okunur.
+let _gpuAdi;
+function gpuAdi() {
+  if (_gpuAdi !== undefined) return _gpuAdi;
+  _gpuAdi = null;
+  try {
+    const gl = document.createElement("canvas").getContext("webgl"), x = gl?.getExtension("WEBGL_debug_renderer_info");
+    if (x) _gpuAdi = gl.getParameter(x.UNMASKED_RENDERER_WEBGL) ?? null;
+    gl?.getExtension("WEBGL_lose_context")?.loseContext();
+  } catch {}
+  return _gpuAdi;
+}
+function cihaz2() {
+  const u = navigator.userAgentData;
+  return { cekirdek: navigator.hardwareConcurrency ?? null, bellekGB: navigator.deviceMemory ?? null, gpu: gpuAdi(), ua: navigator.userAgent,
+           uaVeri: u ? { brands: (u.brands || []).map((b) => ({ brand: b.brand, version: b.version })), platform: u.platform ?? null, mobile: u.mobile ?? null } : null };
 }
 // Tarayıcı / ekran boyutu: öğretmene gider ve değiştikçe konsola yazılır ([PENCERE ...], window.pencereLog)
 function ekranBilgi() {
@@ -235,7 +256,9 @@ async function startGaze() {
   gaze = new GazeTracker($("#video"), { getRegions: gazeRegions, onStatus: gazeStatus });
   try {
     await gaze.load();
-    if (!gaze.model) toast("👁️ Bakış takibini açmak için soldaki “Bakışı kalibre et” düğmesine basın (≈2 dk).", 7000);
+    // Sınıf testi: katılınca bakış testi zorunlu; bu derste bu tarayıcıda tamamlanmışsa (sayfa yenilendi) yeniden açılmaz
+    if (!store.get(BAKIS_TAMAM())) bakisTestiAc();
+    else if (!gaze.model) toast("👁️ Bakış takibini açmak için soldaki “Bakışı kalibre et” düğmesine basın (≈2 dk).", 7000);
   } catch (e) {
     console.error(e);
     gazeStatus("Bakış modeli yüklenemedi (internet bağlantısını kontrol edin)");
@@ -253,23 +276,26 @@ setInterval(() => {
 // Bakış kalibrasyonu = bakış testi (bakis_test.html, ?gomulu=1) tam ekran çerçevede. O sürede bu sayfanın yüz, el ve duygu işlemesi
 // durur (iki MediaPipe aynı anda çalışıp kare hızını düşürmesin). Test, aktarım kuralıyla seçtiği modeli aynı tarayıcı deposuna
 // yazar (gaze.save); "Derse dön" (postMessage) ile çerçeve kapanınca model buraya yüklenir.
-let kalCerceve = null, kalOnce = null;
+let kalCerceve = null;
+const BAKIS_TAMAM = () => `dn_bakis_tamam_${CODE}`;   // bu derste bakış testi tamamlandı (kalibrasyon kaydedildi)
+// Bakış testi kaydı derse bağlansın: ders kodu ve sid adreste, ad yalnız aynı kökenli çerçevenin okuduğu bu nesnede (adreste ad yok)
+window.dnBaglam = () => ({ ders: CODE, sid: SID, ad: AD });
 function bakisTestiAc() {
   if (kalCerceve || !gaze?.ready) return;
-  kalOnce = { el: handDet.enabled, hs: hse.enabled };
   gaze.pause(true); analyzer?.stop(); handDet.setEnabled(false); hse.setEnabled(false);
   const f = kalCerceve = document.createElement("iframe");
-  f.src = "/bakis_test.html?gomulu=1"; f.allow = "camera; fullscreen; autoplay"; f.allowFullscreen = true; f.title = "Bakış kalibrasyonu";
+  f.src = `/bakis_test.html?gomulu=1&ders=${encodeURIComponent(CODE || "")}&sid=${encodeURIComponent(SID || "")}`; f.allow = "camera; fullscreen; autoplay"; f.allowFullscreen = true; f.title = "Bakış kalibrasyonu";
   Object.assign(f.style, { position: "fixed", inset: "0", width: "100vw", height: "100vh", border: "0", zIndex: "9999", background: "#0f141b" });
   document.body.append(f);
 }
 function bakisTestiKapat() {
   if (!kalCerceve) return;
   kalCerceve.remove(); kalCerceve = null;
-  if (!paused) { gaze.pause(false); analyzer?.start(); }
-  if (kalOnce?.el) handDet.setEnabled(true).catch(() => {});
-  if (kalOnce?.hs) hse.setEnabled(true).catch(() => {});
-  if (gaze.restore()) { gazeStatus("ok"); toast(GELISMIS ? `👁️ Kalibrasyon yüklendi: ${gaze.secim?.ad || "ana model"}` : "👁️ Bakış kalibrasyonu tamam", 5000); }
+  if (!paused) { gaze.pause(false); if (analyzerHazir) analyzer?.start(); }
+  // El ve duygu kutuları açıksa yeniden başlar (test açıkken kamera hazır olunca başlatılmamış olabilirler)
+  if ($("#autoHandChk").checked && stream) handDet.setEnabled(true).catch(() => {});
+  if ($("#hseChk").checked && stream) hse.setEnabled(true).catch(() => {});
+  if (gaze.restore()) { store.set(BAKIS_TAMAM(), true); gazeStatus("ok"); toast(GELISMIS ? `👁️ Kalibrasyon yüklendi: ${gaze.secim?.ad || "ana model"}` : "👁️ Bakış kalibrasyonu tamam", 5000); }
   else toast("Kalibrasyon kaydedilmedi; tekrar deneyebilirsiniz.", 5000);
 }
 addEventListener("message", (e) => { if (e.origin === location.origin && e.data?.tip === "bakis-testi-kapat") bakisTestiKapat(); });
@@ -307,7 +333,7 @@ const handDet = new HandRaiseDetector($("#video"), {
   const apply = async () => {
     store.set(key, chk.checked);
     if (!chk.checked) { $("#handStatus").textContent = ""; return handDet.setEnabled(false); }
-    if (!stream) return;                                   // kamera açılınca tekrar çağrılır
+    if (!stream || kalCerceve) return;                     // kamera açılınca tekrar çağrılır; bakış testi açıksa kapanınca başlar
     $("#handStatus").textContent = "El modeli yükleniyor…";
     try { await handDet.setEnabled(true); }
     catch (e) { console.error(e); $("#handStatus").textContent = "El modeli yüklenemedi"; }
@@ -337,7 +363,7 @@ const hse = new HSEmotionProbe($("#video"), { getFace: () => gaze?.face || null,
   const apply = async () => {
     store.set(key, chk.checked);
     if (!chk.checked) { hse.setEnabled(false); $("#hseBars").innerHTML = ""; return; }
-    if (!stream) return;
+    if (!stream || kalCerceve) return;   // bakış testi açıksa kapanınca başlar
     try { await hse.setEnabled(true); } catch (e) { console.error(e); hse.status = "yüklenemedi: " + e.message; }
   };
   chk.onchange = apply;

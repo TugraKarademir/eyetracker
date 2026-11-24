@@ -124,6 +124,22 @@ function hseLine(st) {
   if (!h) return "";
   return `<div class="muted" style="font-size:12px" title="HSEmotion: valence olumsuz (-1) → olumlu (+1), arousal sakin (-1) → uyarılmış (+1)">🧠 ${HSE_AD[h.top] || esc(h.top)} %${Math.round(100 * h.p)} · V ${h.valence.toFixed(2)} · A ${h.arousal.toFixed(2)}</div>`;
 }
+// Sınıf testi: bakış testi durumu (sunucu: bakis_testleri) ve cihaz özeti (kurulum). Bilinmeyen "veri yok".
+const BT_DURUM = { suruyor: ["sürüyor", "var(--warn)"], bitti: ["bitti", "var(--good)"], bitmedi: ["bitmedi", "var(--bad)"] };
+function btMetin(bt) {
+  const [ad, renk] = BT_DURUM[bt?.durum] || ["başlamadı", "var(--muted)"];
+  const ek = bt?.durum === "bitti" ? ` · GazeLab ${bt.glAcc != null ? `${Math.round(bt.glAcc)} px` : "veri yok"} · ${esc(bt.model || "veri yok")}` : "";
+  return `<b style="color:${renk}">${ad}</b>${ek}`;
+}
+function cihazMetin(c) {
+  if (!c) return "veri yok";
+  return `${esc(c.tarayici || "tarayıcı ?")} · ${c.cekirdek != null ? `${c.cekirdek} çekirdek` : "çekirdek ?"} · ${esc(c.gpu || "GPU ?")}`;
+}
+function btSatiri(st) {
+  if (st.demo) return "";
+  return `<div class="muted" style="font-size:11px">🎯 Bakış testi: ${btMetin(st.bakisTesti)}</div>` +
+    `<div class="muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(st.cihazOz?.gpu || "")}">💻 ${cihazMetin(st.cihazOz)}</div>`;
+}
 function renderStudents(list) {
   const el = $("#students");
   if (!list.length) {
@@ -145,6 +161,7 @@ function renderStudents(list) {
       <div class="metric"><span>Enerji</span><div class="bar"><i style="width:${st.energy}%;background:var(--c-en)"></i></div><b>${st.energy}</b></div>
       ${gazeLine(st)}
       ${hseLine(st)}
+      ${btSatiri(st)}
       ${st.ekran ? `<div class="muted" style="font-size:11px" title="Ekran ${st.ekran.sw}x${st.ekran.sh}, ölçek ${st.ekran.dpr}">🖥️ Tarayıcı ${st.ekran.vw}×${st.ekran.vh}${st.ekran.fs ? " · tam ekran" : ""}${st.ekran.mobil ? " · 📱 mobil" : ""}</div>` : ""}
       ${floorBtn}
     </div>`;
@@ -230,7 +247,8 @@ function ayrintiCiz(d) {
         ${kutu("Bakış kalibrasyonu", kal
           ? `${satir("Model", esc(kal.model || "bizim (ana model)"))}${satir("Hata", kal.acc != null ? `~${kal.acc} px` : "–")}${satir("3×3 isabet", yuzde(kal.hit3))}${satir("Zaman", fmtTime(kal.t))}`
           : `<span class="muted small">${d.gazeCal ? "Kalibre (bu derste rapor gelmedi)" : "Bakış takibi kapalı"}</span>`)}
-        ${kutu("Cihaz ve kurulum", `${e ? satir("Tarayıcı", `${e.vw}×${e.vh}${e.fs ? " · tam ekran" : ""}${e.mobil ? " · mobil" : ""}`) + satir("Ekran", `${e.sw}×${e.sh} @${e.dpr}`) : ""}${k.kamera ? satir("Kamera", esc(k.kamera)) : ""}${k.fps != null ? satir("Kamera kare/sn", k.fps) : ""}${k.islemeFps != null ? satir("İşlenen kare/sn", k.islemeFps) : ""}${k.uzaklikCm != null ? satir("Uzaklık", `${Math.round(k.uzaklikCm)} cm`) : ""}${k.tarayici ? satir("Tarayıcı türü", esc(k.tarayici)) : ""}` || '<span class="muted small">Bilgi yok</span>')}
+        ${d.demo ? "" : kutu("Bakış testi (ders başı)", `${satir("Durum", btMetin(d.bakisTesti))}${d.bakisTesti?.t ? satir("Son kayıt", fmtTime(d.bakisTesti.t)) : ""}${d.bakisTesti?.dosya ? `<div class="muted" style="font-size:11px;word-break:break-all">${esc(d.bakisTesti.dosya)}</div>` : ""}`)}
+        ${kutu("Cihaz ve kurulum", `${k.cihaz2 ? satir("İşlemci çekirdeği", k.cihaz2.cekirdek ?? "veri yok") + satir("Bellek", k.cihaz2.bellekGB != null ? `${k.cihaz2.bellekGB} GB` : "veri yok") + satir("GPU", esc(k.cihaz2.gpu || "veri yok")) : ""}${e ? satir("Tarayıcı", `${e.vw}×${e.vh}${e.fs ? " · tam ekran" : ""}${e.mobil ? " · mobil" : ""}`) + satir("Ekran", `${e.sw}×${e.sh} @${e.dpr}`) : ""}${k.kamera ? satir("Kamera", esc(k.kamera)) : ""}${k.fps != null ? satir("Kamera kare/sn", k.fps) : ""}${k.islemeFps != null ? satir("İşlenen kare/sn", k.islemeFps) : ""}${k.uzaklikCm != null ? satir("Uzaklık", `${Math.round(k.uzaklikCm)} cm`) : ""}${k.tarayici ? satir("Tarayıcı türü", esc(k.tarayici)) : ""}` || '<span class="muted small">Bilgi yok</span>')}
       </div>
       <div class="muted" style="font-size:11px">Kamera görüntüsü gönderilmez; tüm ölçümler öğrencinin cihazında yapılır, buraya yalnız sayılar gelir.</div>
     </div>`;
