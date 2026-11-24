@@ -12,6 +12,9 @@ const { kameraBetigi, UYARI_IMI: KAMERA_UYARI_IMI } = require("./kamera");
 
 // ---------------------------------------------------------------- argümanlar, yollar
 const SMOKE = process.argv.includes("--smoke");
+// Sayfalar http://localhost:PORT kökeninde açılır (WebGazer yalnız https/localhost kabul eder); sunucu 127.0.0.1'de.
+// Chromium localhost'u ::1'e çözmesin diye IPv4'e sabitlenir.
+app.commandLine.appendSwitch("host-resolver-rules", "MAP localhost 127.0.0.1");
 function argDegeri(ad) {
   const on = `--${ad}=`;
   const a = process.argv.find((x) => x.startsWith(on));
@@ -47,7 +50,7 @@ function paketSunucuYolu() {
 // ---------------------------------------------------------------- durum
 let ayar = null;
 let calisan = null;        // { port, surec, durdur }
-let sunucuKoken = null;    // "http://127.0.0.1:PORT" (yalnız sunucu hazırken)
+let sunucuKoken = null;    // "http://localhost:PORT" (yalnız sunucu hazırken)
 let durum = { asama: "basliyor", port: null, veriKlasoru: null, hata: null, zorla: !!VERI_ZORLA, oneDrive: false, kameraUyari: null };
 let baslangicPenceresi = null;
 const sayfaPencereleri = new Set();
@@ -104,7 +107,7 @@ async function sunucuBaslat() {
     const { komut, argumanlar } = sunucu.varsayilanKomut(veri, paketSunucuYolu());
     const c = await sunucu.baslat({ komut, argumanlar, port, veri, zamanAsimiMs: 15000 });
     calisan = c;
-    sunucuKoken = `http://127.0.0.1:${c.port}`;
+    sunucuKoken = `http://localhost:${c.port}`;   // WebGazer yalnız https veya "localhost" ana makinesini kabul eder
     if (ayar.sonPort !== c.port) {
       try {
         ayarlar.kaydet(AYAR_DOSYASI(), { ...ayar, sonPort: c.port });
@@ -337,6 +340,15 @@ async function kameraSarmalayiciKur(win) {
     wc.debugger.attach("1.3");
     const kaydet = async () => {
       await wc.debugger.sendCommand("Page.enable");
+      if (SMOKE) {
+        // Smoke: sayfanın alert/confirm açıp açmadığı izlenir (ör. WebGazer'ın "yalnız https" uyarısı); diyalog kapatılır.
+        win.smokeDiyaloglar = [];
+        wc.debugger.on("message", (_e, yontem, par) => {
+          if (yontem !== "Page.javascriptDialogOpening") return;
+          win.smokeDiyaloglar.push(String(par && par.message));
+          wc.debugger.sendCommand("Page.handleJavaScriptDialog", { accept: true }).catch(() => {});
+        });
+      }
       await wc.debugger.sendCommand("Page.addScriptToEvaluateOnNewDocument", { source: betik });
     };
     await Promise.race([kaydet(), new Promise((_, red) => setTimeout(() => red(new Error("CDP zaman aşımı")), 5000))]);
@@ -588,6 +600,17 @@ async function smokeKos() {
       `({ var: !!window.__dnKamera, kaynak: window.__dnKamera && window.__dnKamera.kaynak, etiket: window.__dnKamera && window.__dnKamera.etiket, cozunurluk: window.__dnKamera && window.__dnKamera.cozunurluk, sarili: !String(navigator.mediaDevices.getUserMedia).includes("[native code]") })`,
     );
     yaz(`kamera sarmalayıcısı: ${JSON.stringify(kam)}`);
+    // Sayfa localhost kökeninde yüklendi ve WebGazer'ın https uyarısı (alert) çıkmadı mı?
+    // Sayfa WebGazer'ı yalnız teste başlayınca yükler; aynı betik burada yüklenir (uyarı yükleme anında çıkar).
+    const wgYuk = await adim("WebGazer yükleme", kw.webContents.executeJavaScript(
+      `new Promise((coz) => { const s = document.createElement("script"); s.src = "https://cdn.jsdelivr.net/npm/webgazer@3.5.3/dist/webgazer.js"; s.onload = () => coz("yüklendi"); s.onerror = () => coz("ağ yok"); document.head.appendChild(s); })`,
+    ), 20000).catch((e) => e.message);
+    await new Promise((r) => setTimeout(r, 500));
+    yaz(`WebGazer betiği: ${wgYuk}`);
+    const wgDurum = await kw.webContents.executeJavaScript(`({ host: location.hostname, guvenli: window.isSecureContext, webgazer: typeof window.webgazer })`);
+    yaz(`bakis_test.html: ${JSON.stringify(wgDurum)}, alert/diyalog: ${JSON.stringify(kw.smokeDiyaloglar)}`);
+    if (wgDurum.host !== "localhost" || !wgDurum.guvenli) throw new Error("test sayfası localhost güvenli kökeninde yüklenmedi");
+    if (!kw.smokeDiyaloglar || kw.smokeDiyaloglar.length) throw new Error(`test sayfası alert açtı: ${JSON.stringify(kw.smokeDiyaloglar)}`);
     if (!kam.var || kam.etiket !== "Smoke Kamera" || !kam.sarili || kam.kaynak !== "belge-oncesi") throw new Error("kamera sarmalayıcısı sayfada yok (ya da sayfa betiklerinden önce eklenmedi)");
     // "Seçili kamera bulunamadı" imi başlangıç ekranına ulaşıyor mu? (gerçek kamera açılmadan, imin kendisiyle)
     await kw.webContents.executeJavaScript(`console.warn(${JSON.stringify(KAMERA_UYARI_IMI)})`);

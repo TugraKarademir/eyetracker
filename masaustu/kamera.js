@@ -86,7 +86,7 @@ function sarmalayici(cfg) {
   md.getUserMedia = sarili;
 }
 
-// cfg: { etiket: string|null, cozunurluk: {w,h}|null, koken: "http://127.0.0.1:PORT", kaynak: tanı için etiket }
+// cfg: { etiket: string|null, cozunurluk: {w,h}|null, koken: "http://localhost:PORT", kaynak: tanı için etiket }
 function kameraBetigi({ etiket = null, cozunurluk = null, koken = null, kaynak = null, listeZamanAsimiMs = 3000 } = {}) {
   const cfg = { etiket: etiket || null, cozunurluk: cozunurluk || null, koken: koken || null, kaynak, listeZamanAsimiMs, uyariImi: UYARI_IMI };
   return `(${sarmalayici.toString()})(${JSON.stringify(cfg)});`;

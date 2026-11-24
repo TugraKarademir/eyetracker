@@ -4,7 +4,7 @@ import vm from "node:vm";
 import { createRequire } from "node:module";
 const { kameraBetigi, UYARI_IMI } = createRequire(import.meta.url)("../kamera.js");
 
-const KOKEN = "http://127.0.0.1:8030";
+const KOKEN = "http://localhost:8030";
 
 // Sahte sayfa: getUserMedia çağrılarını kaydeder; aygıt listesi ve hatalar ayarlanabilir.
 function sayfa({ aygitlar = [], koken = KOKEN, hata = null } = {}) {
