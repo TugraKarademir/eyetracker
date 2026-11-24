@@ -48,7 +48,7 @@ $("#camBtn").onclick = async () => {
   try {
     analyzer = new FocusAnalyzer($("#video"), { onUpdate: renderMe, getEyes: () => gaze?.face || null, getPose3: gazePose3, getProfile: () => (gaze?.report ? { ...(gaze.report.profil || {}), yuz: gaze.report.yuz || null } : null) });
     await analyzer.load((t) => ($("#vbadge").textContent = t));
-    $("#vbadge").textContent = "Kalibrasyon: ekrana bakın…";
+    $("#vbadge").textContent = "Hazırlanıyor: ekrana bakın…";
     analyzerHazir = true;
     if (!kalCerceve) analyzer.start();   // bakış testi açıksa kapanınca başlar (iki MediaPipe aynı anda çalışmasın)
     sendTimer = setInterval(sendMetrics, 2000);
@@ -58,11 +58,13 @@ $("#camBtn").onclick = async () => {
   }
 };
 
+$("#mAttBar").style.width = "0%"; $("#mEnBar").style.width = "0%";   // ilk değer gelene dek çubuklar boş
 function renderMe(s) {
-  $("#vbadge").textContent = s.calibrating ? (s.face ? "Kalibrasyon: ekrana bakın…" : "Yüzünüz görünmüyor") :
+  $("#vbadge").textContent = s.calibrating ? (s.face ? "Hazırlanıyor: ekrana bakın…" : "Yüzünüz görünmüyor") :
     !s.face ? "Yüzünüz görünmüyor" : s.eyesClosed ? "Gözler kapalı" : s.lookingAway ? "Ekran dışına bakıyorsunuz" : "Analiz ediliyor ✓";
-  $("#mAtt").textContent = s.attention; $("#mAttBar").style.width = s.attention + "%"; $("#mAttBar").style.background = levelColor(s.attention);
-  $("#mEn").textContent = s.energy; $("#mEnBar").style.width = s.energy + "%";
+  const sayi = (v) => typeof v === "number" && Number.isFinite(v);   // değer yoksa "–" ve boş çubuk
+  $("#mAtt").textContent = sayi(s.attention) ? s.attention : "–"; $("#mAttBar").style.width = sayi(s.attention) ? s.attention + "%" : "0%"; if (sayi(s.attention)) $("#mAttBar").style.background = levelColor(s.attention);
+  $("#mEn").textContent = sayi(s.energy) ? s.energy : "–"; $("#mEnBar").style.width = sayi(s.energy) ? s.energy + "%" : "0%";
   meDuygu(s);
 }
 // Duygu satırı: HSEmotion ölçümü tazeyse onun en olası sınıfı, değilse yüz ifadesi kuralının sonucu
@@ -124,7 +126,10 @@ let sonKalAt = null;
 function kalYeni() {
   const r = gaze?.report;
   if (!r || r.at == null || r.at === sonKalAt) return {};
-  return { kal: r };
+  // Yedek gönderilen hali tutsun: raporun kendisi sonradan değişebilir, bu yüzden kopya
+  let kopya;
+  try { kopya = structuredClone(r); } catch { try { kopya = JSON.parse(JSON.stringify(r)); } catch { kopya = r; } }
+  return { kal: kopya };
 }
 // Gerçek işlenen kare/sn: iki gönderim arasında işlenen kare (diag.kare) / geçen duvar saati.
 // İşçi gecikmesi: aynı aralıkta kare yakalama → işçi sonucu ortalaması (yalnız işçi yolunda).
@@ -307,7 +312,7 @@ async function startGaze() {
     cihazTamBaslat();
     // Sınıf testi: katılınca bakış testi zorunlu; bu derste bu tarayıcıda tamamlanmışsa (sayfa yenilendi) yeniden açılmaz
     if (!store.get(BAKIS_TAMAM())) bakisTestiAc();
-    else if (!gaze.model) toast("👁️ Bakış takibini açmak için soldaki “Bakışı kalibre et” düğmesine basın (≈2 dk).", 7000);
+    else if (!gaze.model) toast("👁️ Bakış takibi için bakış testini tamamlayın (≈2 dk); soldaki “Bakışı kalibre et” düğmesiyle yeniden başlatabilirsiniz.", 7000);
   } catch (e) {
     console.error(e);
     gazeStatus("Bakış modeli yüklenemedi (internet bağlantısını kontrol edin)");
@@ -319,7 +324,7 @@ setInterval(() => {
   const r = gaze.region;
   // Kaba modda (isabet düşük) bölge yok; yalnızca "ekranda / ekran dışı"
   const a = AOI[r] || (r === "ekranda" ? { icon: "🖥️", label: "Ekranda (kaba mod: bölge ayırt edilemiyor)" } : null);
-  $("#gazeRegion").textContent = gaze.blocked ? "" : a ? `${a.icon} Şu an: ${a.label}` : "Yüz algılanmıyor";
+  $("#gazeRegion").textContent = gaze.blocked ? "" : a ? `${a.icon} Şu an: ${a.label}` : "Yüzünüz görünmüyor";
 }, 500);
 
 // Bakış kalibrasyonu = bakış testi (bakis_test.html, ?gomulu=1) tam ekran çerçevede. O sürede bu sayfanın yüz, el ve duygu işlemesi

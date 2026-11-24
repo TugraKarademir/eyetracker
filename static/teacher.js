@@ -33,6 +33,29 @@ fetch("/api/teachers").then((r) => r.json()).then((list) => {
   $("#cTeacherBox").classList.remove("hidden");
 }).catch(() => {});
 
+// Öğrencilerin açacağı adres: sunucunun ağ IP'leri (öğretmen localhost ile açsa da öğrenciye işe yarar)
+let ADRES = null;
+fetch("/api/adres").then((r) => (r.ok ? r.json() : null)).then((a) => { if (a && Array.isArray(a.ipler)) { ADRES = a; renderAdres(); } }).catch(() => {});
+function ogrAdresleri() {
+  const kod = typeof CODE === "string" && CODE ? `?code=${CODE}` : "";
+  if (ADRES && ADRES.ipler.length && ADRES.https_port)
+    return { https: true, liste: ADRES.ipler.map((ip) => `https://${ip}:${ADRES.https_port}/student.html${kod}`) };
+  const ip = ADRES && ADRES.ipler.length ? ADRES.ipler[0] : null;
+  const port = ADRES && ADRES.http_port ? ADRES.http_port : location.port;
+  return { https: false, liste: [ip ? `http://${ip}${port ? ":" + port : ""}/student.html${kod}` : `${location.origin}/student.html${kod}`] };
+}
+function adresHtml() {
+  if (!ADRES) return `<b>${location.origin}/student.html</b>`;
+  const a = ogrAdresleri();
+  const uyari = a.https ? (a.liste.length > 1 ? "<br>Öğrencilerle aynı ağdaki adresi kullanın." : "")
+    : "<br><b>Lab bilgisayarları için sunucu https ile başlatılmalı (KOMUTLAR.md 5. bölüm).</b>";
+  return a.liste.map((u) => `<b>${u}</b>`).join("<br>") + uyari;
+}
+function renderAdres() {
+  const kutu = document.querySelector("#adresKutu");
+  if (kutu) kutu.innerHTML = adresHtml();
+}
+
 function start(code, key) {
   CODE = code; KEY = key;
   $("#createView").classList.add("hidden");
@@ -147,7 +170,7 @@ function btSatiri(st) {
 function renderStudents(list) {
   const el = $("#students");
   if (!list.length) {
-    el.innerHTML = `<div class="empty" style="grid-column:1/-1">Henüz katılan yok.<br>Öğrenciler <b>${location.origin}/student.html</b> adresinden <b>${CODE}</b> koduyla katılabilir.<br><br>Kamerasız denemek için üstteki <b>+ Demo öğrenciler</b> butonunu kullanın.</div>`;
+    el.innerHTML = `<div class="empty" style="grid-column:1/-1">Henüz katılan yok.<br>Öğrenciler <span id="adresKutu">${adresHtml()}</span> adresinden <b>${CODE}</b> koduyla katılabilir.<br><br>Kamerasız denemek için üstteki <b>+ Demo öğrenciler</b> butonunu kullanın.</div>`;
     return;
   }
   el.innerHTML = list.map((st) => {
@@ -311,8 +334,8 @@ $("#annForm").onsubmit = (e) => { e.preventDefault(); const v = $("#annIn").valu
 $("#demoBtn").onclick = () => send({ type: "demo", count: 6 });
 $("#endBtn").onclick = () => { if (confirm("Ders bitirilsin mi? Öğrencilerin bağlantısı kapanır ve rapor oluşturulur.")) send({ type: "end" }); };
 $("#codeBox").onclick = () => {
-  const link = `${location.origin}/student.html?code=${CODE}`;
-  navigator.clipboard?.writeText(link).then(() => toast("Katılım bağlantısı kopyalandı: " + link), () => toast(link));
+  const link = ogrAdresleri().liste.join("\n");
+  navigator.clipboard?.writeText(link).then(() => toast("Katılım bağlantısı kopyalandı: " + link.replace(/\n/g, "  ")), () => toast(link));
 };
 // ---------------------------------------------------------------- materyaller
 const MAT = { list: [], active: null };

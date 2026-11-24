@@ -96,6 +96,14 @@ const yukle = (ad, ek = {}) => {
   assert.deepEqual([js[0].t, js[0].sunucu, js[2].sunucu, js[1].sunucu], [tY, "ok", "bekliyor", "hata: Ders aktif değil"]);
   assert.equal(js[0].yerel, Y.yerelIso(tY));
   assert.deepEqual(JSON.parse(Y.dersJson([])), []);
+  {
+    const B = { cihazTam: { a: 1, b: [2] } }, C = { cihazTam: { a: 2 } };
+    const kk = [B, B, C, C].map((kur, i) => ({ t: i, sunucu: "ok", govde: { kurulum: { ...kur, fps: 30 } } }));
+    const j2 = JSON.parse(Y.dersJson(kk));
+    assert.deepEqual(j2.map((r) => r.govde.kurulum.cihazTam), [B.cihazTam, "=onceki", C.cihazTam, "=onceki"]);
+    assert.ok(j2[0].not && !j2[1].not && j2[1].govde.kurulum.fps === 30);
+    assert.deepEqual(kk[1].govde.kurulum.cihazTam, B.cihazTam);   // özgün gövde değişmez
+  }
   console.log("3c) ders JSON yedeği (tam gövde): tamam");
 
   const d =J(Y.duzSatirlar({ a: { b: 1, c: null }, l: ["x"], e: {} }, "k"));

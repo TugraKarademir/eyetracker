@@ -22,6 +22,7 @@ import queue
 import random
 import re
 import secrets
+import socket
 import sqlite3
 import sys
 import tempfile
@@ -435,6 +436,14 @@ HAM_MAX_BAYT = 4096
 
 
 def temiz_ham(h):
+    """Hata durumunda None döner: ham alan hiçbir zaman ölçümün kaydını engellemez."""
+    try:
+        return _temiz_ham(h)
+    except Exception:
+        return None
+
+
+def _temiz_ham(h):
     """Öğrencinin 2 sn ham yüz ölçüsü özeti (static/analyzer.js HamToplayici): yalnız sayı/null değerli, en çok iki düzey
     küçük nesne; JSON'u en çok 4 KB. Geçersiz alan atılır; nesne değilse, çok büyükse ya da geriye bir şey kalmazsa None."""
     if not isinstance(h, dict) or len(h) > 32:
@@ -448,9 +457,12 @@ def temiz_ham(h):
     def sayi(v):
         if v is None:
             return True, None
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+        try:
+            if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+                return False, None
+            return True, max(-1e6, min(1e6, v))
+        except OverflowError:   # ör. 10**400 float'a çevrilemez
             return False, None
-        return True, max(-1e6, min(1e6, v))
 
     def anahtar(k):
         return isinstance(k, str) and 0 < len(k) <= 32 and re.fullmatch(r"[A-Za-z0-9_]+", k)
@@ -1503,6 +1515,8 @@ class Handler(BaseHTTPRequestHandler):
             if oturum:
                 yanit["oturum"] = oturum   # masaüstü uygulaması kendi başlattığı süreci tanısın diye (yalnız yankı)
             return self.send_json(yanit)
+        if u.path == "/api/adres":
+            return self.send_json({"ipler": yerel_ipler(), "https_port": _PORTLAR["https"], "http_port": _PORTLAR["http"]})
         if u.path == "/api/stream":
             return self.stream(q)
         if u.path == "/api/report":
@@ -1914,6 +1928,34 @@ def _aktif_dersleri_kaydet():
                 persist(cls)
 
 
+_PORTLAR = {"http": None, "https": None}   # main() doldurur; /api/adres okur
+
+
+def yerel_ipler():
+    """Bu bilgisayarın IPv4 adresleri (döngü/169.254 hariç). Ağa paket göndermez."""
+    adaylar = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("10.255.255.255", 1))   # UDP connect: yalnız yönlendirme tablosuna bakar
+            adaylar.append(s.getsockname()[0])
+        finally:
+            s.close()
+    except OSError:
+        pass
+    try:
+        for bilgi in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            adaylar.append(bilgi[4][0])
+    except OSError:
+        pass
+    sonuc = []
+    for ip in adaylar:
+        if ip.startswith("127.") or ip.startswith("169.254.") or ip == "0.0.0.0" or ip in sonuc:
+            continue
+        sonuc.append(ip)
+    return sonuc
+
+
 def main():
     ap = argparse.ArgumentParser(description="DersNabzı sunucusu")
     ap.add_argument("--host", default="127.0.0.1")
@@ -1937,6 +1979,7 @@ def main():
     threading.Thread(target=ticker, daemon=True).start()
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     srv.daemon_threads = True
+    _PORTLAR["http"] = srv.server_address[1]
     _ust_surec_izle(_aktif_dersleri_kaydet)
     print(f"DersNabzı çalışıyor: http://{'localhost' if a.host in ('127.0.0.1', '0.0.0.0') else a.host}:{a.port}")
     if a.https_port:
@@ -1947,6 +1990,7 @@ def main():
         hs = ThreadingHTTPServer((a.https_host, a.https_port), Handler)
         hs.daemon_threads = True
         hs.socket = ctx.wrap_socket(hs.socket, server_side=True)
+        _PORTLAR["https"] = hs.server_address[1]
         threading.Thread(target=hs.serve_forever, daemon=True).start()
         print(f"HTTPS de açık: https://{a.https_host}:{a.https_port}")
     try:

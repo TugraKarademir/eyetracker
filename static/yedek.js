@@ -109,7 +109,20 @@
   // Kayıpsız ders yedeği: gönderilen her gövdenin aynısı, gönderim zamanı (ms, yerel ISO) ve sunucu yanıtı; satır başına bir kayıt
   function dersJson(kayitlar) {
     const K = (kayitlar || []).filter((k) => k && typeof k === "object");
-    const satir = K.map((k) => JSON.stringify({ t: k.t, yerel: yerelIso(k.t), sunucu: k.sunucu ?? "bekliyor", govde: k.govde }));
+    // kurulum.cihazTam (büyük) her satırda tekrarlanmasın: ilk satırda ve değiştiğinde tam, aksi halde "=onceki"
+    let onceki = null;
+    const satir = K.map((k, i) => {
+      let govde = k.govde;
+      const ct = govde?.kurulum?.cihazTam;
+      if (ct !== undefined) {
+        const m = JSON.stringify(ct);
+        if (m === onceki) govde = { ...govde, kurulum: { ...govde.kurulum, cihazTam: "=onceki" } };
+        else onceki = m;
+      }
+      const o = { t: k.t, yerel: yerelIso(k.t), sunucu: k.sunucu ?? "bekliyor", govde };
+      if (i === 0) return JSON.stringify({ not: 'govde.kurulum.cihazTam "=onceki" ise bir önceki satırdaki cihazTam ile aynıdır (yinelenmesin diye yazılmadı).', ...o });
+      return JSON.stringify(o);
+    });
     return "[\n" + satir.join(",\n") + "\n]\n";
   }
   // Tarayıcıda indirme: Blob → <a download>; Blob adresi indirme başladıktan sonra bırakılır

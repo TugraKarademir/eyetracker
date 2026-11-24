@@ -51,6 +51,21 @@ def post(base, yol, govde):
         return e.code, json.loads(e.read())
 
 
+class SunucuAdres(unittest.TestCase):
+    def test_adres_bicimi(self):
+        base, kapat = basla()
+        self.addCleanup(kapat)
+        with urllib.request.urlopen(base + "/api/adres") as f:
+            r = json.loads(f.read())
+        self.assertIsInstance(r["ipler"], list)
+        for ip in r["ipler"]:
+            self.assertRegex(ip, r"^\d+\.\d+\.\d+\.\d+$")
+            self.assertFalse(ip.startswith(("127.", "169.254.")))
+        self.assertIn("https_port", r)
+        self.assertIn("http_port", r)
+        self.assertTrue(r["https_port"] is None or isinstance(r["https_port"], int))
+
+
 class SunucuKayit(unittest.TestCase):
     def setUp(self):
         self.base, self.kapat = basla()
@@ -307,6 +322,14 @@ class SunucuOrnek(unittest.TestCase):
         rows = server.KAYIT.execute("SELECT ham FROM samples ORDER BY rowid").fetchall()
         self.assertEqual(len(rows), 4)
         self.assertTrue(all(r["ham"] is None for r in rows))
+
+    def test_metrics_devasa_sayili_ham_olcumu_dusurmez(self):
+        kod, _, sid = self.ogrenci()
+        st, _ = self.metrik(kod, sid, ham={"n": 10 ** 400})
+        self.assertEqual(st, 200)
+        r = server.KAYIT.execute("SELECT attention, ham FROM samples").fetchone()
+        self.assertEqual(r["attention"], 80)
+        self.assertIsNone(r["ham"])
 
     def test_temiz_ham_alan_dogrulama(self):
         h = server.temiz_ham({"n": 3, "yaw": {"ort": 0.1, "kotu": "x", "b": True}, "ad": "<script>", "liste": [1],
