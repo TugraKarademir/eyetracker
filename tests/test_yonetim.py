@@ -2,7 +2,8 @@
 import unittest
 
 from kayit import (ac, ders_ekle, ders_bitir, ogrenci_ekle, materyal_ekle,
-                   materyal_sec, ornek_ekle, katilimci_ekle)
+                   materyal_sec, ornek_ekle, katilimci_ekle,
+                   bakis_testi_yaz, kurulum_ekle)
 import yonetim
 
 
@@ -242,6 +243,88 @@ class YonetimTest(unittest.TestCase):
         self.assertEqual(yonetim.kalite(75, 60, 5, 400), "orta")
         self.assertEqual(yonetim.kalite(None, None, None, None), "veri yok")
         self.assertEqual(yonetim.kalite(50, 10, 1, None), "düşük")
+
+
+class CihazOnayTest(unittest.TestCase):
+    def kur(self):
+        con = ac(":memory:")
+        ders_ekle(con, "D1", "Ders", "Konu", 100)
+        ders_ekle(con, "D2", "Ders2", "Konu", 200)
+        ogrenci_ekle(con, "D1", "s1", "Ali", None, 101, False, 150.0, "v1")
+        ogrenci_ekle(con, "D1", "s2", "Veli", None, 101, False)
+        ogrenci_ekle(con, "D2", "s3", "Ayse", None, 201, False)
+        return con
+
+    def test_onay(self):
+        con = self.kur()
+        o = {s["sid"]: s for s in yonetim.ders(con, "D1")["ogrenciler"]}
+        self.assertEqual(o["s1"]["onay"], {"var": True, "t": 150.0, "surum": "v1"})
+        self.assertFalse(o["s2"]["onay"]["var"])
+        self.assertEqual(yonetim.ogrenci(con, "D1", "s1")["onay"]["surum"], "v1")
+
+    def test_bakis_iki_deneme(self):
+        con = self.kur()
+        bakis_testi_yaz(con, "D1", "s1", 300, "a.json", "ara", None, None)
+        bakis_testi_yaz(con, "D1", "s1", 400, "a-2.json", "bitti", 123.4, "E5")
+        o = {s["sid"]: s for s in yonetim.ders(con, "D1")["ogrenciler"]}
+        self.assertEqual(o["s1"]["bakis"], {"durum": "bitti", "deneme": 2, "gl_acc": 123.4, "model": "E5", "t": 400})
+        self.assertEqual(o["s2"]["bakis"]["durum"], "baslamadi")
+        self.assertEqual(o["s2"]["bakis"]["deneme"], 0)
+        den = yonetim.ogrenci(con, "D1", "s1")["bakis_denemeleri"]
+        self.assertEqual([d["dosya"] for d in den], ["a.json", "a-2.json"])
+
+    def test_bakis_bitmedi_ve_suruyor(self):
+        con = self.kur()
+        bakis_testi_yaz(con, "D1", "s1", 300, "b.json", "bitti", 50.0, None)
+        bakis_testi_yaz(con, "D1", "s2", 300, "c.json", "ara", None, None)
+        o = {s["sid"]: s for s in yonetim.ders(con, "D1")["ogrenciler"]}
+        self.assertEqual(o["s1"]["bakis"]["durum"], "bitmedi")
+        self.assertEqual(o["s2"]["bakis"]["durum"], "suruyor")
+
+    def test_cihaz_ozet_cihaz2den(self):
+        s = {"tarayici": "Chrome 120.0.1", "kamera": "1280x720", "fps": 30, "islemeFps": 25, "isci": True,
+             "cihaz2": {"cekirdek": 8, "bellekGB": 8, "gpu": "RTX", "ua": "Mozilla Windows NT 10.0",
+                        "uaVeri": {"platform": "Windows"}}}
+        c = yonetim.cihaz_ozet(s)
+        self.assertEqual((c["tarayici"], c["tarayiciSurum"], c["isletimSistemi"]), ("Chrome", "120.0.1", "Windows"))
+        self.assertEqual((c["cekirdek"], c["bellekGB"], c["gpu"]), (8, 8, "RTX"))
+        self.assertEqual((c["kameraCozunurluk"], c["kameraFpsAyar"], c["islemeFps"], c["isci"]), ("1280x720", 30, 25, True))
+        self.assertIsNone(c["kameraFpsOlculen"])
+        self.assertIsNone(c["delegate"])
+
+    def test_cihaz_ozet_varsa_kullanilir(self):
+        s = {"cihaz2": {"cekirdek": 4}, "cihazOzet": {"cekirdek": 12, "kameraFpsOlculen": 27.5}}
+        c = yonetim.cihaz_ozet(s)
+        self.assertEqual((c["cekirdek"], c["kameraFpsOlculen"]), (12, 27.5))
+
+    def test_cihaz_tam_alanlari(self):
+        tam = {"islemci": {"mantiksalCekirdek": 16}, "gpu": {"webglRenderer": "ANGLE X", "webglVendor": "Google"},
+               "kamera": {"label": "Cam", "ayar": {"width": 640, "height": 480, "frameRate": 30}},
+               "diger": {"mediapipeDelegate": "GPU", "isci": False}}
+        c = yonetim.cihaz_ozet({"cihazTam": tam})
+        self.assertEqual((c["cekirdek"], c["gpu"], c["kamera"], c["kameraCozunurluk"], c["kameraFpsAyar"]),
+                         (16, "ANGLE X", "Cam", "640x480", 30))
+        self.assertEqual((c["delegate"], c["isci"]), ("GPU", False))
+
+    def test_kurulum_yoksa_none(self):
+        con = self.kur()
+        o = {s["sid"]: s for s in yonetim.ders(con, "D1")["ogrenciler"]}
+        self.assertIsNone(o["s1"]["cihaz"])
+        self.assertIsNone(yonetim.ogrenci(con, "D1", "s1")["cihaz"])
+        self.assertIsNone(yonetim.ogrenci(con, "D1", "s1")["cihaz_tam"])
+        self.assertIsNone(yonetim.cihaz_ozet(None))
+
+    def test_cihazlar_tum_dersler(self):
+        con = self.kur()
+        kurulum_ekle(con, "D1", "s1", 110, {"tarayici": "Edge 1.2", "cihaz2": {"cekirdek": 4}})
+        kurulum_ekle(con, "D2", "s3", 210, {"tarayici": "Chrome 9", "kamera": "640x480"})
+        liste = yonetim.cihazlar(con)
+        self.assertEqual({(r["code"], r["sid"]) for r in liste}, {("D1", "s1"), ("D1", "s2"), ("D2", "s3")})
+        r = {x["sid"]: x for x in liste}
+        self.assertEqual(r["s1"]["cihaz"]["cekirdek"], 4)
+        self.assertEqual(r["s3"]["cihaz"]["kameraCozunurluk"], "640x480")
+        self.assertIsNone(r["s2"]["cihaz"])
+        self.assertEqual(r["s3"]["ders"], "Ders2")
 
 
 if __name__ == "__main__":

@@ -450,6 +450,31 @@ function fiksOzet(list) {
 }
 
 // ---------------------------------------------------------------- görünüm 1: dersler
+// ---------------------------------------------------------------- onay / bakış testi / cihaz (gerçek kayıttan)
+const BAKIS_AD = { baslamadi: "başlamadı", suruyor: "sürüyor", bitti: "bitti", bitmedi: "bitmedi" };
+const onayHtml = (o) => (o && o.var ? `${tarih(o.t)}${o.surum ? ` · ${esc(o.surum)}` : ""}` : '<span style="color:#d64545;font-weight:600">onay yok</span>');
+const bakisHtml = (b) => (b ? `${BAKIS_AD[b.durum] || esc(b.durum)}${b.deneme ? `<span class="n">${b.deneme} deneme</span>` : ""}` : YOK);
+const glHtml = (b) => (b && b.gl_acc != null ? `${fix1(b.gl_acc)} px` : YOK);
+const ramS = (v) => (v == null ? null : `≈${v} GB`);
+const camS = (c) => (c.kameraCozunurluk ? c.kameraCozunurluk + (c.kameraFpsAyar != null ? `@${c.kameraFpsAyar}` : "") : null);
+function cihazMetin(c) {
+  if (!c) return null;
+  const p = [[c.tarayici, c.tarayiciSurum].filter(Boolean).join(" "), c.isletimSistemi, c.cekirdek != null ? `${c.cekirdek} çekirdek` : null,
+             ramS(c.bellekGB), c.gpu, camS(c)].filter(Boolean);
+  return p.length ? p.join(" · ") : null;
+}
+const cihazHtml = (c) => { const m = cihazMetin(c); return m ? `<span class="small">${esc(m)}</span>` : YOK; };
+const csvHucre = (v) => { v = v == null ? "" : String(v); return /^[=+\-@\t\r]/.test(v) ? "'" + v : v; };
+function csvMetin(satirlar) {
+  const q = (v) => { v = csvHucre(v); return /[",\n\r;]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+  return "\ufeff" + satirlar.map((r) => r.map(q).join(",")).join("\n");
+}
+function metinIndir(metin, ad) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([metin], { type: "text/csv;charset=utf-8" }));
+  a.download = ad; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
 const FILTRE = { ara: "", bas: "", bit: "", tur: "", ogretmen: "" };
 async function viewDersler(_p, live) {
   const q = new URLSearchParams();
@@ -550,7 +575,8 @@ async function viewDers([code], live) {
       tam ekran bakış örneklerinden I-VT (30°/s, 80–400 ms); piksel→derece dönüşümü tahmindir, konum materyal üzerine eşlenmez. ${FIKS_PARCA}<span id="pYok"></span></div></div>
     <div class="card"><h3>Öğrenciler</h3><div class="tbl"><table>
       <tr><th>Öğrenci</th><th>Kod</th><th>Kalite</th><th>Son kal. hatası</th><th>Kamerada</th><th>Kalibreli</th><th>Örnekleme</th>
-        <th>Ort. dikkat</th><th>Baskın duygu</th><th>Materyale bakma</th><th>✋</th><th>Sohbet</th></tr>
+        <th>Ort. dikkat</th><th>Baskın duygu</th><th>Materyale bakma</th><th>✋</th><th>Sohbet</th>
+        <th>KVKK onayı</th><th>Bakış testi</th><th>GazeLab doğruluğu</th><th>Aktarılan model</th><th>Cihaz</th></tr>
       ${d.ogrenciler.map((s) => { const k = s.kalite; return `<tr class="click" data-sid="${esc(s.sid)}">
         <td><b>${esc(ad(s.sid))}</b></td><td>${s.participant_code ? esc(s.participant_code) : '<span class="muted small">kodsuz</span>'}</td>
         <td>${kaliteRozet(k.not)}</td>
@@ -561,7 +587,9 @@ async function viewDers([code], live) {
         <td class="num" style="color:${levelColor(s.ort_dikkat)}">${ol(s.ort_dikkat, s.n_ornek, fix1, "örnek")}</td>
         <td>${emoS(s.baskin_duygu)}</td>
         <td class="num" data-bakma="${esc(s.sid)}"><span class="muted small">hesaplanıyor…</span></td>
-        <td class="num">${el[s.sid] || 0}</td><td class="num">${sohbet[s.sid] || 0}</td></tr>`; }).join("")}
+        <td class="num">${el[s.sid] || 0}</td><td class="num">${sohbet[s.sid] || 0}</td>
+        <td class="num">${onayHtml(s.onay)}</td><td>${bakisHtml(s.bakis)}</td><td class="num">${glHtml(s.bakis)}</td>
+        <td>${s.bakis && s.bakis.model ? esc(s.bakis.model) : YOK}</td><td>${cihazHtml(s.cihaz)}</td></tr>`; }).join("")}
     </table></div>
     ${d.ogrenciler.length ? "" : '<div class="muted" style="padding:10px 4px">Bu derse kayıtlı (demo olmayan) öğrenci yok.</div>'}
     <div class="note">${esikNotu(esik)}</div></div>`;
@@ -696,7 +724,7 @@ async function viewMateryal([code, idS], live) {
 
 // ---------------------------------------------------------------- görünüm 4: öğrenci
 const OGR = { sekme: "kalite", mid: null, mod: "isi" };
-const SEKMELER = [["kalite", "Kalite"], ["grafik", "Veri grafiği"], ["isi", "Isı haritası"], ["kurulum", "Kurulum"], ["olaylar", "Olaylar"]];
+const SEKMELER = [["kalite", "Kalite"], ["grafik", "Veri grafiği"], ["isi", "Isı haritası"], ["kurulum", "Kurulum"], ["cihaz", "Cihaz ve kalibrasyon"], ["olaylar", "Olaylar"]];
 const OLAY_AD = { hand: "El", lower_hand: "El indirildi (öğretmen)", chat: "Sohbet", reaction: "Tepki", alert: "Uyarı",
                   topic: "Konu", material: "Materyal", end: "Ders bitti" };
 const satir = (k, v) => `<dt>${k}</dt><dd>${v}</dd>`;
@@ -726,7 +754,7 @@ async function viewOgrenci([code, sid], live) {
   const ac = (k) => {
     OGR.sekme = k; onResize = null; ipucu(null);
     APP.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.s === k));
-    ({ kalite: sekmeKalite, grafik: sekmeGrafik, isi: sekmeIsi, kurulum: sekmeKurulum, olaylar: sekmeOlaylar })[k]($("#sekme"), G, esik, live);
+    ({ kalite: sekmeKalite, grafik: sekmeGrafik, isi: sekmeIsi, kurulum: sekmeKurulum, cihaz: sekmeCihaz, olaylar: sekmeOlaylar })[k]($("#sekme"), G, esik, live);
   };
   APP.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => ac(b.dataset.s)));
   ac(SEKMELER.some(([k]) => k === OGR.sekme) ? OGR.sekme : "kalite");
@@ -988,6 +1016,32 @@ function sekmeKurulum(el, G) {
       (1 / kare başına işleme süresi; işçi yolunda şişkin) olarak işaretlidir. Cihaz türü kaydedilmiyor.</div></div>`;
 }
 
+const CIHAZ_ETIKET = [["tarayici", "Tarayıcı"], ["tarayiciSurum", "Tarayıcı sürümü"], ["isletimSistemi", "İşletim sistemi"], ["cekirdek", "Mantıksal çekirdek"],
+  ["bellekGB", "RAM (tarayıcı bildirimi, GB)"], ["gpu", "GPU"], ["gpuVendor", "GPU üreticisi"], ["kamera", "Kamera"], ["kameraCozunurluk", "Kamera çözünürlüğü"],
+  ["kameraFpsAyar", "Kamera fps (AYAR)"], ["kameraFpsOlculen", "Kamera fps (ÖLÇÜLEN)"], ["islemeFps", "İşlenen fps"], ["delegate", "MediaPipe delegate"], ["isci", "Yüz bulucu işçide"]];
+const dAd = (a, v) => (a === "isci" ? (v ? "evet" : "hayır") : esc(v));
+function sekmeCihaz(el, G) {
+  const o = G.o, c = o.cihaz, den = o.bakis_denemeleri || [], tam = o.cihaz_tam;
+  const dosyaOk = (ad) => /^[\w.-]+\.json$/.test(ad || "");
+  const notlar = tam && tam.kaynak === "cihazTam" ? [tam.veri.bellek?.bellekNot, tam.veri.islemci?.cpuModelNeden].filter(Boolean) : [];
+  el.innerHTML = `<div class="card"><h3>KVKK onayı</h3><p>${onayHtml(o.onay)}</p></div>
+    <div class="card"><h3>Bakış testi denemeleri</h3>${den.length ? `<div class="tbl"><table>
+      <tr><th>#</th><th>Zaman</th><th>Durum</th><th>GazeLab doğruluğu</th><th>Aktarılan model</th><th>Kayıt dosyası</th></tr>
+      ${den.map((r, i) => `<tr><td class="num">${i + 1}</td><td class="num">${tarih(r.t)}</td>
+        <td>${r.durum === "bitti" ? (r.model ? "bitti" : "bitmedi") : "sürüyor"}</td><td class="num">${glHtml(r)}</td>
+        <td>${r.model ? esc(r.model) : YOK}</td>
+        <td>${dosyaOk(r.dosya) ? `<a href="#" data-dosya="${esc(r.dosya)}">${esc(r.dosya)}</a>` : esc(r.dosya || "")}</td></tr>`).join("")}
+    </table></div>` : `<p>${YOK} <span class="muted small">— bakış testi başlamadı.</span></p>`}</div>
+    <div class="card"><h3>Cihaz bilgisi</h3>${c || tam ? `<dl class="ozet ozet-gen">
+      ${CIHAZ_ETIKET.map(([a, t]) => satir(t, c && c[a] != null ? dAd(a, c[a]) : YOK)).join("")}</dl>
+      ${tam ? `<div class="note">Kaynak: ${tam.kaynak === "cihazTam" ? "tam cihaz bilgisi (cihazTam)" : "eski kurulum alanları (cihaz2)"}.</div>` : ""}`
+      : `<p>${YOK} <span class="muted small">— kurulum kaydı yok.</span></p>`}
+      <div class="note">RAM tarayıcı tarafından en çok 8 GB'a yuvarlanır (≤8 GB); gerçek bellek bundan fazla olabilir. İşlemci modeli tarayıcıdan alınamaz; yalnız mantıksal çekirdek sayısı bilinir.
+        Kamera fps için AYAR (getSettings) ile ÖLÇÜLEN değer ayrıdır; işlenen fps yüz bulucunun gerçekten işlediği kare hızıdır.${notlar.map((n) => " " + esc(n)).join("")}</div></div>`;
+  el.querySelectorAll("a[data-dosya]").forEach((a) => (a.onclick = (e) => { e.preventDefault();
+    dosyaIndir(`bakis_dosya?ad=${enc(a.dataset.dosya)}`, a.dataset.dosya).catch((x) => { if (!(x instanceof Yetkisiz)) toast(x.message); }); }));
+}
+
 function sekmeOlaylar(el, G) {
   const ay = (e) => {
     const d = e.data;
@@ -1214,6 +1268,59 @@ async function viewKalibrasyon(_p, live) {
 
 // ---------------------------------------------------------------- yönlendirme
 // karma: #<rota>/<parametreler…>; parametreler URL-kodlu. Ders kodu içeren rotalar: ilk parametre = ders kodu.
+const CIH = { sirala: "ders", ters: false };
+const CIH_SUTUN = [
+  ["ders", "Ders", (r) => r.ders || r.code],
+  ["ogrenci", "Öğrenci", (r) => r.ogrenci],
+  ["tarayici", "Tarayıcı", (r) => [r.cihaz?.tarayici, r.cihaz?.tarayiciSurum].filter(Boolean).join(" ") || null],
+  ["os", "İşletim sistemi", (r) => r.cihaz?.isletimSistemi],
+  ["cekirdek", "Çekirdek", (r) => r.cihaz?.cekirdek],
+  ["ram", "RAM (≈GB)", (r) => r.cihaz?.bellekGB],
+  ["gpu", "GPU", (r) => r.cihaz?.gpu],
+  ["kamera", "Kamera", (r) => [r.cihaz?.kamera, r.cihaz?.kameraCozunurluk].filter(Boolean).join(" ") || null],
+  ["fpsAyar", "Ayar fps", (r) => r.cihaz?.kameraFpsAyar],
+  ["fpsOlc", "Ölçülen fps", (r) => r.cihaz?.kameraFpsOlculen],
+  ["isl", "İşlenen fps", (r) => r.cihaz?.islemeFps],
+  ["bakis", "Bakış testi", (r) => (r.bakis ? BAKIS_AD[r.bakis.durum] || r.bakis.durum : null)],
+  ["gl", "GL px", (r) => r.bakis?.gl_acc],
+  ["model", "Aktarılan model", (r) => r.bakis?.model],
+];
+async function viewCihazlar(_p, live) {
+  const liste = await aapi("dersler");
+  const dd = await Promise.all(liste.map((l) => aapi(`ders?code=${enc(l.code)}`)));
+  if (!live()) return;
+  const satirlar = [];
+  for (const d of dd) {
+    const ad = adlar(d.ogrenciler);
+    for (const s of d.ogrenciler) satirlar.push({ ders: d.ders.name || d.ders.code, code: d.ders.code, sid: s.sid, ogrenci: ad(s.sid), cihaz: s.cihaz, bakis: s.bakis });
+  }
+  const sirali = () => {
+    const f = CIH_SUTUN.find((c) => c[0] === CIH.sirala) || CIH_SUTUN[0], dir = CIH.ters ? -1 : 1;
+    return satirlar.slice().sort((a, b) => {
+      const x = f[2](a), y = f[2](b);
+      if (x == null && y == null) return 0;
+      if (x == null) return 1;               // veri yok her zaman sonda
+      if (y == null) return -1;
+      return (typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), "tr")) * dir;
+    });
+  };
+  const hucre = (c, r) => { const v = c[2](r); return v == null ? YOK : esc(v); };
+  const ciz = () => {
+    APP.innerHTML = `<div class="head"><h1>Cihazlar</h1><div class="muted small">${satirlar.length} öğrenci · ${dd.length} ders · değerler öğrencinin son kurulum kaydından
+        <button class="btn sm" id="cihCsv" style="margin-left:8px">CSV (cihazlar)</button></div></div>
+      <div class="card"><div class="tbl"><table>
+        <tr>${CIH_SUTUN.map((c) => `<th data-s="${c[0]}" style="cursor:pointer" title="Sırala">${c[1]}${CIH.sirala === c[0] ? (CIH.ters ? " ▼" : " ▲") : ""}</th>`).join("")}</tr>
+        ${sirali().map((r) => `<tr class="click" data-h="${esc(r.code)}/${esc(r.sid)}">${CIH_SUTUN.map((c) => `<td class="${/^(cekirdek|ram|fps|isl|gl)/.test(c[0]) ? "num" : ""}">${hucre(c, r)}</td>`).join("")}</tr>`).join("")}
+      </table></div>${satirlar.length ? "" : '<div class="muted" style="padding:10px 4px">Kayıtlı öğrenci yok.</div>'}
+      <div class="note">Ayar fps: kameraya istenen/ayarlanan değer (getSettings). Ölçülen fps: kamera karelerinin gerçekte ölçülen hızı (kayıtta yoksa "veri yok").
+        İşlenen fps: yüz bulucunun işlediği kare hızı. RAM tarayıcı tarafından en çok 8 GB'a yuvarlanır; işlemci modeli tarayıcıdan alınamaz. "veri yok": kayıtta bu değer bulunmuyor.</div></div>`;
+    APP.querySelectorAll("th[data-s]").forEach((th) => (th.onclick = () => { CIH.ters = CIH.sirala === th.dataset.s ? !CIH.ters : false; CIH.sirala = th.dataset.s; ciz(); }));
+    APP.querySelectorAll("tr[data-h]").forEach((tr) => (tr.onclick = () => { const i = tr.dataset.h.indexOf("/"); location.hash = `#ogrenci/${enc(tr.dataset.h.slice(0, i))}/${enc(tr.dataset.h.slice(i + 1))}`; }));
+    $("#cihCsv").onclick = () => metinIndir(csvMetin([CIH_SUTUN.map((c) => c[1]), ...sirali().map((r) => CIH_SUTUN.map((c) => c[2](r)))]), "dersnabzi_cihazlar.csv");
+  };
+  ciz();
+}
+
 const ROUTES = {
   dersler: { view: viewDersler },
   ders: { view: viewDers, dersli: true },
@@ -1223,6 +1330,7 @@ const ROUTES = {
   katilimcilar: { view: viewKatilimcilar },
   ogretmenler: { view: viewOgretmenler },
   kalibrasyon: { view: viewKalibrasyon },
+  cihazlar: { view: viewCihazlar },
 };
 
 function karma() {

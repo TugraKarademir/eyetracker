@@ -217,6 +217,126 @@ def _kalite_ozet(rs, kal_hata):
             "kal_hata": kal_hata, "not": kalite(kam, kp, hz, kal_hata)}
 
 
+def _say(v):
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _tar_ayir(s):
+    """'Chrome 120.0.1' -> ('Chrome', '120.0.1'); ayrılamıyorsa (s, None)."""
+    if not isinstance(s, str) or not s.strip():
+        return None, None
+    ad, _, sur = s.strip().rpartition(" ")
+    return (ad, sur) if ad and sur[:1].isdigit() else (s.strip(), None)
+
+
+def _os_ua(c2):
+    pl = ((c2.get("uaVeri") or {}).get("platform")) if isinstance(c2.get("uaVeri"), dict) else None
+    if pl:
+        return pl
+    ua = c2.get("ua") if isinstance(c2.get("ua"), str) else ""
+    for anahtar, ad in (("Windows NT 10.0", "Windows 10/11"), ("Android", "Android"), ("CrOS", "ChromeOS"),
+                        ("Mac OS X", "macOS"), ("Linux", "Linux")):
+        if anahtar in ua:
+            return ad
+    return None
+
+
+CIHAZ_ALAN = ("tarayici", "tarayiciSurum", "isletimSistemi", "cekirdek", "bellekGB", "gpu", "gpuVendor", "kamera",
+              "kameraCozunurluk", "kameraFpsAyar", "kameraFpsOlculen", "islemeFps", "delegate", "isci")
+
+
+def cihaz_ozet(setup):
+    """Kurulum JSON'undan düz cihaz özeti. cihazOzet varsa o; eksik alanlar cihazTam, sonra cihaz2 ve kurulumun
+    kendi alanlarından (tarayici, kamera, fps, islemeFps, isci) türetilir. Türetilemeyen None. Kurulum yoksa None."""
+    if not isinstance(setup, dict):
+        return None
+    c2 = setup.get("cihaz2") if isinstance(setup.get("cihaz2"), dict) else {}
+    tam = setup.get("cihazTam") if isinstance(setup.get("cihazTam"), dict) else {}
+    g, k = tam.get("gpu") or {}, tam.get("kamera") or {}
+    ay, d = k.get("ayar") or {}, tam.get("diger") or {}
+    tar, sur = _tar_ayir(setup.get("tarayici"))
+    cozun = (f"{int(ay['width'])}x{int(ay['height'])}" if _say(ay.get("width")) and _say(ay.get("height")) else None)
+    tur = {
+        "tarayici": tar, "tarayiciSurum": sur, "isletimSistemi": _os_ua(c2) if c2 else None,
+        "cekirdek": (tam.get("islemci") or {}).get("mantiksalCekirdek", c2.get("cekirdek")),
+        "bellekGB": (tam.get("bellek") or {}).get("deviceMemoryGB", c2.get("bellekGB")),
+        "gpu": g.get("webglRenderer") or c2.get("gpu") or None, "gpuVendor": g.get("webglVendor") or None,
+        "kamera": k.get("label") or None, "kameraCozunurluk": cozun or setup.get("kamera") or None,
+        "kameraFpsAyar": ay.get("frameRate") if _say(ay.get("frameRate")) else setup.get("fps"),
+        "kameraFpsOlculen": None, "islemeFps": setup.get("islemeFps"),
+        "delegate": d.get("mediapipeDelegate"),
+        "isci": d["isci"] if isinstance(d.get("isci"), bool) else setup.get("isci"),
+    }
+    oz = setup.get("cihazOzet") if isinstance(setup.get("cihazOzet"), dict) else {}
+    out = {a: (oz[a] if oz.get(a) is not None else tur[a]) for a in CIHAZ_ALAN}
+    if all(v is None for v in out.values()):
+        return None
+    return out
+
+
+def cihaz_tam(setup):
+    """Öğrenci görünümü için ayrıntılı cihaz bilgisi: cihazTam (varsa) ya da cihaz2, kaynağı belirtilir; yoksa None."""
+    if not isinstance(setup, dict):
+        return None
+    if isinstance(setup.get("cihazTam"), dict):
+        return {"kaynak": "cihazTam", "veri": setup["cihazTam"]}
+    if isinstance(setup.get("cihaz2"), dict):
+        return {"kaynak": "cihaz2", "veri": setup["cihaz2"]}
+    return None
+
+
+def _durum(son):
+    if son is None:
+        return "baslamadi"
+    if son["durum"] == "bitti":
+        return "bitti" if son["model"] else "bitmedi"   # öğretmen paneliyle aynı kural
+    return "suruyor"
+
+
+def _bakis_ozet(satirlar):
+    """satirlar: bakis_testleri satırları (zaman artan). Durum son denemeden; GL px / model son biten denemeden."""
+    if not satirlar:
+        return {"durum": "baslamadi", "deneme": 0, "gl_acc": None, "model": None, "t": None}
+    son = satirlar[-1]
+    biten = [r for r in satirlar if r["durum"] == "bitti"]
+    kaynak = biten[-1] if biten else son
+    return {"durum": _durum(son), "deneme": len(satirlar), "gl_acc": kaynak["gl_acc"],
+            "model": kaynak["model"] if biten else None, "t": son["t"]}
+
+
+def _bakis_satirlari(con, code, sid=None):
+    sql = "SELECT * FROM bakis_testleri WHERE lesson_code=?" + (" AND sid=?" if sid else "") + " ORDER BY t, rowid"
+    return _sorgu(con, sql, *((code, sid) if sid else (code,)))
+
+
+def _onay(s):
+    t, surum = s["onay_t"], s["onay_surum"]
+    return {"var": t is not None, "t": t, "surum": surum}
+
+
+def _son_kurulumlar(con, code):
+    son = {}
+    for r in _sorgu(con, "SELECT sid, setup FROM setups WHERE lesson_code=? ORDER BY rowid", code):
+        son[r["sid"]] = _j(r["setup"])
+    return son
+
+
+def cihazlar(con):
+    """Bütün derslerdeki öğrencilerin cihaz özeti, bakış testi durumu ve GazeLab doğruluğu (tek liste)."""
+    out = []
+    for d in _sorgu(con, "SELECT code, name FROM lessons ORDER BY created DESC, rowid DESC"):
+        kur = _son_kurulumlar(con, d["code"])
+        bk = {}
+        for r in _bakis_satirlari(con, d["code"]):
+            bk.setdefault(r["sid"], []).append(r)
+        for s in _sorgu(con, "SELECT * FROM students WHERE lesson_code=? ORDER BY joined", d["code"]):
+            out.append({"code": d["code"], "ders": d["name"], "sid": s["sid"], "name": s["name"],
+                        "participant_code": s["participant_code"],
+                        "cihaz": cihaz_ozet(kur.get(s["sid"])), "bakis": _bakis_ozet(bk.get(s["sid"], [])),
+                        "onay": _onay(s)})
+    return out
+
+
 def ders(con, code):
     d = _sorgu(con, "SELECT * FROM lessons WHERE code=?", code)
     if not d:
@@ -252,6 +372,10 @@ def ders(con, code):
                      "baskin_duygu": o["baskin_duygu"], "isi": _isi(rs),
                      "n_ornek": o["n_ornek"]})
     ogr = []
+    kurs = _son_kurulumlar(con, code)
+    bks = {}
+    for r in _bakis_satirlari(con, code):
+        bks.setdefault(r["sid"], []).append(r)
     for s in _sorgu(con, "SELECT * FROM students WHERE lesson_code=? ORDER BY joined",
                     code):
         rs = [r for r in rows if r["sid"] == s["sid"]]
@@ -261,7 +385,8 @@ def ders(con, code):
                     "participant_code": s["participant_code"], "joined": s["joined"],
                     "ort_dikkat": o["ort_dikkat"], "ort_enerji": o["ort_enerji"],
                     "baskin_duygu": o["baskin_duygu"], "n_ornek": o["n_ornek"],
-                    "kalite": kl})
+                    "kalite": kl, "onay": _onay(s), "bakis": _bakis_ozet(bks.get(s["sid"], [])),
+                    "cihaz": cihaz_ozet(kurs.get(s["sid"]))})
     spans = [dict(s) for s in _sorgu(
         con, "SELECT * FROM material_spans WHERE lesson_code=? ORDER BY t_start", code)]
     return {"ders": d, "zaman": zaman, "spans": spans, "materyaller": mats,
@@ -291,6 +416,11 @@ def ogrenci(con, code, sid):
         isi[str(mid)] = _isi([r for r in rs if r["material_id"] == mid])
     return {
         "bilgi": dict(s[0]),
+        "onay": _onay(s[0]),
+        "bakis_denemeleri": [{"t": r["t"], "durum": r["durum"], "gl_acc": r["gl_acc"], "model": r["model"],
+                              "dosya": r["dosya"]} for r in _bakis_satirlari(con, code, sid)],
+        "cihaz": cihaz_ozet(_son_kurulumlar(con, code).get(sid)),
+        "cihaz_tam": cihaz_tam(_son_kurulumlar(con, code).get(sid)),
         "kalite": _kalite_ozet(rs, _son_hata(con, code, sid)),
         "ornekler": [[r["t"], r["attention"], r["energy"], r["emotion"],
                       r["material_id"]] for r in rs],
