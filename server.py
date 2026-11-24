@@ -413,7 +413,8 @@ def cihaz_ozet(k):
     return {"tarayici": tar, "cekirdek": ilk(o.get("cekirdek"), c.get("cekirdek")), "gpu": o.get("gpu") or c.get("gpu"),
             "isletimSistemi": o.get("isletimSistemi"), "bellekGB": ilk(o.get("bellekGB"), c.get("bellekGB")),
             "kamera": o.get("kamera"), "kameraCozunurluk": o.get("kameraCozunurluk") or k.get("kamera") or None,
-            "kameraFps": ilk(o.get("kameraFpsAyar"), k.get("fps"))}
+            "kameraFps": ilk(o.get("kameraFpsAyar"), k.get("fps")),   # ayar (getSettings), ölçüm değil
+            "islemeFps": k.get("islemeFps")}                            # ölçülen (öğrenci sayfası, işlenen kare/sn)
 
 
 HSE_SINIF = ("Anger", "Contempt", "Disgust", "Fear", "Happiness", "Neutral", "Sadness", "Surprise")
@@ -1183,11 +1184,18 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 etiket = kayit.ogrenci_var(KAYIT, ders, sid)
         b["dersBagli"] = etiket
+        gl = b.get("gazelab") if isinstance(b.get("gazelab"), dict) else {}
+        gt = gl.get("tablolar") if isinstance(gl.get("tablolar"), dict) else {}
+        asama = gt.get("asama") if isinstance(gt.get("asama"), list) else None
         if "cihazTam" in b:
             b["cihazTam"] = temiz_cihaz_tam(b.get("cihazTam"))
-            gt = (b.get("gazelab") or {}).get("tablolar") if isinstance(b.get("gazelab"), dict) else None
-            asama = gt.get("asama") if isinstance(gt, dict) and isinstance(gt.get("asama"), list) else None
             b["cihazOzet"] = cihaz_tam_ozet(b["cihazTam"], asama)
+        gdev = (gl.get("session") or {}).get("device") if isinstance(gl.get("session"), dict) else None
+        if isinstance(gdev, dict):   # dosyadaki GazeLab kopyası da temizlenmiş olsun (gazelab.db'deki gibi)
+            gdev.pop("cihazOzet", None)
+            if "cihazTam" in gdev:
+                gdev["cihazTam"] = temiz_cihaz_tam(gdev.get("cihazTam"))
+                gdev["cihazOzet"] = cihaz_tam_ozet(gdev["cihazTam"], asama)
         on = f"{ders}_{sid[2:8]}_" if etiket else ""
         os.makedirs(TEST_DIR, exist_ok=True)
         ad = f"{zaman}_{on}{cihaz}_{son}.json"

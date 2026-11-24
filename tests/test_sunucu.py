@@ -916,13 +916,23 @@ class SinifTesti(unittest.TestCase):
     def test_test_kaydi_cihaz_tam_ve_ozet(self):
         tam = ornek_cihaz_tam()
         tam["fazla"] = 1
-        st, r = post(self.base, "/api/testlog", {"cihaz": "Win", "log": [], "cihazTam": tam})
+        st, r = post(self.base, "/api/testlog", {"cihaz": "Win", "log": [], "cihazTam": tam, "gazelab": {
+            "session": {"id": "kayit123", "device": {"ua": "u", "cihazTam": tam, "cihazOzet": {"sahte": 1}}},
+            "tablolar": {"asama": [{"Aşama": "a", "Kamera fps (gerçek)": 30, "İşleme fps": 12}]}}})
         self.assertEqual(st, 200)
         with open(os.path.join(self.td, r["dosya"]), encoding="utf-8") as f:
             j = json.load(f)
         self.assertNotIn("fazla", j["cihazTam"])
         self.assertEqual((j["cihazOzet"]["tarayici"], j["cihazOzet"]["cekirdek"]), ("Chrome", 4))
-        self.assertIsNone(j["cihazOzet"]["kameraFpsOlculen"])   # aşama tablosu yok: ölçülen yok
+        self.assertEqual(j["cihazOzet"]["kameraFpsOlculen"], 30)   # ölçülen: aşama tablosundan
+        gd = j["gazelab"]["session"]["device"]
+        self.assertEqual(gd["ua"], "u")
+        self.assertNotIn("fazla", gd["cihazTam"])   # dosyadaki GazeLab kopyası da temiz
+        self.assertNotIn("sahte", gd["cihazOzet"])
+        self.assertEqual(r["cihazOzet"]["cekirdek"], 4)   # yanıtta özet (yerel yedek CSV'si için)
+        # aşama tablosu yoksa ölçülen yok
+        st, r = post(self.base, "/api/testlog", {"cihaz": "Win", "log": [], "cihazTam": tam})
+        self.assertIsNone(r["cihazOzet"]["kameraFpsOlculen"])
 
     def test_kurulum_cihaz2_sinirlanir(self):
         k = server.temiz_kurulum({"tarayici": "Chrome 131", "cihaz2": {
@@ -936,7 +946,8 @@ class SinifTesti(unittest.TestCase):
         self.assertEqual(len(c["uaVeri"]["brands"][0]["brand"]), 40)
         self.assertIsNone(c["uaVeri"]["mobile"])
         self.assertEqual(server.cihaz_ozet(k), {"tarayici": "Chrome 131", "cekirdek": 1024, "gpu": "G" * 120, "isletimSistemi": None,
-                                                "bellekGB": None, "kamera": None, "kameraCozunurluk": None, "kameraFps": None})
+                                                "bellekGB": None, "kamera": None, "kameraCozunurluk": None, "kameraFps": None,
+                                                "islemeFps": None})
         bos = server.temiz_kurulum({"cihaz2": {"cekirdek": None, "bellekGB": None, "gpu": None, "ua": None, "uaVeri": None}})["cihaz2"]
         self.assertEqual(bos, {"cekirdek": None, "bellekGB": None, "gpu": None, "ua": None, "uaVeri": None})
         self.assertNotIn("cihaz2", server.temiz_kurulum({"tarayici": "x"}))
@@ -1058,7 +1069,7 @@ class CihazTam(unittest.TestCase):
         o = server.cihaz_ozet(k)
         self.assertEqual(o, {"tarayici": "Chrome 131.0.6778.86", "cekirdek": 4, "gpu": "ANGLE (Intel, Intel(R) UHD Graphics 620)",
                              "isletimSistemi": "Windows 11 (15.0.0)", "bellekGB": 8, "kamera": "HD Webcam (0c45:6340)",
-                             "kameraCozunurluk": "1280x720", "kameraFps": 30})
+                             "kameraCozunurluk": "1280x720", "kameraFps": 30, "islemeFps": 15})
         self.assertIsNone(server.temiz_kurulum({"cihazTam": "x"})["cihazTam"])
 
 

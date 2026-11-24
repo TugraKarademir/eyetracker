@@ -62,7 +62,7 @@
 /* Gömülü (öğrencinin ders içi kalibrasyonu, ?gomulu=1): yalnız ne yapacağı görünür; ölçüm, tablo, günlük ve teknik ayrıntı gizli.
    Ölçümler ve gönderimler aynen çalışır (yalnız görünüm). */
 body.gomulu #detBtn, body.gomulu #panel, body.gomulu .mark, body.gomulu .line, body.gomulu #ayarBilgi,
-body.gomulu #sonucDugmeler, body.gomulu #glRapor, body.gomulu #sonucKat { display: none !important; }
+body.gomulu #sonucDugmeler, body.gomulu #glRapor, body.gomulu #sonucKat, body.gomulu #camMark { display: none !important; }
 body.gomulu #adimCubuk { font-size: 14px; line-height: 22px; padding: 2px 14px; }
 </style>
 </head>
@@ -315,7 +315,7 @@ async function reKur(neden) {
   const m = Math.min(N, RE.EN_COK_KARE), K = Array.from({ length: m }, (_, i) => RE.kareler[m === N ? i : Math.round(i * (N - 1) / (m - 1))]);
   const F = [], Yr = [], G = [];
   for (const k of K) for (const f of k.art) { F.push(f); Yr.push(k.y); G.push(k.g); }
-  const msg = $("#camMsg"); msg.innerHTML = "<div>RealEye Light modeli kuruluyor…</div>"; msg.style.display = "flex";
+  const msg = $("#camMsg"); msg.innerHTML = GOMULU ? "<div>Hazırlanıyor…</div>" : "<div>RealEye Light modeli kuruluyor…</div>"; msg.style.display = "flex";
   const t0 = performance.now();
   try { RE.model = await new ReRidge().fitSec(F, Yr, G, undefined, () => sleep(16)); }
   catch (e) { tlog(`RealEye Light modeli kurulamadı (${neden}): ${e.message}`); return; }
@@ -339,7 +339,7 @@ async function karmaKur(neden, h = false, sessiz = false) {
   const ad = h ? "karmaH" : "karma", kareler = h ? [...KARMA.ana.kareler, ...KARMA.bas.kareler] : KARMA.ana.kareler;
   const atlanan = KARMA.ana.atlanan + (h ? KARMA.bas.atlanan : 0), kalan = (h ? KARMA.modelH : KARMA.model) ? " (önceki kurulum kullanılmaya devam eder)" : "";
   if (h && !KARMA.bas.kareler.length) { tlog(`${ad} modeli kurulamadı (${neden}): baş turu karesi yok (eksik öznitelikle atlanan ${KARMA.bas.atlanan})${kalan}`); return; }
-  const msg = $("#camMsg"); if (!sessiz) { msg.innerHTML = `<div>${ad} modeli kuruluyor…</div>`; msg.style.display = "flex"; }
+  const msg = $("#camMsg"); if (!sessiz) { msg.innerHTML = GOMULU ? "<div>Hazırlanıyor…</div>" : `<div>${ad} modeli kuruluyor…</div>`; msg.style.display = "flex"; }
   const t0 = performance.now();
   try {
     const { model, S } = await karmaKurSaf(kareler, { enCokSatir: KARMA.EN_COK_SATIR, minKare: KARMA.MIN_KARE, bekle: () => sleep(16) });
@@ -535,7 +535,7 @@ const guideBaslat = () => guideStart().catch((e) => { console.error(e); try { tl
 // device.cihazTam alanına girer; toplanmadan önceki gönderimlerde null. Özet (cihazOzet) sunucuda çıkarılır.
 let CIHAZ_TAM = null;
 // Gömülü görünüm (yalnız sunum; adımlar, süreler, noktalar, ölçüm ve gönderimler aynı): sade adım adları ve talimat kartları
-const GOMULU_ADIM = { ayar: "Kamera", bas: "Baş hareketi", profil: "Noktalara bakış", bakarak: "Noktalara bakış", duzeltme: "Tıklama", tiklama: "Tıklama",
+const GOMULU_ADIM = { ayar: "Kamera", bas: "Baş hareketi", profil: "Yüz tanıma", bakarak: "Noktalara bakış", duzeltme: "Tıklama", tiklama: "Tıklama",
                       gazelab: "Doğrulama", kontrol: "Son kontrol" };
 const GOMULU_KART = {
   profil: ["Yüz tanıma", () => `Üç kısa adım var, her birinden önce 3-2-1 sayılır.<br>Önce <b>sarı noktaya</b> rahatça bakın. Sonra <b>gözlerinizi kapatın</b>, bip sesini duyunca açın.${MOBIL ? "" : "<br>En son başınızı <b>kameraya</b> çevirip kameraya bakın."}`],
@@ -550,14 +550,14 @@ if (GOMULU) {
   document.body.classList.add("gomulu");
   const b = document.createElement("button"); b.id = "gomuluKapat"; b.textContent = "✕ Derse dön";
   Object.assign(b.style, { display: "none", position: "fixed", top: "10px", right: "10px", zIndex: "50", padding: "6px 12px", borderRadius: "8px", border: "1px solid #3a4756", background: "#1c2633", color: "#e6edf3", font: "14px system-ui", cursor: "pointer", opacity: ".8" });
-  b.onclick = (e) => { e.stopPropagation(); derseDon(); };
+  b.onclick = (e) => { e.stopPropagation(); gomuluCik(); };
   document.body.append(b);
   // Takılma güvencesi: beklenmeyen hata / yakalanmamış söz ya da 10 dk sonra sağ üstteki çıkış görünür (öğrenci çerçevede kilitli kalmasın)
   addEventListener("error", () => gomuluCikisGoster("hata"));
   addEventListener("unhandledrejection", () => gomuluCikisGoster("yakalanmamış hata"));
   setTimeout(() => gomuluCikisGoster("10 dk güvenlik süresi"), 10 * 60 * 1000);
   // Sonuç ekranındaki düğme resTxt.innerHTML += ile yeniden yazılabiliyor (ısı testi satırı): dinleyici belgede
-  document.addEventListener("click", (e) => { if (e.target.closest("#derseDonBtn")) { e.stopPropagation(); derseDon(); } });
+  document.addEventListener("click", (e) => { if (e.target.closest("#derseDonBtn")) { e.stopPropagation(); gomuluCik(); } });
 }
 // Adım adım iyileştirme (24.11, varsayılan): GazeLab noktaları ve kontrol tıklamaları da önce ölçülür, sonra bütün modellere öğretilir;
 // her adımın hatası o ana kadarki bütün adımlardan öğrenmiş modelle ölçülür (düzeltme → GazeLab → kontrol öğrenme eğrisi).
@@ -1448,27 +1448,40 @@ async function guideFinish(neden) {
 }
 // Gömülü bitiş ekranı: yalnız "tamam" ya da "tamamlanamadı" + Derse dön (ve gerekirse Tekrar dene); sayı, yöntem, rapor yok.
 // Ölçümler ve gönderim guideFinish'te aynen yapıldı; bu yalnız görünüm.
-// Gömülü: son kayıt denemesinden sonra (başarılı ya da değil) yerel yedek: gönderilen gövdenin aynısı (JSON) + özet CSV
-// (yöntem, aşama, oturum tabloları ve cihaz). Sessiz; başarılıysa bitiş ekranında tek satır. Hata olursa yalnız günlüğe yazılır.
+// Gömülü yerel yedek: "Derse dön" (ya da güvenlik ✕) tıklamasının içinde EŞZAMANLI iki indirme — kullanıcı eylemi sayılır (Chrome'un
+// "birden çok dosya" sorusu çıkmaz) ve iki a.click() de çerçeve kapanmadan çalışır. JSON = /api/testlog'a giden son gövdenin aynısı;
+// CSV = yöntem, aşama, oturum tabloları + cihaz. Aynı gövde iki kez indirilmez (yeniden denemeden sonra yenisi iner).
+let YEDEK_INDIRILEN = null;
 function gomuluYedekIndir() {
-  if (!GOMULU || !window.DNYedek || !SON_GOVDE) return false;
+  if (!GOMULU || !window.DNYedek || !SON_GOVDE || SON_GOVDE === YEDEK_INDIRILEN) return false;
+  YEDEK_INDIRILEN = SON_GOVDE;
+  const t = new Date(), kok = (ek) => DNYedek.dosyaAdi(BAGLAM?.ders, BAGLAM?.ad, t, ek);
+  let n = 0;
+  try { DNYedek.indir(SON_GOVDE, kok("bakis.json"), "application/json"); n++; } catch (e) { console.warn("yedek JSON", e); }
   try {
-    const t = new Date(), kok = (ek) => DNYedek.dosyaAdi(BAGLAM?.ders, BAGLAM?.ad, t, ek);
-    DNYedek.indir(SON_GOVDE, kok("bakis.json"), "application/json");
+    const tablo = (f) => { try { return f(); } catch { return []; } };
     const cihaz = [...DNYedek.duzSatirlar(CIHAZ_TAM, "cihazTam"), ...DNYedek.duzSatirlar(SON_CIHAZ_OZET, "cihazOzet")];
-    const csv = DNYedek.csvMetni([{ baslik: "Yöntemler", rows: glYontemTablosu() }, { baslik: "Aşamalar", rows: glFazTablosu() },
-      { baslik: "Oturum", rows: glOturumTablosu() }, { baslik: "Cihaz", rows: cihaz }]);
-    setTimeout(() => { try { DNYedek.indir(csv, kok("bakis_ozet.csv"), "text/csv;charset=utf-8"); } catch (e) { console.warn("yedek CSV", e); } }, 600);
-    tlog("yerel yedek indirildi (JSON + özet CSV)");
-    return true;
-  } catch (e) { console.warn("yerel yedek", e); try { tlog(`yerel yedek indirilemedi: ${e?.message || e}`); } catch {} return false; }
+    DNYedek.indir(DNYedek.csvMetni([{ baslik: "Yöntemler", rows: tablo(glYontemTablosu) }, { baslik: "Aşamalar", rows: tablo(glFazTablosu) },
+      { baslik: "Oturum", rows: tablo(glOturumTablosu) }, { baslik: "Cihaz", rows: cihaz }]), kok("bakis_ozet.csv"), "text/csv;charset=utf-8"); n++;
+  } catch (e) { console.warn("yedek CSV", e); }
+  return n > 0;
+}
+// Çerçeveden çıkış: önce yedek (eşzamanlı), sonra kısa bir an "indiriliyor" yazısı, sonra derse dönüş (çerçeve ancak o zaman kapanır)
+let gomuluCikiyor = false;
+function gomuluCik() {
+  if (gomuluCikiyor) return;
+  gomuluCikiyor = true; setTimeout(() => { gomuluCikiyor = false; }, 3000);   // çerçeve kapanmazsa düğme yeniden çalışsın
+  if (gomuluYedekIndir()) {
+    const y = document.getElementById("yedekSatir");
+    if (y) y.style.display = "";
+    setTimeout(derseDon, 400);
+  } else derseDon();
 }
 function gomuluBitis(tamam, ipucu = "") {
-  const yedek = gomuluYedekIndir();
   $("#resTxt").innerHTML = tamam ? `<div style="font-size:22px;font-weight:600">✓ Kalibrasyon tamam — derse dönebilirsiniz</div>`
     : `<div style="font-size:22px;font-weight:600">Kalibrasyon tamamlanamadı</div>${ipucu ? `<div class="muted" style="margin-top:6px">${ipucu}</div>` : ""}`;
   $("#resTxt").insertAdjacentHTML("beforeend", `<div style="margin-top:14px"><button id="derseDonBtn" style="font-size:17px;padding:10px 22px">✓ Derse dön</button></div>`
-    + (yedek ? `<div class="muted" style="font-size:12px;margin-top:10px">Yedek dosya bu bilgisayara indirildi.</div>` : ""));
+    + `<div id="yedekSatir" class="muted" style="font-size:12px;margin-top:10px;display:none">Yedek dosya indiriliyor.</div>`);
   $("#startBtn").textContent = "↻ Tekrar dene"; $("#startBtn").style.display = tamam ? "none" : "";
   $("#noktaBtn").style.display = "none"; $("#isiBtn").style.display = "none";
   $("#startCard").style.display = "block";
@@ -1539,14 +1552,15 @@ function tanıBaslat() {
     kotuSay = (!x.araKare || oran < 0.3) ? kotuSay + 1 : 0;
     if (kotuSay >= 2) {
       yuzUyari.innerHTML = !x.araKare ? "📷 Kameradan görüntü gelmiyor.<br><small>Kamera başka bir programda (Zoom, OBS, Teams) ya da başka sekmede açık olabilir.</small>"
-        : parlak != null && parlak < 60 ? `🌑 Yüz bulunamıyor: görüntü çok karanlık (parlaklık ${parlak}/255).<br><small>Yüzünüzü önden aydınlatın.</small>`
+        : parlak != null && parlak < 60 ? (GOMULU ? "🌑 Yüzünüz görünmüyor: ortam çok karanlık.<br><small>Yüzünüzü önden aydınlatın.</small>"
+          : `🌑 Yüz bulunamıyor: görüntü çok karanlık (parlaklık ${parlak}/255).<br><small>Yüzünüzü önden aydınlatın.</small>`)
         : "🙂 Yüz bulunamıyor.<br><small>Kameraya önden bakın, yaklaşık 40 cm uzakta oturun, yüzünüz kadrajın içinde olsun.</small>";
       yuzUyari.style.display = "block";
       if (otoGonderim < 3 && performance.now() - sonGonderim > 60000) { otoGonderim++; sonGonderim = performance.now(); tlog("yüz 10 sn'dir bulunamıyor: kayıt bilgisayara gönderiliyor"); await testKaydiGonder(); }
     } else if (kamYavasMi(x)) {
       kamYavasSay++;
       if (kamYavasSay >= 2) {
-        yuzUyari.innerHTML = `🐢 Kamera saniyede yalnız ${(x.araKamera / 5).toFixed(0)} kare gönderiyor.<br><small>Ortam karanlıkken kamera pozlamayı uzatıp yavaşlar: yüzünüzü önden aydınlatın (masa lambası, pencere).</small>`;
+        yuzUyari.innerHTML = GOMULU ? "🐢 Kamera görüntüsü yavaş.<br><small>Yüzünüzü önden aydınlatın (masa lambası, pencere).</small>" : `🐢 Kamera saniyede yalnız ${(x.araKamera / 5).toFixed(0)} kare gönderiyor.<br><small>Ortam karanlıkken kamera pozlamayı uzatıp yavaşlar: yüzünüzü önden aydınlatın (masa lambası, pencere).</small>`;
         yuzUyari.style.display = "block";
         if (kamYavasSay === 2) tlog(`KAMERA YAVAŞ: kamera 10 sn'dir ${(x.araKamera / 5).toFixed(1)} kare/sn gönderiyor (işleme ${x.araToplamMs ?? "-"} ms/kare, yetişiyor) — ışık/pozlama kaynaklı`);
       }

@@ -133,7 +133,8 @@ function btMetin(bt) {
 }
 function cihazMetin(c) {
   if (!c) return "veri yok";
-  const kam = c.kamera || c.kameraCozunurluk ? `📷 ${esc(c.kamera || "kamera")}${c.kameraCozunurluk ? ` ${esc(c.kameraCozunurluk)}` : ""}${c.kameraFps != null ? `@${Math.round(c.kameraFps)}` : ""}` : "kamera veri yok";
+  const kam = (c.kamera || c.kameraCozunurluk ? `📷 ${esc(c.kamera || "kamera")}${c.kameraCozunurluk ? ` ${esc(c.kameraCozunurluk)}` : ""}` : "kamera veri yok")
+    + (c.kameraFps != null ? ` · ayar ${Math.round(c.kameraFps)} fps` : "") + (c.islemeFps != null ? ` · işlenen ${Math.round(c.islemeFps)} fps (ölçülen)` : "");
   return [esc(c.tarayici || "tarayıcı veri yok"), esc(c.isletimSistemi || "işletim sistemi veri yok"),
     c.cekirdek != null ? `${c.cekirdek} çekirdek` : "çekirdek veri yok", c.bellekGB != null ? `≈${c.bellekGB} GB RAM` : "RAM veri yok",
     esc(c.gpu || "GPU veri yok"), kam].join(" · ");
