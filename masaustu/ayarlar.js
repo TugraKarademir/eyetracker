@@ -58,7 +58,11 @@ function yukle(dosya) {
 function kaydet(dosya, ayar) {
   fs.mkdirSync(path.dirname(dosya), { recursive: true });
   const gecici = `${dosya}.tmp`;
-  fs.writeFileSync(gecici, JSON.stringify(birlestir(ayar), null, 2), "utf8");
+  const yazilacak = birlestir(ayar);
+  // Varsayılana eşitse yazılmaz: geliştirme ve paketli sürüm aynı ayar dosyasını paylaşır,
+  // biri ötekinin varsayılan veri klasörünü kalıcı olarak ezmesin.
+  if (path.resolve(yazilacak.veriKlasoru) === path.resolve(varsayilanVeri)) delete yazilacak.veriKlasoru;
+  fs.writeFileSync(gecici, JSON.stringify(yazilacak, null, 2), "utf8");
   fs.renameSync(gecici, dosya);
 }
 

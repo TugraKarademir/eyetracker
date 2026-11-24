@@ -1,7 +1,7 @@
 ﻿# DersNabzı masaüstü paketleme (Windows x64).
 # 1) PyInstaller: server.py + kayit.py + yonetim.py + static/ -> masaustu/build-py/dist/dersnabzi-sunucu/
 # 2) electron-builder: NSIS kurulum dosyası -> masaustu/dist/
-# Gerekenler: Python + PyInstaller (python -m pip install pyinstaller), masaustu/ içinde npm install.
+# Gerekenler: Python + PyInstaller 6 veya üstü (python -m pip install "pyinstaller>=6"; _internal/ düzeni), masaustu/ içinde npm install.
 # Çalıştırma (depo kökünden ya da herhangi bir yerden):  powershell -ExecutionPolicy Bypass -File masaustu/build/paketle.ps1
 $ErrorActionPreference = "Stop"
 $masaustu = Split-Path -Parent $PSScriptRoot

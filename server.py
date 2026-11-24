@@ -40,7 +40,8 @@ STATIC = os.path.join(ROOT, "static")
 _VERI_ENV = os.environ.get("DERSNABZI_DATA", "").strip()
 if getattr(sys, "frozen", False) and not _VERI_ENV:
     # Paket klasörüne asla veri yazılmaz: paketli sunucu veri klasörünü ortamdan almak zorunda.
-    sys.exit("DERSNABZI_DATA ortam değişkeni gerekli (paketli sunucu kendi klasörüne veri yazmaz).")
+    sys.exit("DERSNABZI_DATA ortam değişkeni gerekli; paketli sunucuda --data tek başına yetmez "
+             "(paketli sunucu kendi klasörüne veri yazmaz).")
 DATA = os.path.abspath(_VERI_ENV) if _VERI_ENV else os.path.join(ROOT, "data")
 TEST_DIR = os.path.join(DATA, "test_kayitlari") if _VERI_ENV else os.path.join(ROOT, "test_kayitlari")   # bakış testi kayıtları (telefondan da gelir)
 os.makedirs(DATA, exist_ok=True)

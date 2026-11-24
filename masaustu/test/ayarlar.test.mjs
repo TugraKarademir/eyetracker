@@ -57,3 +57,24 @@ test("varsayılan veri klasörü dışarıdan değiştirilebilir (paketli uygula
     varsayilanVeriKlasoru(eski);
   }
 });
+
+test("varsayılana eşit veri klasörü dosyaya yazılmaz (geliştirme/paket ayrımı)", () => {
+  const eski = varsayilanVeriKlasoru();
+  try {
+    const dosya = path.join(tmp, "ayrim.json");
+    const dev = path.join(tmp, "depo", "data");
+    const paket = path.join(tmp, "Belgeler", "DersNabzı", "veri");
+    varsayilanVeriKlasoru(dev);
+    kaydet(dosya, { ...varsayilan(), kiosk: { ogrenci: false, test: true } });
+    assert.equal("veriKlasoru" in JSON.parse(fs.readFileSync(dosya, "utf8")), false);
+    varsayilanVeriKlasoru(paket);   // aynı dosyayı paketli sürüm okur: kendi varsayılanını alır
+    const a = yukle(dosya);
+    assert.equal(a.veriKlasoru, path.resolve(paket));
+    assert.equal(a.kiosk.ogrenci, false);
+    const ozel = path.join(tmp, "ozel");
+    kaydet(dosya, { ...a, veriKlasoru: ozel });   // varsayılandan farklıysa yazılır
+    assert.equal(JSON.parse(fs.readFileSync(dosya, "utf8")).veriKlasoru, ozel);
+  } finally {
+    varsayilanVeriKlasoru(eski);
+  }
+});

@@ -103,7 +103,8 @@ function sunucuKapandi(c, kod, sinyal) {
   calisan = null;
   sunucuKoken = null;
   const neden = kod !== null && kod !== undefined ? `kod ${kod}` : `sinyal ${sinyal}`;
-  // Uyarı başlangıç ekranında gösterilir: ekran yoksa (kapanmış) önce yeniden açılır, sonra sayfalar kapatılır.
+  // Savunma amaçlı: başlangıç ekranı kapanınca uygulama zaten kapanır, bu dal normalde çalışmaz.
+  // Yine de ekran yoksa uyarı gösterilebilsin diye yeniden açılır, sonra sayfalar kapatılır.
   if ((!baslangicPenceresi || baslangicPenceresi.isDestroyed()) && !cikiliyor) baslangicPenceresiAc();
   sayfaPencereleriniKapat();   // eski porttaki sayfalar artık çalışmaz
   durumYayinla({ asama: "hata", port: null, hata: `Sunucu beklenmedik şekilde kapandı (${neden}). Açık sayfa pencereleri kapatıldı.` });
