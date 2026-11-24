@@ -385,7 +385,9 @@ def public_student(s, t):
     online = (t - s["last_seen"]) < OFFLINE_AFTER
     return {
         "id": s["id"], "name": s["name"], "demo": s["demo"], "online": online,
-        "attention": round(m.get("attention", 0)), "energy": round(m.get("energy", 0)),
+        # Ölçüm hiç gelmediyse None (panelde "–"); 0 göstermek ölçülmemiş değeri ölçülmüş gibi gösterirdi
+        "attention": round(m["attention"]) if isinstance(m.get("attention"), (int, float)) else None,
+        "energy": round(m["energy"]) if isinstance(m.get("energy"), (int, float)) else None,
         "emotion": m.get("emotion", "notr"), "face": m.get("face", False),
         "lookingAway": m.get("lookingAway", False), "eyesClosed": m.get("eyesClosed", False),
         "tabHidden": m.get("tabHidden", False), "hand": s["hand"],
@@ -478,7 +480,7 @@ def snapshot(cls, t):
                 "created": cls["created"], "ended": cls["ended"], "live": cls.get("live", False)},
         "agg": agg,
         "students": sorted((public_student(s, t) for s in cls["students"].values()),
-                           key=lambda x: (not x["online"], x["attention"])),
+                           key=lambda x: (not x["online"], x["attention"] is None, x["attention"] or 0)),
         "timeline": cls["timeline"][-120:],
         "reactions": cls["reaction_counts"],
         "heat": norm_heat(cls["heat_demo"] if agg["demo"] else cls["heat_live"]),

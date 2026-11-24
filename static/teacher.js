@@ -161,8 +161,8 @@ function renderStudents(list) {
       <div class="top"><div class="av">${st.online ? EMO[st.emotion]?.icon || "😐" : "💤"}</div>
         <div style="min-width:0"><div class="nm">${esc(st.name)}${st.demo ? ' <span class="pill" style="font-size:10px;padding:1px 6px">demo</span>' : ""}</div>
         <div class="st">${statusText(st)}${low ? ` · ${st.lowFor} sn` : ""}</div></div></div>
-      <div class="metric"><span>Dikkat</span><div class="bar"><i style="width:${st.attention}%;background:${levelColor(st.attention)}"></i></div><b>${st.attention}</b></div>
-      <div class="metric"><span>Enerji</span><div class="bar"><i style="width:${st.energy}%;background:var(--c-en)"></i></div><b>${st.energy}</b></div>
+      <div class="metric"><span>Dikkat</span><div class="bar"><i style="width:${st.online && st.attention != null ? st.attention : 0}%;background:${levelColor(st.attention)}"></i></div><b>${st.online && st.attention != null ? st.attention : "–"}</b></div>
+      <div class="metric"><span>Enerji</span><div class="bar"><i style="width:${st.online && st.energy != null ? st.energy : 0}%;background:var(--c-en)"></i></div><b>${st.online && st.energy != null ? st.energy : "–"}</b></div>
       ${gazeLine(st)}
       ${hseLine(st)}
       ${btSatiri(st)}
@@ -233,8 +233,8 @@ function ayrintiCiz(d) {
     </div>
     <div style="padding:14px 18px;display:grid;gap:12px;overflow:auto;max-height:calc(92vh - 70px)">
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
-        ${kutu("Dikkat (şimdi · son ~1 dk)", `<b style="font-size:22px;color:${levelColor(d.attention)}">${d.attention}</b> <span class="muted">· ${ort(1) ?? "–"}</span>`)}
-        ${kutu("Enerji (şimdi · son ~1 dk)", `<b style="font-size:22px">${d.energy}</b> <span class="muted">· ${ort(2) ?? "–"}</span>`)}
+        ${kutu("Dikkat (şimdi · son ~1 dk)", `<b style="font-size:22px;color:${levelColor(d.attention)}">${d.online && d.attention != null ? d.attention : "–"}</b> <span class="muted">· ${ort(1) ?? "–"}</span>`)}
+        ${kutu("Enerji (şimdi · son ~1 dk)", `<b style="font-size:22px">${d.online && d.energy != null ? d.energy : "–"}</b> <span class="muted">· ${ort(2) ?? "–"}</span>`)}
         ${kutu("Materyale bakış (son ~1 dk)", `<b style="font-size:22px;color:${levelColor(d.materialPct)}">${yuzde(d.materialPct)}</b>`)}
         ${kutu("Etkileşim", `✋ ${d.hands} · 💬 ${d.messages} · 👍 ${d.reactions}`)}
       </div>
