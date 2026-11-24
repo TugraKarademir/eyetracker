@@ -1,13 +1,13 @@
 "use strict";
 // DersNabzı masaüstü: Python sunucusunu başlatır, başlangıç ekranını ve sayfa pencerelerini açar.
-const { app, BrowserWindow, dialog, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } = require("electron");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { fileURLToPath } = require("url");
 const sunucu = require("./sunucu");
 const ayarlar = require("./ayarlar");
-const { izinVerilsinMi, koken } = require("./izin");
+const { izinVerilsinMi, tamEkranVerilsinMi, koken } = require("./izin");
 
 // ---------------------------------------------------------------- argümanlar, yollar
 const SMOKE = process.argv.includes("--smoke");
@@ -85,14 +85,28 @@ async function sunucuBaslat() {
     fs.mkdirSync(veri, { recursive: true });
     const port = await sunucu.bosPortBul(8030);
     const { komut, argumanlar } = sunucu.varsayilanKomut(veri, paketSunucuYolu());
-    calisan = await sunucu.baslat({ komut, argumanlar, port, veri, zamanAsimiMs: 30000 });
-    sunucuKoken = `http://127.0.0.1:${calisan.port}`;
+    const c = await sunucu.baslat({ komut, argumanlar, port, veri, zamanAsimiMs: 15000 });
+    calisan = c;
+    sunucuKoken = `http://127.0.0.1:${c.port}`;
+    c.surec.once("exit", (kod, sinyal) => sunucuKapandi(c, kod, sinyal));
     durumYayinla({ asama: "hazir", port: calisan.port, veriKlasoru: veri, hata: null });
   } catch (e) {
     calisan = null;
     sunucuKoken = null;
     durumYayinla({ asama: "hata", port: null, veriKlasoru: veri, hata: String(e && e.message ? e.message : e) });
   }
+}
+
+// Sunucu kendiliğinden kapandıysa (bilerek durdurulmadıysa: calisan hâlâ bu süreç) hata durumuna geçilir.
+function sunucuKapandi(c, kod, sinyal) {
+  if (calisan !== c) return;   // sunucuDurdur() önce calisan'ı boşaltır: bilerek durdurma
+  calisan = null;
+  sunucuKoken = null;
+  const neden = kod !== null && kod !== undefined ? `kod ${kod}` : `sinyal ${sinyal}`;
+  sayfaPencereleriniKapat();   // eski porttaki sayfalar artık çalışmaz; uyarı başlangıç ekranında
+  durumYayinla({ asama: "hata", port: null, hata: `Sunucu beklenmedik şekilde kapandı (${neden}). Açık sayfa pencereleri kapatıldı.` });
+  const w = baslangicPenceresi;
+  if (w && !w.isDestroyed() && !SMOKE) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }
 }
 
 function sayfaPencereleriniKapat() {
@@ -162,12 +176,26 @@ function anahtarEnjeksiyonuKur(win) {
 // ---------------------------------------------------------------- pencereler
 const GUVENLI_WEB = { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, spellcheck: false };
 
+// Kiosk penceresinde engellenen kısayollar (menü zaten yok; yine de açıkça engellenir).
+function kioskKisayoluMu(g, tus) {
+  const ctrl = g.control || g.meta;
+  if (["f11", "f5", "f12", "browserback", "browserforward", "browserrefresh"].includes(tus)) return true;
+  if (g.alt && (tus === "f4" || tus === "arrowleft" || tus === "arrowright")) return true;
+  if (ctrl && ["w", "r", "m", "n", "t", "p", "=", "+", "-", "_", "0"].includes(tus)) return true;
+  if (ctrl && g.shift && ["i", "j", "c", "r"].includes(tus)) return true;
+  return false;
+}
+
 function kioskKlavyesiKur(win) {
-  win.webContents.on("before-input-event", (olay, girdi) => {
+  const wc = win.webContents;
+  let onayAcik = false;
+  wc.on("before-input-event", (olay, girdi) => {
     if (girdi.type !== "keyDown") return;
     const tus = (girdi.key || "").toLowerCase();
     if (girdi.control && girdi.shift && tus === "q") {
       olay.preventDefault();
+      if (onayAcik) return;   // art arda basışta diyaloglar üst üste açılmaz
+      onayAcik = true;
       dialog.showMessageBox(win, {
         type: "question",
         buttons: ["Vazgeç", "Pencereyi kapat"],
@@ -176,51 +204,80 @@ function kioskKlavyesiKur(win) {
         title: "DersNabzı",
         message: "Bu pencere kapatılsın mı?",
       }).then(({ response }) => {
+        onayAcik = false;
         if (response === 1 && !win.isDestroyed()) { win.__dnKapatIzni = true; win.close(); }
-      }).catch(() => {});
+      }).catch(() => { onayAcik = false; });
       return;
     }
-    // Esc engellenmez: kiosk'u bozmaz (yalnız sayfanın HTML tam ekranından çıkar, pencere kiosk kalır;
-    // denendi) ve gaze.js kalibrasyonundaki "Vazgeç (Esc)" buna dayanır.
-    if (tus === "f11" || (girdi.alt && tus === "f4") || (girdi.control && tus === "w")) {
-      olay.preventDefault();
-    }
+    // Esc engellenmez (sayfalarda Vazgeç/Esc çalışsın); sayfa tam ekranından çıkılırsa aşağıda geri girilir.
+    if (kioskKisayoluMu(girdi, tus)) olay.preventDefault();
   });
+
+  // Esc ile HTML tam ekranından çıkılınca (pencere kiosk kalır) sayfa tam ekranına hemen geri girilir.
+  // Yalnız sunucu kökeninde; başarısızlıkta sonsuz deneme yok: art arda 3 hatadan sonra bırakılır, bir kez loglanır.
+  let tamEkranHata = 0;
+  let tamEkranLoglandi = false;
+  win.on("leave-html-full-screen", () => {
+    if (win.isDestroyed() || cikiliyor || tamEkranHata >= 3) return;
+    if (sunucuKoken === null || koken(wc.getURL()) !== sunucuKoken) return;
+    setTimeout(() => {
+      if (win.isDestroyed() || sunucuKoken === null || koken(wc.getURL()) !== sunucuKoken) return;
+      wc.executeJavaScript(
+        "document.fullscreenElement ? true : document.documentElement.requestFullscreen().then(() => true, () => false)",
+        true,
+      ).then((ok) => {
+        if (ok) { tamEkranHata = 0; win.__dnTamEkranGeriGiris = (win.__dnTamEkranGeriGiris || 0) + 1; return; }
+        tamEkranHata++;
+        if (tamEkranHata >= 3 && !tamEkranLoglandi) {
+          tamEkranLoglandi = true;
+          console.error("Kiosk: sayfa tam ekranına geri girilemedi; yeniden denenmeyecek.");
+        }
+      }).catch(() => { tamEkranHata++; });
+    }, 50);
+  });
+
+  // Yakınlaştırma 1'de sabit (bakış geometrisi CSS pikseline bağlı).
+  const zoomSifirla = () => { if (!win.isDestroyed()) wc.setZoomFactor(1); };
+  wc.on("did-finish-load", () => {
+    zoomSifirla();
+    wc.setVisualZoomLevelLimits(1, 1).catch(() => {});
+  });
+  wc.on("zoom-changed", zoomSifirla);
   // Alt+F4 işletim sisteminden doğrudan "close" olarak gelebilir: izin yoksa kapanma.
   win.on("close", (e) => {
     if (!cikiliyor && !win.__dnKapatIzni) e.preventDefault();
   });
 }
 
-function gezinmeKilidiKur(wc) {
+function gezinmeKilidiKur(wc, kiosk = false) {
+  // Kiosk penceresinden dış adresler varsayılan tarayıcıda da açılmaz, atılır.
+  const disariAc = (url) => { if (!kiosk && koken(url)) shell.openExternal(url).catch(() => {}); };
   const ayniKoken = (url) => sunucuKoken !== null && koken(url) === sunucuKoken;
   wc.on("will-navigate", (e, url) => {
     if (ayniKoken(url)) return;
     e.preventDefault();
-    const k = koken(url);
-    if (k) shell.openExternal(url).catch(() => {});
+    disariAc(url);
   });
   wc.on("will-redirect", (e, url) => { if (!ayniKoken(url)) e.preventDefault(); });
   wc.setWindowOpenHandler(({ url }) => {
     if (ayniKoken(url)) {
       sayfaPenceresiAc(new URL(url).pathname + new URL(url).search);
-    } else if (koken(url)) {
-      shell.openExternal(url).catch(() => {});
+    } else {
+      disariAc(url);
     }
     return { action: "deny" };
   });
 }
 
 function hedefKioskMu(yol) {
-  if (SMOKE) return false;
   if (yol.startsWith(SAYFALAR.ogrenci)) return !!ayar.kiosk.ogrenci;
   if (yol.startsWith(SAYFALAR.test)) return !!ayar.kiosk.test;
   return false;
 }
 
-function sayfaPenceresiAc(yol, { goster = true } = {}) {
+function sayfaPenceresiAc(yol, { goster = true, kiosk: kioskZorla } = {}) {
   if (!sunucuKoken) throw new Error("Sunucu hazır değil");
-  const kiosk = hedefKioskMu(yol);
+  const kiosk = typeof kioskZorla === "boolean" ? kioskZorla : (SMOKE ? false : hedefKioskMu(yol));
   const yonetim = yol.startsWith(SAYFALAR.yonetim);
   const win = new BrowserWindow({
     width: 1280,
@@ -235,7 +292,7 @@ function sayfaPenceresiAc(yol, { goster = true } = {}) {
   win.setMenuBarVisibility(false);
   sayfaPencereleri.add(win);
   win.on("closed", () => sayfaPencereleri.delete(win));
-  gezinmeKilidiKur(win.webContents);
+  gezinmeKilidiKur(win.webContents, kiosk);
   if (kiosk) kioskKlavyesiKur(win);
   if (yonetim) anahtarEnjeksiyonuKur(win);
   else if (goster) win.once("ready-to-show", () => win.show());
@@ -329,8 +386,8 @@ function ipcKur() {
 function oturumKur() {
   const s = session.defaultSession;
   const karar = (url, izin) =>
-    // Sayfalar requestFullscreen kullanır; tam ekran da yalnız sunucu kökenine açıktır.
-    izin === "fullscreen" ? (sunucuKoken !== null && koken(url) === sunucuKoken) : izinVerilsinMi(url, izin, sunucuKoken);
+    // Sayfalar requestFullscreen kullanır; tam ekran da yalnız sunucu kökenine açıktır (kullanıcı onaylı).
+    izin === "fullscreen" ? tamEkranVerilsinMi(url, sunucuKoken) : izinVerilsinMi(url, izin, sunucuKoken);
   s.setPermissionRequestHandler((wc, izin, geri, ayrinti) => {
     geri(karar((ayrinti && ayrinti.requestingUrl) || wc.getURL(), izin));
   });
@@ -341,6 +398,8 @@ function oturumKur() {
 
 app.on("web-contents-created", (_e, wc) => {
   wc.on("will-attach-webview", (e) => e.preventDefault());
+  // Paketli sürümde geliştirici araçları açılmaz.
+  if (app.isPackaged) wc.on("devtools-opened", () => wc.closeDevTools());
 });
 
 // ---------------------------------------------------------------- smoke
@@ -384,6 +443,52 @@ async function smokeKos() {
       `navigator.permissions.query({ name: "camera" }).then((p) => p.state).catch((e) => "hata: " + e.message)`,
     );
     yaz(`sunucu kökeninde kamera izni durumu: ${kamera}`);
+    yaz(`uygulama menüsü: ${Menu.getApplicationMenu() === null ? "yok" : "VAR"}`);
+    if (Menu.getApplicationMenu() !== null) throw new Error("uygulama menüsü kaldırılmadı");
+
+    // Kiosk penceresi: Esc ile tam ekrandan çıkınca geri girilir; Ctrl+R / Ctrl+= engelli, zoom 1.
+    const kw = sayfaPenceresiAc(SAYFALAR.test, { kiosk: true });
+    await new Promise((coz, red) => {
+      const t = setTimeout(() => red(new Error("kiosk penceresi yüklenmedi")), 20000);
+      kw.webContents.once("did-finish-load", () => { clearTimeout(t); coz(); });
+    });
+    await new Promise((r) => setTimeout(r, 800));
+    await kw.webContents.executeJavaScript("document.documentElement.requestFullscreen().then(() => 1, (e) => e.message)", true);
+    await new Promise((r) => setTimeout(r, 800));
+    kw.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    kw.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+    await new Promise((r) => setTimeout(r, 400));
+    const araDurum = await kw.webContents.executeJavaScript("!!document.fullscreenElement");
+    await new Promise((r) => setTimeout(r, 1200));
+    kw.webContents.sendInputEvent({ type: "keyDown", keyCode: "=", modifiers: ["control"] });
+    await new Promise((r) => setTimeout(r, 400));
+    const k = await kw.webContents.executeJavaScript(
+      "({ tamEkran: !!document.fullscreenElement, url: location.pathname, dpr: devicePixelRatio })",
+    );
+    k.zoom = kw.webContents.getZoomFactor();
+    k.kiosk = kw.isKiosk();
+    k.escSonrasiHemen = araDurum;
+    k.geriGiris = kw.__dnTamEkranGeriGiris || 0;
+    yaz(`kiosk: ${JSON.stringify(k)}`);
+    if (!k.tamEkran || !k.kiosk || k.zoom !== 1 || k.geriGiris < 1) throw new Error("kiosk tam ekran/zoom beklenen gibi değil");
+
+    // Çökme: sunucu sürecini dışarıdan öldür, hata durumu yayınlanmalı
+    const hataBekle = new Promise((coz, red) => {
+      const t = setTimeout(() => red(new Error("çökme algılanmadı")), 10000);
+      const iv = setInterval(() => { if (durum.asama === "hata") { clearTimeout(t); clearInterval(iv); coz(); } }, 50);
+    });
+    process.kill(calisan.surec.pid);
+    await hataBekle;
+    const ekranHata = await win.webContents.executeJavaScript(
+      `({ ozet: document.getElementById("hataOzet").textContent, kutu: !document.getElementById("hataKutusu").classList.contains("hidden"), dugmelerKapali: [...document.querySelectorAll("[data-hedef]")].every((b) => b.disabled) })`,
+    );
+    yaz(`çökme sonrası: durum=${durum.asama}, koken=${sunucuKoken}, sayfa pencereleri=${sayfaPencereleri.size}, ekran=${JSON.stringify(ekranHata)}`);
+    if (sunucuKoken !== null || sayfaPencereleri.size !== 0 || !ekranHata.kutu || !ekranHata.dugmelerKapali || !/beklenmedik/.test(ekranHata.ozet)) {
+      throw new Error("çökme sonrası durum beklenen gibi değil");
+    }
+    await sunucuyuYenidenBaslat();
+    yaz(`yeniden dene: durum=${durum.asama}, port=${durum.port}`);
+    if (durum.asama !== "hazir" || !(await sunucu.saglikVar(durum.port))) throw new Error("yeniden başlatma başarısız");
     clearTimeout(zaman);
     yaz("tamam");
     await cikisYap(0);
@@ -424,6 +529,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     ayar = ayarlar.yukle(AYAR_DOSYASI());
+    Menu.setApplicationMenu(null);   // varsayılan menü kısayolları (yenile, yakınlaştır, DevTools) kapalı
     oturumKur();
     ipcKur();
     baslangicPenceresiAc();

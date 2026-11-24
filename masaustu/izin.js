@@ -18,4 +18,11 @@ function izinVerilsinMi(kokenUrl, izin, sunucuKoken) {
   return istek !== null && sunucu !== null && istek === sunucu;
 }
 
-module.exports = { izinVerilsinMi, koken };
+// Sayfalar requestFullscreen kullanır: HTML tam ekranı da yalnız sunucunun tam kökenine verilir.
+function tamEkranVerilsinMi(kokenUrl, sunucuKoken) {
+  const istek = koken(kokenUrl);
+  const sunucu = koken(sunucuKoken);
+  return istek !== null && sunucu !== null && istek === sunucu;
+}
+
+module.exports = { izinVerilsinMi, tamEkranVerilsinMi, koken };

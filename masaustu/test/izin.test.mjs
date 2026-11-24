@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-const { izinVerilsinMi } = createRequire(import.meta.url)("../izin.js");
+const { izinVerilsinMi, tamEkranVerilsinMi } = createRequire(import.meta.url)("../izin.js");
 
 const S = "http://127.0.0.1:8030";
 
@@ -31,4 +31,13 @@ test("aynı köken başka izin: izin yok", () => {
 test("sunucu kökeni yoksa: izin yok", () => {
   assert.equal(izinVerilsinMi(`${S}/student.html`, "media", null), false);
   assert.equal(izinVerilsinMi(`${S}/student.html`, "media", ""), false);
+});
+
+test("tam ekran: yalnız sunucunun tam kökeni", () => {
+  assert.equal(tamEkranVerilsinMi(`${S}/bakis_test.html`, S), true);
+  assert.equal(tamEkranVerilsinMi("http://127.0.0.1:8031/", S), false);
+  assert.equal(tamEkranVerilsinMi("http://localhost:8030/", S), false);
+  assert.equal(tamEkranVerilsinMi("https://ornek.com/", S), false);
+  assert.equal(tamEkranVerilsinMi("file:///C:/baslangic.html", S), false);
+  assert.equal(tamEkranVerilsinMi(`${S}/`, null), false);
 });
