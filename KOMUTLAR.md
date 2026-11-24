@@ -101,7 +101,7 @@ Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object { $_.
 
 - [ ] Sunucu son `git pull`'dan sonra ve `labtest` dalında başlatıldı.
 - [ ] Sertifika her lab bilgisayarına kuruldu (f).
-- [ ] Her lab bilgisayarında indirmelere izin verildi (f).
+- [ ] Her lab bilgisayarında `https://<IP>:8443` için site ayarı "Otomatik indirmeler: İzin ver" açık (f). Açık değilse Chrome ders sonundaki ikinci dosyayı engeller; çünkü o indirme bir tıklamadan değil, sunucunun ders sonu sinyalinden gelir.
 - [ ] Lab bilgisayarlarının saatleri doğru.
 
 **a. Öğretmen bilgisayarının IP adresini öğren** (öğrencilerle aynı ağdaki adresi seç):
@@ -184,7 +184,7 @@ Object.keys(localStorage).filter(k=>k.startsWith("dn_")).forEach(k=>localStorage
 ```
 
 - Sitenin yazdığı anahtarlar: `dn_student`, `dn_bakis_tamam_<DERSKODU>`, `dn_gaze_v2_<…>`, `dn_yuz_profili`, `dn_kamera_yeri`, `dn_kamera_zoom`, `dn_ls_base`, `dn_auto_hand`, `dn_hse`.
-- İndirilen yedek dosyalar: lab bilgisayarı Downloads klasörüne otomatik indirir: kalibrasyon sonunda `dersnabzi_<DERS>_<ad>_<tarih>_bakis.json` ve `..._bakis_ozet.csv`, ders sonunda `..._ders.csv` (öğrenci sayfasındaki "Ders verimi indir" düğmesi de aynısını indirir). Chrome ilk indirmede bir kez "birden fazla dosya indirilsin mi?" diye sorabilir: **İzin ver**. Silmeden önce isterseniz bu dosyaları USB belleğe ya da öğretmen bilgisayarına kopyalayın; sonra elle silin (önce listele, sonra sil):
+- İndirilen yedek dosyalar: lab bilgisayarı Downloads klasörüne otomatik indirir: kalibrasyon sonunda `dersnabzi_<DERS>_<ad>_<tarih>_bakis.json` ve `..._bakis_ozet.csv`, ders sonunda `..._ders.csv` ve `..._ders.json` (öğrenci sayfasındaki "Ders verimi indir" düğmesi de aynısını indirir). Chrome ilk indirmede bir kez "birden fazla dosya indirilsin mi?" diye sorabilir: **İzin ver**. Silmeden önce isterseniz bu dosyaları USB belleğe ya da öğretmen bilgisayarına kopyalayın; sonra elle silin (önce listele, sonra sil):
 
 ```powershell
 Get-ChildItem "$env:USERPROFILE\Downloads\dersnabzi_*"
