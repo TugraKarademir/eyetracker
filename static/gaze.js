@@ -451,7 +451,7 @@ class GazeTracker {
     const o = this._off();
     const x = this.fx.f(px, t) - o.x, y = this.fy.f(py, t) - o.y;   // pencere (CSS px) koordinatı
     this.point = [x, y];
-    this._sample(x, y);
+    this._sample(x, y, t);
     // WebGazer yöntemi: ikinci tahmin, ayrı bölge sayımı (ders kaydında karşılaştırma için)
     if (this.wgModel && wgp && !this.coarse) {
       const [qx, qy] = this.wgModel.predict(gzWgOz(wgp));
@@ -494,8 +494,9 @@ class GazeTracker {
     return { x: screenX + i.x, y: screenY + i.y, olculdu: !!this.inner };
   }
 
-  // Bir örneği bölgeye ata ve gönderim penceresine ekle
-  _sample(x, y) {
+  // Bir örneği bölgeye ata ve gönderim penceresine ekle. t: karenin yakalandığı an (sn, performance saati);
+  // işçi yolunda sonuç geç gelir, ekran izinin zaman damgası varış değil yakalama anı olmalı.
+  _sample(x, y, t = null) {
     let name = null, uv = null;
     if (document.hidden) name = "disari";
     else if (x != null) {
@@ -516,7 +517,7 @@ class GazeTracker {
     this.win.n++;
     this.win.counts[name] = (this.win.counts[name] || 0) + 1;
     if (uv && this.win.n % 3 === 0) this.win.pts.push(uv);  // ~10 nokta/sn
-    if (x != null && !document.hidden && this.win.n % 3 === 0) this.win.scr.push([performance.now(), x / innerWidth, y / innerHeight]);  // tam ekran izi (sayfa oranı, ekran dışı dahil)
+    if (x != null && !document.hidden && this.win.n % 3 === 0) this.win.scr.push([t != null ? t * 1000 : performance.now(), x / innerWidth, y / innerHeight]);  // tam ekran izi (sayfa oranı, ekran dışı dahil)
   }
 
   /** Son gönderimden bu yana özet: {cal, region, share, pts} ya da kalibre değilse {cal:false} */
