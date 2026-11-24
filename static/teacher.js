@@ -170,7 +170,7 @@ function btSatiri(st) {
 function renderStudents(list) {
   const el = $("#students");
   if (!list.length) {
-    el.innerHTML = `<div class="empty" style="grid-column:1/-1">Henüz katılan yok.<br>Öğrenciler <span id="adresKutu">${adresHtml()}</span> adresinden <b>${CODE}</b> koduyla katılabilir.<br><br>Kamerasız denemek için üstteki <b>+ Demo öğrenciler</b> butonunu kullanın.</div>`;
+    el.innerHTML = `<div class="empty" style="grid-column:1/-1">Henüz katılan yok.<br>Öğrenciler şu adresten katılır (ders kodu <b>${CODE}</b>):<br><span id="adresKutu">${adresHtml()}</span><br><br>Kamerasız denemek için üstteki <b>+ Demo öğrenciler</b> butonunu kullanın.</div>`;
     return;
   }
   el.innerHTML = list.map((st) => {
