@@ -378,3 +378,33 @@ class SunucuYonetim(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SaglikVeVeriKlasoru(unittest.TestCase):
+    def test_saglik_200(self):
+        base, kapat = basla()
+        self.addCleanup(kapat)
+        with urllib.request.urlopen(base + "/api/saglik") as f:
+            self.assertEqual(f.status, 200)
+            self.assertEqual(json.loads(f.read()), {"ok": True, "surum": 1})
+
+    def test_data_argumani(self):
+        eski = (server.DATA, server.KAYIT, server._ADMIN_KEY)
+        gecici = tempfile.mkdtemp()
+        yeni = os.path.join(gecici, "alt", "veri")
+        def geri():
+            server.KAYIT.close()
+            server.DATA, server.KAYIT, server._ADMIN_KEY = eski
+            shutil.rmtree(gecici, ignore_errors=True)
+        self.addCleanup(geri)
+        with unittest.mock.patch.dict(os.environ, {"DERSNABZI_ADMIN_KEY": ""}):
+            server._ADMIN_KEY = "eski-anahtar"
+            server.veri_klasoru_ayarla(yeni)
+            self.assertEqual(server.DATA, os.path.abspath(yeni))
+            self.assertTrue(os.path.isdir(yeni))
+            kayit.ders_ekle(server.KAYIT, "ABC123", "T", None, 1.0)
+            self.assertTrue(os.path.exists(os.path.join(yeni, "dersler.db")))
+            anahtar = server.yonetici_anahtari()
+            self.assertNotEqual(anahtar, "eski-anahtar")
+            with open(os.path.join(yeni, "yonetici_anahtari.txt"), encoding="utf-8") as f:
+                self.assertEqual(f.read().strip(), anahtar)

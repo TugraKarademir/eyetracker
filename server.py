@@ -924,6 +924,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
+        if u.path == "/api/saglik":
+            return self.send_json({"ok": True, "surum": 1})
         if u.path == "/api/stream":
             return self.stream(q)
         if u.path == "/api/report":
@@ -1228,6 +1230,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({"ok": True})
 
 
+def veri_klasoru_ayarla(yol):
+    """--data: veri klasörünü değiştirir; KAYIT yeni klasördeki dersler.db ile açılır, yönetici anahtarı oradan okunur."""
+    global DATA, KAYIT, _ADMIN_KEY
+    yol = os.path.abspath(yol)
+    os.makedirs(yol, exist_ok=True)
+    with _ADMIN_LOCK:
+        DATA = yol
+        KAYIT = kayit.ac(os.path.join(yol, "dersler.db"))
+        _ADMIN_KEY = None
+
+
 def main():
     ap = argparse.ArgumentParser(description="DersNabzı sunucusu")
     ap.add_argument("--host", default="127.0.0.1")
@@ -1238,7 +1251,10 @@ def main():
     ap.add_argument("--https-host", default="0.0.0.0")
     ap.add_argument("--cert", default="")
     ap.add_argument("--key", default="")
+    ap.add_argument("--data", default="", help="veri klasörü (varsayılan: ./data)")
     a = ap.parse_args()
+    if a.data:
+        veri_klasoru_ayarla(a.data)
     try:
         sys.stdout.reconfigure(line_buffering=True)   # loglar anında görünsün
     except AttributeError:
