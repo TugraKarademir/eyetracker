@@ -314,6 +314,18 @@ class CihazOnayTest(unittest.TestCase):
         self.assertIsNone(yonetim.ogrenci(con, "D1", "s1")["cihaz_tam"])
         self.assertIsNone(yonetim.cihaz_ozet(None))
 
+    def test_bozuk_bicim_cokmez(self):
+        con = self.kur()
+        for kötü in ("x", [1], 5, None, {"cihazTam": {"gpu": "x"}}, {"cihazTam": {"islemci": 3, "kamera": {"ayar": []}}},
+                     {"cihaz2": "x", "cihazOzet": [1]}, {"cihaz2": {"uaVeri": "x"}}, {"cihazOzet": {"gpu": {"a": 1}}}):
+            c = yonetim.cihaz_ozet(kötü)
+            self.assertTrue(c is None or isinstance(c, dict))
+            yonetim.cihaz_tam(kötü)
+        kurulum_ekle(con, "D1", "s1", 110, {"cihazTam": {"gpu": "x", "kamera": [], "islemci": "y"}, "cihaz2": 7})
+        self.assertEqual(len(yonetim.ders(con, "D1")["ogrenciler"]), 2)
+        self.assertIsNotNone(yonetim.ogrenci(con, "D1", "s1"))
+        self.assertEqual(len(yonetim.cihazlar(con)), 3)
+
     def test_cihazlar_tum_dersler(self):
         con = self.kur()
         kurulum_ekle(con, "D1", "s1", 110, {"tarayici": "Edge 1.2", "cihaz2": {"cekirdek": 4}})

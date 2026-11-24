@@ -2,6 +2,7 @@
 import csv
 import io
 import json
+import sqlite3
 
 KALITE_ESIK = {"iyi": {"kamerada": 90, "kalibreli": 80, "hz": 8, "hata": 200},
                "orta": {"kamerada": 70, "kalibreli": 50}}
@@ -229,9 +230,17 @@ def _tar_ayir(s):
     return (ad, sur) if ad and sur[:1].isdigit() else (s.strip(), None)
 
 
+def _d(v):
+    return v if isinstance(v, dict) else {}
+
+
+def _l(v):
+    return v if isinstance(v, list) else []
+
+
 def _os_ua(c2):
-    pl = ((c2.get("uaVeri") or {}).get("platform")) if isinstance(c2.get("uaVeri"), dict) else None
-    if pl:
+    pl = _d(c2.get("uaVeri")).get("platform")
+    if isinstance(pl, str) and pl:
         return pl
     ua = c2.get("ua") if isinstance(c2.get("ua"), str) else ""
     for anahtar, ad in (("Windows NT 10.0", "Windows 10/11"), ("Android", "Android"), ("CrOS", "ChromeOS"),
@@ -247,19 +256,26 @@ CIHAZ_ALAN = ("tarayici", "tarayiciSurum", "isletimSistemi", "cekirdek", "bellek
 
 def cihaz_ozet(setup):
     """Kurulum JSON'undan düz cihaz özeti. cihazOzet varsa o; eksik alanlar cihazTam, sonra cihaz2 ve kurulumun
-    kendi alanlarından (tarayici, kamera, fps, islemeFps, isci) türetilir. Türetilemeyen None. Kurulum yoksa None."""
+    kendi alanlarından (tarayici, kamera, fps, islemeFps, isci) türetilir. Türetilemeyen None. Kurulum yoksa ya da
+    istemci JSON'u beklenen biçimde değilse None (hata fırlatmaz)."""
+    try:
+        return _cihaz_ozet(setup)
+    except (TypeError, ValueError, AttributeError, KeyError):
+        return None
+
+
+def _cihaz_ozet(setup):
     if not isinstance(setup, dict):
         return None
-    c2 = setup.get("cihaz2") if isinstance(setup.get("cihaz2"), dict) else {}
-    tam = setup.get("cihazTam") if isinstance(setup.get("cihazTam"), dict) else {}
-    g, k = tam.get("gpu") or {}, tam.get("kamera") or {}
-    ay, d = k.get("ayar") or {}, tam.get("diger") or {}
+    c2, tam = _d(setup.get("cihaz2")), _d(setup.get("cihazTam"))
+    g, k = _d(tam.get("gpu")), _d(tam.get("kamera"))
+    ay, d = _d(k.get("ayar")), _d(tam.get("diger"))
     tar, sur = _tar_ayir(setup.get("tarayici"))
     cozun = (f"{int(ay['width'])}x{int(ay['height'])}" if _say(ay.get("width")) and _say(ay.get("height")) else None)
     tur = {
         "tarayici": tar, "tarayiciSurum": sur, "isletimSistemi": _os_ua(c2) if c2 else None,
-        "cekirdek": (tam.get("islemci") or {}).get("mantiksalCekirdek", c2.get("cekirdek")),
-        "bellekGB": (tam.get("bellek") or {}).get("deviceMemoryGB", c2.get("bellekGB")),
+        "cekirdek": _d(tam.get("islemci")).get("mantiksalCekirdek", c2.get("cekirdek")),
+        "bellekGB": _d(tam.get("bellek")).get("deviceMemoryGB", c2.get("bellekGB")),
         "gpu": g.get("webglRenderer") or c2.get("gpu") or None, "gpuVendor": g.get("webglVendor") or None,
         "kamera": k.get("label") or None, "kameraCozunurluk": cozun or setup.get("kamera") or None,
         "kameraFpsAyar": ay.get("frameRate") if _say(ay.get("frameRate")) else setup.get("fps"),
@@ -267,8 +283,10 @@ def cihaz_ozet(setup):
         "delegate": d.get("mediapipeDelegate"),
         "isci": d["isci"] if isinstance(d.get("isci"), bool) else setup.get("isci"),
     }
-    oz = setup.get("cihazOzet") if isinstance(setup.get("cihazOzet"), dict) else {}
+    oz = _d(setup.get("cihazOzet"))
     out = {a: (oz[a] if oz.get(a) is not None else tur[a]) for a in CIHAZ_ALAN}
+    # istemciden gelen değerler yalnız düz değer olabilir (dict/list özet alanına sızmasın)
+    out = {a: (v if v is None or isinstance(v, (str, int, float, bool)) else None) for a, v in out.items()}
     if all(v is None for v in out.values()):
         return None
     return out
@@ -306,11 +324,16 @@ def _bakis_ozet(satirlar):
 
 def _bakis_satirlari(con, code, sid=None):
     sql = "SELECT * FROM bakis_testleri WHERE lesson_code=?" + (" AND sid=?" if sid else "") + " ORDER BY t, rowid"
-    return _sorgu(con, sql, *((code, sid) if sid else (code,)))
+    try:
+        return _sorgu(con, sql, *((code, sid) if sid else (code,)))
+    except sqlite3.OperationalError:   # eski veritabanı: tablo yok
+        return []
 
 
 def _onay(s):
-    t, surum = s["onay_t"], s["onay_surum"]
+    kol = s.keys()
+    t = s["onay_t"] if "onay_t" in kol else None
+    surum = s["onay_surum"] if "onay_surum" in kol else None
     return {"var": t is not None, "t": t, "surum": surum}
 
 
@@ -414,13 +437,14 @@ def ogrenci(con, code, sid):
     isi = {}
     for mid in sorted({r["material_id"] for r in rs if r["material_id"] is not None}):
         isi[str(mid)] = _isi([r for r in rs if r["material_id"] == mid])
+    son_kur = _son_kurulumlar(con, code).get(sid)
     return {
         "bilgi": dict(s[0]),
         "onay": _onay(s[0]),
         "bakis_denemeleri": [{"t": r["t"], "durum": r["durum"], "gl_acc": r["gl_acc"], "model": r["model"],
                               "dosya": r["dosya"]} for r in _bakis_satirlari(con, code, sid)],
-        "cihaz": cihaz_ozet(_son_kurulumlar(con, code).get(sid)),
-        "cihaz_tam": cihaz_tam(_son_kurulumlar(con, code).get(sid)),
+        "cihaz": cihaz_ozet(son_kur),
+        "cihaz_tam": cihaz_tam(son_kur),
         "kalite": _kalite_ozet(rs, _son_hata(con, code, sid)),
         "ornekler": [[r["t"], r["attention"], r["energy"], r["emotion"],
                       r["material_id"]] for r in rs],

@@ -1287,7 +1287,11 @@ const CIH_SUTUN = [
 ];
 async function viewCihazlar(_p, live) {
   const liste = await aapi("dersler");
-  const dd = await Promise.all(liste.map((l) => aapi(`ders?code=${enc(l.code)}`)));
+  const sonuc = await Promise.allSettled(liste.map((l) => aapi(`ders?code=${enc(l.code)}`)));
+  const yetkisiz = sonuc.find((r) => r.status === "rejected" && r.reason instanceof Yetkisiz);
+  if (yetkisiz) throw yetkisiz.reason;
+  const dd = sonuc.filter((r) => r.status === "fulfilled").map((r) => r.value);
+  const okunamadi = sonuc.length - dd.length;
   if (!live()) return;
   const satirlar = [];
   for (const d of dd) {
@@ -1306,7 +1310,7 @@ async function viewCihazlar(_p, live) {
   };
   const hucre = (c, r) => { const v = c[2](r); return v == null ? YOK : esc(v); };
   const ciz = () => {
-    APP.innerHTML = `<div class="head"><h1>Cihazlar</h1><div class="muted small">${satirlar.length} öğrenci · ${dd.length} ders · değerler öğrencinin son kurulum kaydından
+    APP.innerHTML = `<div class="head"><h1>Cihazlar</h1><div class="muted small">${satirlar.length} öğrenci · ${dd.length} ders${okunamadi ? ` · <b>${okunamadi} ders okunamadı</b>` : ""} · değerler öğrencinin son kurulum kaydından
         <button class="btn sm" id="cihCsv" style="margin-left:8px">CSV (cihazlar)</button></div></div>
       <div class="card"><div class="tbl"><table>
         <tr>${CIH_SUTUN.map((c) => `<th data-s="${c[0]}" style="cursor:pointer" title="Sırala">${c[1]}${CIH.sirala === c[0] ? (CIH.ters ? " ▼" : " ▲") : ""}</th>`).join("")}</tr>
