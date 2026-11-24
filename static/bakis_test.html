@@ -109,6 +109,7 @@
 
 <script src="/wg_yama.js"></script>
 <script src="/re_yama.js"></script>
+<script src="/karma.js"></script>
 <script src="/common.js"></script>
 <script src="/gaze.js"></script>
 <script src="/gazelab_stats.js"></script>
@@ -130,7 +131,7 @@ const video = $("#cam"), dot = $("#dot");
 //  fuzyon   tek ridge: bizim göz/baş öznitelikleri + WebGazer'ın 120 göz pikseli (tıklama başına 1 örnek)
 // WebGazer'ın fareyle öğrenmesi kapalı: fare hedefin üstündeyken öğrenirse tıklama anındaki tahmini o noktayı önceden görmüş olur.
 const WG = { SRC: "https://cdn.jsdelivr.net/npm/webgazer@3.5.3/dist/webgazer.js", FM: "https://cdn.jsdelivr.net/npm/webgazer@3.5.3/dist/mediapipe/face_mesh" };
-const YONTEM = { biz: "bizim (webgaze+baş)", wg: "WebGazer ridge", wgK: "WebGazer+göz kapalı filtresi", karisim: "karışım biz+WebGazer", karisim70: "karışım sabit %70 (önceki oturumlardan)", bizB: "bizim + göz katsayıları + 3B baş", bizBk: "yalnız bakarak: bizim", bizBBk: "yalnız bakarak: göz katsayıları + 3B baş", aci: "açı modeli (ekran ölçeği tıklamalardan)", depo: "depo kalibrasyonu (webgaze 13+9 nokta)", bizW: "bizim + WebGazer göz yaması", wgMP: "WebGazer yöntemi (MediaPipe yüzüyle)", bizK: "bizim + 3B göz küresi", kureM: "3B göz küresi yöntemi (JEOresearch)", bizH: "bizim + baş turu", bizBH: "göz katsayıları + 3B baş + baş turu", kureMH: "3B göz küresi + baş turu", fuzyon: "füzyon (tek model)", reL: "RealEye Light yöntemi (40×20 göz kesiti)" };
+const YONTEM = { biz: "bizim (webgaze+baş)", wg: "WebGazer ridge", wgK: "WebGazer+göz kapalı filtresi", karisim: "karışım biz+WebGazer", karisim70: "karışım sabit %70 (önceki oturumlardan)", bizB: "bizim + göz katsayıları + 3B baş", bizBk: "yalnız bakarak: bizim", bizBBk: "yalnız bakarak: göz katsayıları + 3B baş", aci: "açı modeli (ekran ölçeği tıklamalardan)", depo: "depo kalibrasyonu (webgaze 13+9 nokta)", bizW: "bizim + WebGazer göz yaması", wgMP: "WebGazer yöntemi (MediaPipe yüzüyle)", bizK: "bizim + 3B göz küresi", kureM: "3B göz küresi yöntemi (JEOresearch)", bizH: "bizim + baş turu", bizBH: "göz katsayıları + 3B baş + baş turu", kureMH: "3B göz küresi + baş turu", fuzyon: "füzyon (tek model)", reL: "RealEye Light yöntemi (40×20 göz kesiti)", karma: "karma: bizim + WebGazer yaması + RealEye Light (tek model)", karmaH: "karma + baş turu" };
 let wgYuzSon = null;
 let wg = null, wgBuf = [], wgN = 0, wgYuzYok = 0, fuzF = [], fuzY = [], fuzModel = null, karisimGecmis = [];
 async function wgStart() {
@@ -281,7 +282,7 @@ function wgyEkle(win, sx, sy, tekrar = 1) {
 // seçilir, SONRA her biri 9 kopyaya açılır (≤900 satır). λ oturum başına seçilir: p_eff × {1e-3, 1e-2, 1e-1, 1, 10} ızgarasında
 // gruplu birini-dışarıda-bırak (grup = bir bakarak noktası / bir düzeltme tıklaması, tüm kareleri ve kopyalarıyla). Yalnız
 // kalibrasyon verisi kullanılır; kontrol ve GazeLab sonuçları seçime hiç girmez.
-const RE = { EN_COK_KARE: 100, MIN_KARE: 10, FAZ_ART: ["bakarak", "duzeltme"], FAZ_TEK: ["gazelab_dogrulama", "kontrol", "isi_testi"],
+const RE = { EN_COK_KARE: 100, MIN_KARE: 10, FAZ_ART: ["bakarak", "duzeltme"], FAZ_TEK: ["gazelab_dogrulama", "kontrol", "isi_testi", "bas_turu"],   // bas_turu: yalnız karmaH için (reL baş turu verisini kullanmaz)
   kareler: [], model: null, kurulum: [], hata: 0, sonHata: null, sure: { tek: { n: 0, ms: 0 }, art: { n: 0, ms: 0 } } };
 function reKanca(p) {   // gaze.js onLandmarks: aynı karenin piksel yüz noktaları
   const l = gaze?.latest, faz = GLK.cur?.stimulus_id; if (!l || typeof reOznitelik !== "function") return;
@@ -315,6 +316,32 @@ async function reKur(neden) {
   tlog(`RealEye Light modeli kuruldu (${neden}): ${m} kare (${N} kareden eşit aralıklı) × kopya = ${F.length} satır, ${sc.grup} grup, ${k.oznitelik} öznitelik (sabit olmayan ${sc.peff}) | λ seçimi (gruplu birini-dışarıda-bırak, medyan/ortalama px): ${k.izgara.map((t) => `${t.carpan}×p=${t.lam}: ${t.medyan}/${t.ort}`).join(" · ")} → λ ${+k.lam.toFixed(3)} | ${k.ms} ms`, k);
 }
 const reSure = () => ["tek", "art"].map((m) => { const s = RE.sure[m]; return `${m === "tek" ? "tek kesit" : "9 kopya"} ${s.n ? (s.ms / s.n).toFixed(2) + " ms/kare" : "-"} (${s.n} kare)`; }).join(", ") + `, hata ${RE.hata}${RE.sonHata ? ` (son: ${RE.sonHata})` : ""}`;
+// ════ Karma (karma.js): bizim öznitelikler + WebGazer yaması + RealEye Light öznitelikleri tek çift ridge'de (öznitelik düzeyinde
+// birleştirme). Eğitim kareleri bizW ile aynı kural: bakarak noktalarının tutulan kareleri + düzeltme tıklamaları (bizW'nin "tekrar"
+// ağırlığıyla); yakın-tekrar tıklamaları bizW gibi öğretilmez. Üç kaynağın hepsinin bulunduğu kare girer, eksik kare atlanır ve sayılır.
+// Kurulum reL ile aynı anlarda ve tıklama başına değil adım sonunda bir kez: bakarak sonu, (karmaH) baş turu sonu, düzeltme sonu.
+// λ reL'in gruplu bir-kalibrasyon-noktası-dışarıda CV'si (ReRidge.fitSec, grup ağırlıklı). karmaH: aynı + baş turu kareleri
+// (bizH gibi; ana model ve karma bu veriyi görmez). Kontrol, GazeLab doğrulaması ve ısı testinde yalnız tahmin eder, öğrenmez.
+const KARMA = { EN_COK_SATIR: 600, MIN_KARE: 10, ana: { kareler: [], atlanan: 0 }, bas: { kareler: [], atlanan: 0 }, model: null, modelH: null, kurulum: [] };
+async function karmaKur(neden, h = false) {
+  const ad = h ? "karmaH" : "karma", kareler = h ? [...KARMA.ana.kareler, ...KARMA.bas.kareler] : KARMA.ana.kareler;
+  const atlanan = KARMA.ana.atlanan + (h ? KARMA.bas.atlanan : 0), kalan = (h ? KARMA.modelH : KARMA.model) ? " (önceki kurulum kullanılmaya devam eder)" : "";
+  if (h && !KARMA.bas.kareler.length) { tlog(`${ad} modeli kurulamadı (${neden}): baş turu karesi yok (eksik öznitelikle atlanan ${KARMA.bas.atlanan})${kalan}`); return; }
+  const msg = $("#camMsg"); msg.innerHTML = `<div>${ad} modeli kuruluyor…</div>`; msg.style.display = "flex";
+  const t0 = performance.now();
+  try {
+    const { model, S } = await karmaKurSaf(kareler, { enCokSatir: KARMA.EN_COK_SATIR, minKare: KARMA.MIN_KARE, bekle: () => sleep(16) });
+    if (h) KARMA.modelH = model; else KARMA.model = model;
+    const sc = model.secim;
+    const k = { ad, neden, kareAday: kareler.length, atlanan, boyFarki: S.boyFarki, kare: S.kare, satir: S.F.length, grup: sc.grup, oznitelik: model.p, peff: sc.peff,
+                grupBoy: Object.fromEntries(Object.entries(sc.grupBoy || {}).map(([g, b]) => [KARMA_GRUP[g], b])), iz: sc.iz, lam: model.lam,
+                izgara: sc.tablo.map((t) => ({ carpan: t.carpan, lam: +t.lam.toFixed(4), medyan: Math.round(t.medyan), ort: Math.round(t.ort) })), ms: Math.round(performance.now() - t0) };
+    if (h) k.basKare = KARMA.bas.kareler.length;
+    KARMA.kurulum.push(k);
+    tlog(`${ad} modeli kuruldu (${neden}): ${S.kare} kare (${kareler.length} adaydan eşit aralıklı${h ? `; baş turu ${KARMA.bas.kareler.length}` : ""}) → ${k.satir} satır (düzeltme tekrarı dahil), eksik öznitelikle atlanan ${atlanan} kare${S.boyFarki ? `, boyu farklı ${S.boyFarki}` : ""}, ${k.grup} grup, ${k.oznitelik} öznitelik (grup başına sabit olmayan: ${Object.entries(k.grupBoy).map(([g, b]) => `${g} ${b}`).join(", ")}) | λ seçimi (gruplu birini-dışarıda-bırak, medyan/ortalama px): ${k.izgara.map((t) => `${t.carpan}×${k.iz}=${t.lam}: ${t.medyan}/${t.ort}`).join(" · ")} → λ ${+k.lam.toFixed(4)} | eğitim ${k.ms} ms`, k);
+  } catch (e) { tlog(`${ad} modeli kurulamadı (${neden}): ${e.message}; aday ${kareler.length} kare, eksik öznitelikle atlanan ${atlanan}${kalan}`); }
+  finally { msg.style.display = "none"; }
+}
 function wgyKur() {
   if (FW.length >= 30) { modelW = new GazeModel(); modelW.fit(FW, YW); modelM = new GazeModel(); modelM.fit(FM, YW); }
   if (FK.length >= 30) { modelK = new GazeModel(); modelK.fit(FK, YK); modelKM = new GazeModel(); modelKM.fit(FKM, YK); }
@@ -507,6 +534,9 @@ document.addEventListener("pointerdown", (e) => {
   if (modelKH) { const wk = win.filter((b) => b.kure); if (wk.length) { const Q = wk.map((b) => modelKH.predict(b.kure)); P.kureMH = [ortalama(Q, (q) => q[0]) - o.x, ortalama(Q, (q) => q[1]) - o.y]; } }
   { const wr = win.filter((b) => b.re);   // RealEye Light: öğretmeden önce
     if (RE.model && wr.length) { const Q = wr.map((b) => RE.model.predict(b.re)); P.reL = [ortalama(Q, (q) => q[0]) - o.x, ortalama(Q, (q) => q[1]) - o.y]; } }
+  for (const [k, m] of [["karma", KARMA.model], ["karmaH", KARMA.modelH]]) {   // karma: öğretmeden önce (model yalnız adım sonlarında kurulur)
+    const Q = m ? win.map((b) => karmaTahmin(m, b, gzModelFeatures)).filter(Boolean) : [];
+    if (Q.length) P[k] = [ortalama(Q, (q) => q[0]) - o.x, ortalama(Q, (q) => q[1]) - o.y]; }
   const AO = aciOlc(win, sx, sy);
   if (AO) P.aci = [AO.px[0] - o.x, AO.px[1] - o.y];
   { const ww = win.filter((b) => b.wgp);
@@ -530,7 +560,7 @@ document.addEventListener("pointerdown", (e) => {
   const nSay = (f) => win.filter(f).length;
   const NY = { biz: win.length, bizBk: win.length, depo: win.length, bizBBk: win.length, bizH: win.length, bizBH: win.length, bizB: win.length,
     kureMH: nSay((b) => b.kure), bizK: nSay((b) => b.kure), kureM: nSay((b) => b.kure), bizW: nSay((b) => b.wgp), wgMP: nSay((b) => b.wgp),
-    reL: nSay((b) => b.re), aci: AO?.n ?? null, wg: W?.n ?? null, wgK: W?.nK ?? null, karisim: null, karisim70: null, fuzyon: null };
+    reL: nSay((b) => b.re), karma: nSay((b) => b.wgp && b.re), karmaH: nSay((b) => b.wgp && b.re), aci: AO?.n ?? null, wg: W?.n ?? null, wgK: W?.nK ?? null, karisim: null, karisim70: null, fuzyon: null };
   const nOf = (k) => (k.endsWith("GL") && YONTEM[k] && !(k in NY) ? NY[k.slice(0, -2)] ?? null : NY[k] ?? null);
   const v = {};
   for (const [k, q] of Object.entries(P)) if (q && q.every(Number.isFinite)) v[k] = { err: Math.round(Math.hypot(q[0] - cx, q[1] - cy)), cellOk: cell(q[0], q[1]) === cell(cx, cy), x: Math.round(q[0]), y: Math.round(q[1]), n: nOf(k) };
@@ -552,7 +582,7 @@ document.addEventListener("pointerdown", (e) => {
   const tekrar = modelBk ? Math.max(1, Math.round(8 / feats.length)) : 1;
   if (!dogrula) {
     for (let r = 0; r < tekrar; r++) { for (const f of feats) { F.push(f); Y.push([sx, sy]); } for (const b of win) FB.push(ozB(b)); }
-    wgyEkle(win, sx, sy, tekrar);
+    wgyEkle(win, sx, sy, tekrar); karmaEkle(KARMA.ana, win, sx, sy, `t${clicks.length}`, tekrar, gzModelFeatures);   // karma: bizW'nin kareleri ve ağırlığı
     aciEkle(win, sx, sy); reEkle(win, sx, sy, `t${clicks.length}`);   // her düzeltme tıklaması ayrı λ grubu
     wgOgret(cx, cy);
     if (ef) { fuzF.push([...fbiz, ...ef]); fuzY.push([sx, sy]); if (fuzF.length >= TEST.MIN_CLICKS) { fuzModel = new GazeModel(); fuzModel.fit(fuzF, fuzY); } }
@@ -1016,6 +1046,7 @@ async function bakarakKalibrasyon() {
         const o = gaze._off(), sx = q.x + o.x, sy = q.y + o.y;
         for (const b of tut) { Fk.push(gzModelFeatures(b.raw)); FBk.push(ozB(b)); Yk.push([sx, sy]); }
         aciEkle(tut, sx, sy); wgyEkle(tut, sx, sy); reEkle(tut, sx, sy, `b${tur}.${i}`);   // bir bakarak noktası = bir λ grubu
+        karmaEkle(KARMA.ana, tut, sx, sy, `b${tur}.${i}`, 1, gzModelFeatures);
         bakisNokta.push({ x: q.x, y: q.y });
         tlog(`  bakarak nokta ${tur}.${i + 1} (x ${q.x}, y ${q.y}): ${S.length} kare, ${tut.length} tutuldu`, { x: q.x, y: q.y, kare: S.length, tut: tut.length });
       }
@@ -1030,6 +1061,7 @@ async function bakarakKalibrasyon() {
     tlog(`3B göz küresi: ${FK.length}/${Fk.length} karede var${modelK ? "; bizK ve kureM kuruldu" : " — model kurulamadı"}`);
     tlog(`RealEye Light: bakarak sonunda ${RE.kareler.length} kare (her biri ±1 px kaydırmalı 9 kopyalı); öznitelik süresi ${reSure()}`);
     await reKur("bakarak sonu");
+    await karmaKur("bakarak sonu");
     tlog(`BAKARAK modeller kuruldu: ${bakisNokta.length} nokta, ${Fk.length} kare; WebGazer ${wgN} noktadan öğrendi. Düzeltme tıklamaları ana modele eklenir, "yalnız bakarak" model sabit kalır`);
   } else tlog(`BAKARAK modeller kurulamadı: yalnız ${Fk.length} kare toplandı`);
   await sleep(600);
@@ -1089,21 +1121,24 @@ async function basTuru() {
         FH.push(gzModelFeatures(b.raw)); FBH.push(ozB(b)); YH.push([sx, sy]);
         if (b.kure) { FKH.push(ozKM(b)); YKH.push([sx, sy]); }
       }
+      const karmaAtla = karmaEkle(KARMA.bas, sec, sx, sy, `h${i}`, 1, gzModelFeatures);   // karmaH: bizH ile aynı kareler
       const yw = S.map((b) => b.pose3?.yaw).filter(Number.isFinite), pt = S.map((b) => b.pose3?.pitch).filter(Number.isFinite);
       Y3.push(...yw); P3.push(...pt);
       const ar = (A) => (A.length ? `${Math.round(Math.min(...A))}…${Math.round(Math.max(...A))}°` : "-");
-      tlog(`  baş turu nokta ${i + 1} (x ${q.x}, y ${q.y}): ${S.length} kare, ${sec.length} öğretildi · baş yaw ${ar(yw)}, pitch ${ar(pt)}`, { x: q.x, y: q.y, kare: S.length, ogretilen: sec.length });
+      tlog(`  baş turu nokta ${i + 1} (x ${q.x}, y ${q.y}): ${S.length} kare, ${sec.length} öğretildi (karmaH ${sec.length - karmaAtla}, eksik öznitelik ${karmaAtla}) · baş yaw ${ar(yw)}, pitch ${ar(pt)}`, { x: q.x, y: q.y, kare: S.length, ogretilen: sec.length, karmaH: sec.length - karmaAtla });
     }
   } finally { basEtiketSil(); $("#guide").style.visibility = ""; document.querySelectorAll(".tgt").forEach((n) => n.remove()); guide = null; glFazBitir(); }
   const aralik = (A) => (A.length ? Math.round(Math.max(...A) - Math.min(...A)) : null);
   basOzet = { kare: FH.length, yawAralik: aralik(Y3), pitchAralik: aralik(P3) };
   basKur();
+  if (KARMA.model) await karmaKur("baş turu sonu", true); else tlog("karmaH modeli kurulamadı (baş turu sonu): karma (bakarak) modeli yok");
   tlog(`BAŞ TURU bitti: ${FH.length} kare (göz küresi ${FKH.length}); baş yaw aralığı ${basOzet.yawAralik ?? "-"}°, pitch aralığı ${basOzet.pitchAralik ?? "-"}° · ${modelH ? "bizH, bizBH" + (modelKH ? ", kureMH" : "") + " kuruldu (ana model bu veriyi görmez)" : "model kurulamadı"}`, basOzet);
   await sleep(600);
 }
 async function guideStart() {
   F = []; Y = []; clicks = []; model = null; depoModel = null; camHist = []; camPos = null; tiklamaOz.length = 0; modelBk = null; modelBBk = null;
   fuzF = []; fuzY = []; fuzModel = null; karisimGecmis = []; FB = []; modelB = null; FW = []; YW = []; FM = []; modelW = null; modelM = null; FK = []; YK = []; FKM = []; modelK = null; modelKM = null; FH = []; YH = []; FBH = []; FKH = []; YKH = []; modelH = null; modelBH = null; modelKH = null; basOzet = null; aciS = []; aciModel = {}; aciHata = {}; aciSecim = [];
+  KARMA.ana = { kareler: [], atlanan: 0 }; KARMA.bas = { kareler: [], atlanan: 0 }; KARMA.model = null; KARMA.modelH = null; KARMA.kurulum = [];
   RE.kareler = []; RE.model = null; RE.kurulum = []; RE.hata = 0; RE.sonHata = null; RE.sure = { tek: { n: 0, ms: 0 }, art: { n: 0, ms: 0 } };
   if (wg) { await wg.clearData(); wgN = 0; wgBuf = []; wgYuzYok = 0; wgYuzSon = null; }
   YT.sayac = { ikisi: 0, mp: 0, wg: 0, hicbiri: 0 }; YT.ayrisma = null;
@@ -1225,9 +1260,10 @@ async function guideFinish(neden) {
         `[yaw ${r.yaw ?? "-"}° pitch ${r.pitch ?? "-"}°] bizim ${r.biz}/${r.bizH} · göz kats. ${r.bizB}/${r.bizBH} · küre ${r.kureM}/${r.kureMH}`).join(" | ")}${basOzet ? ` || baş turu: ${basOzet.kare} kare, yaw aralığı ${basOzet.yawAralik}°, pitch aralığı ${basOzet.pitchAralik}°` : " || baş turu yapılmadı"}`, { basEtkisi: satir, basOzet });
     }
     if (KD.length) tlog(`DEPO KARŞILAŞTIRMA (aynı 5 kontrol noktası): depo kalibrasyonu hemen ardından ${md(KD, "depo")} | bizim akıştan sonra: bizim ${md(K, "biz")} · depo (kaymış, ~1 dk sonra) ${md(K, "depo")}`, { KD: KD.map((c) => c.v) });
-    if (modelBk) tlog(`KARŞILAŞTIRMA | KONTROL (yeni noktalar, öğretilmedi): bakarak+düzeltme bizim ${md(K, "biz")} · bizim+WebGazer yaması ${md(K, "bizW")} · WebGazer yöntemi (MediaPipe) ${md(K, "wgMP")} · bizim+göz küresi ${md(K, "bizK")} · göz küresi yöntemi ${md(K, "kureM")} · RealEye Light ${md(K, "reL")} · göz katsayıları ${md(K, "bizB")} · karışım %70 ${md(K, "karisim70")} · WebGazer ${md(K, "wg")} · yalnız bakarak bizim ${md(K, "bizBk")} · yalnız bakarak göz katsayıları ${md(K, "bizBBk")} · BAŞ TURLU: bizim ${md(K, "bizH")} · göz katsayıları ${md(K, "bizBH")} · göz küresi ${md(K, "kureMH")} | DÜZELTME tıklamaları (öğretmeden önce): bizim ${md(D, "biz")} · bizim+WebGazer yaması ${md(D, "bizW")} · WebGazer yöntemi (MediaPipe) ${md(D, "wgMP")} · bizim+göz küresi ${md(D, "bizK")} · göz küresi yöntemi ${md(D, "kureM")} · RealEye Light (yalnız bakarak modeliyle; düzeltme sonunda yeniden kurulur) ${md(D, "reL")} · göz katsayıları ${md(D, "bizB")} · karışım %70 ${md(D, "karisim70")} · WebGazer ${md(D, "wg")}`,
+    if (modelBk) tlog(`KARŞILAŞTIRMA | KONTROL (yeni noktalar, öğretilmedi): bakarak+düzeltme bizim ${md(K, "biz")} · bizim+WebGazer yaması ${md(K, "bizW")} · WebGazer yöntemi (MediaPipe) ${md(K, "wgMP")} · bizim+göz küresi ${md(K, "bizK")} · göz küresi yöntemi ${md(K, "kureM")} · RealEye Light ${md(K, "reL")} · göz katsayıları ${md(K, "bizB")} · karışım %70 ${md(K, "karisim70")} · WebGazer ${md(K, "wg")} · yalnız bakarak bizim ${md(K, "bizBk")} · yalnız bakarak göz katsayıları ${md(K, "bizBBk")} · karma ${md(K, "karma")} · BAŞ TURLU: bizim ${md(K, "bizH")} · göz katsayıları ${md(K, "bizBH")} · göz küresi ${md(K, "kureMH")} · karma ${md(K, "karmaH")} | DÜZELTME tıklamaları (öğretmeden önce): bizim ${md(D, "biz")} · bizim+WebGazer yaması ${md(D, "bizW")} · WebGazer yöntemi (MediaPipe) ${md(D, "wgMP")} · bizim+göz küresi ${md(D, "bizK")} · göz küresi yöntemi ${md(D, "kureM")} · RealEye Light (yalnız bakarak modeliyle; düzeltme sonunda yeniden kurulur) ${md(D, "reL")} · göz katsayıları ${md(D, "bizB")} · karışım %70 ${md(D, "karisim70")} · WebGazer ${md(D, "wg")} · karma (yalnız bakarak modeliyle) ${md(D, "karma")} · karma + baş turu (bakarak + baş turu modeliyle) ${md(D, "karmaH")}`,
       { K: K.map((c) => c.v), D: D.map((c) => c.v) });
     tlog(`RealEye Light: kurulumlar ${RE.kurulum.map((k) => `${k.neden}: ${k.kare}/${k.kareAday} kare, ${k.satir} satır, ${k.grup} grup, λ ${+k.lam.toFixed(3)}, ${k.ms} ms`).join(" · ") || "yok"} | öznitelik süresi ${reSureOnce} | GazeLab ${GLK.dog?.yontem?.reL ? Math.round(GLK.dog.yontem.reL.acc) + " px" : "veri yok"}`, { reKurulum: RE.kurulum, reSure: reSureVeri });
+    tlog(`KARMA: kurulumlar ${KARMA.kurulum.map((k) => `${k.ad} ${k.neden}: ${k.kare}/${k.kareAday} kare, ${k.satir} satır, atlanan ${k.atlanan}, ${k.grup} grup, λ ${+k.lam.toFixed(4)}, ${k.ms} ms`).join(" · ") || "yok"} | eğitim karesi ${KARMA.ana.kareler.length} (eksik öznitelikle atlanan ${KARMA.ana.atlanan}), baş turu ${KARMA.bas.kareler.length} (atlanan ${KARMA.bas.atlanan}) | GazeLab karma ${GLK.dog?.yontem?.karma ? Math.round(GLK.dog.yontem.karma.acc) + " px" : "veri yok"}, karmaH ${GLK.dog?.yontem?.karmaH ? Math.round(GLK.dog.yontem.karmaH.acc) + " px" : "veri yok"}`, { karmaKurulum: KARMA.kurulum });
   }
   const acc = last.length ? Math.round(med(last.map((c) => c.err))) : null;
   const hit = last.length ? Math.round(100 * last.filter((c) => c.ok).length / last.length) : null;
@@ -1441,7 +1477,7 @@ async function guideDone(t) {
   if (guide.dogrula) { await guideFinish(`kontrol tamam (${clicks.filter((c) => c.dogrulama === "kontrol").length} yeni nokta, öğretilmeden ölçüldü)`); return; }
   if (guide.round === "düzeltme" || guide.round >= AKIS.TUR) {
     glFazBitir();
-    if (guide.round === "düzeltme") await reKur("düzeltme sonu");
+    if (guide.round === "düzeltme") { await reKur("düzeltme sonu"); await karmaKur("düzeltme sonu"); if (KARMA.bas.kareler.length) await karmaKur("düzeltme sonu", true); }
     if (GLAB && model && !guide.glBitti) {
       guide.glBitti = true; $("#guide").style.display = "none";
       await gazelabDogrulama();
@@ -1552,7 +1588,7 @@ const QS = new URLSearchParams(location.search);
 // kapatıldı (kullanıcı kararı 24.11.2026): adres parametresi artık yok sayılır, sabit varsayılan.
 const GLAB = true;   // ?gazelab=0: GazeLab doğrulaması her zaman yapılır
 const AYAR = { ACIK: QS.get("ayar") !== "0", MIN_YUZ: 0.25, IYI_GOZ_PX: 100, HEDEF_YUZ: 0.42, KUTU: [0.5, 0.7] };
-for (const k of ["biz", "wg", "bizB", "bizW", "wgMP", "bizK", "kureM", "bizBk", "bizBBk", "depo", "reL"]) YONTEM[k + "GL"] = `${YONTEM[k]} + GazeLab düzeltmesi`;
+for (const k of ["biz", "wg", "bizB", "bizW", "wgMP", "bizK", "kureM", "bizBk", "bizBBk", "depo", "reL", "karma", "karmaH"]) YONTEM[k + "GL"] = `${YONTEM[k]} + GazeLab düzeltmesi`;
 const GLK = { recs: [], cur: null, baz: false, bazOrnek: [], headBase: null, sure: {}, kamera: null, ayar: null, dog: null, bitti: false, basEpoch: null };
 const simdi = () => performance.now();
 
@@ -1574,6 +1610,8 @@ function glTahmin(b, o) {
     if (modelBH) put("bizBH", modelBH.predict(ozB(b)));
     if (b.kure && modelKH) put("kureMH", modelKH.predict(b.kure));
     if (b.re && RE.model) put("reL", RE.model.predict(b.re));
+    if (KARMA.model) put("karma", karmaTahmin(KARMA.model, b, gzModelFeatures));
+    if (KARMA.modelH) put("karmaH", karmaTahmin(KARMA.modelH, b, gzModelFeatures));
   } catch {}
   return out;
 }
@@ -1718,7 +1756,8 @@ const _isiMid = new WeakMap(); let _isiMidN = 0;
 const isiMid = (m) => (m ? (_isiMid.get(m) ?? (_isiMid.set(m, ++_isiMidN), _isiMidN)) : 0);   // model nesnesi yeniden kurulursa kimliği değişir
 const isiOgrenmeSayaci = () => ({ F: F.length, Y: Y.length, FB: FB.length, FW: FW.length, YW: YW.length, FM: FM.length, FK: FK.length, YK: YK.length, FKM: FKM.length,
   FH: FH.length, YH: YH.length, FBH: FBH.length, FKH: FKH.length, YKH: YKH.length, RE: RE.kareler.length, wg: wgN, fuzF: fuzF.length, tiklama: clicks.length,
-  aciS: aciS.length, karisimGecmis: karisimGecmis.length, model: isiMid(model), modelB: isiMid(modelB), modelW: isiMid(modelW), modelM: isiMid(modelM), modelK: isiMid(modelK), modelKM: isiMid(modelKM), reModel: isiMid(RE.model) });
+  aciS: aciS.length, karisimGecmis: karisimGecmis.length, model: isiMid(model), modelB: isiMid(modelB), modelW: isiMid(modelW), modelM: isiMid(modelM), modelK: isiMid(modelK), modelKM: isiMid(modelKM), reModel: isiMid(RE.model),
+  karmaKare: KARMA.ana.kareler.length, karmaBasKare: KARMA.bas.kareler.length, karmaAtlanan: KARMA.ana.atlanan + KARMA.bas.atlanan, karmaModel: isiMid(KARMA.model), karmaHModel: isiMid(KARMA.modelH) });
 function isiKosul(c) {   // toplama koşulları anlık görüntüsü (adım başı ve sonu)
   const d = gaze?.diag || {}, st = video.srcObject?.getVideoTracks()[0]?.getSettings?.() || {}, l = gaze?.latest;
   return { t: c ? Math.round(simdi() - c.t0) : 0, pencere: { w: innerWidth, h: innerHeight },
@@ -1804,7 +1843,7 @@ async function isiTestiAdimi() {
     const son = isiOgrenmeSayaci(), degisen = Object.keys(once).filter((k) => once[k] !== son[k]);
     console.assert(!degisen.length, "ısı testi sırasında model verisi değişti", degisen);
     if (degisen.length) { veri.ogrenmeIhlali = degisen.map((k) => `${k}: ${once[k]}→${son[k]}`); tlog(`HATA: ısı testi sırasında model verisi değişti (${veri.ogrenmeIhlali.join(", ")})`); }
-    else veri.ogrenme = "yok (eğitim dizileri F/Y/FB/FW/YW/FM/FK/YK/FKM/FH/YH/FBH/FKH/YKH, RealEye kareleri, açı modeli verisi, karışım geçmişi, WebGazer öğretilen nokta, tıklama sayısı ve model nesneleri adım başı ve sonunda aynı; pencere ofseti ölçümü (_learnOffset) kontrol edilmez, model değildir)";
+    else veri.ogrenme = "yok (eğitim dizileri F/Y/FB/FW/YW/FM/FK/YK/FKM/FH/YH/FBH/FKH/YKH, RealEye kareleri, karma/karmaH kareleri ve modelleri, açı modeli verisi, karışım geçmişi, WebGazer öğretilen nokta, tıklama sayısı ve model nesneleri adım başı ve sonunda aynı; pencere ofseti ölçümü (_learnOffset) kontrol edilmez, model değildir)";
     glFazBitir();
     const o = veri.kosullar.ozet;
     tlog(`ISI TESTİ bitti: ${veri.gorseller.length} görsel, ${o.sureMs} ms · işlenen ${o.islenenFps ?? "-"} kare/sn · ${o.isci === "gecis" ? "işçi→ana" : o.isci == null ? "işleme yeri bilinmiyor" : o.isci ? `işçi (gecikme ${o.isciGecikmeMs ?? "-"} ms)` : "ana iş parçacığı"} · uzaklık ~${o.mesafeMedyanCm ?? "-"} cm · duygu örneği ${veri.gorseller.reduce((a, g) => a + g.duygu.length, 0)}`);

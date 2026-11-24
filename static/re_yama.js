@@ -102,17 +102,29 @@ function reArtir(src, p, bs) {
 // düzeltme tıklaması: tüm kareleri ve 9 kopyası birlikte). Çekirdek ridge özdeşliği: C = (K + λI)⁻¹, α = C·y ise grup G dışarıda
 // bırakılınca G'deki artıklar r_G = (C_GG)⁻¹ α_G. K bir kez, her λ için bir Cholesky. Ortalama/z-skor tüm kalibrasyon satırlarından
 // (dışarıda bırakılan grup dahil) — özdeşliğin varsaydığı sabit ön işlem; kontrol/GazeLab verisi hiç kullanılmaz.
-const RER_CARPAN = [1e-3, 1e-2, 1e-1, 1, 10];   // λ = p_eff × çarpan (p_eff: sabit olmayan sütun sayısı)
-function rerHazirla(F) {
+// λ = iz × çarpan. iz = Σ sütun ağırlığı² = çekirdeğin ortalama köşegeni (K_ii'nin satır ortalaması). Ağırlıksız (RealEye Light)
+// her sabit olmayan sütunun ağırlığı 1 olduğundan iz = p_eff (sabit olmayan sütun sayısı): eski davranışın aynısı.
+const RER_CARPAN = [1e-3, 1e-2, 1e-1, 1, 10];
+// sutunGrup (isteğe bağlı): her sütunun grup etiketi (karma.js). Verilirse her grubun sütunları z-skordan sonra 1/√(grubun sabit
+// olmayan sütun sayısı) ile çarpılır: her grup çekirdeğe (K = X Xᵀ) toplam varyans 1 katar, büyük grup (1.600 kesit pikseli) küçük
+// grubu (7 bizim öznitelik) sayıca bastıramaz. Ağırlık sd'ye gömülür (sd·√boy), predict aynı sd ile çalıştığından ayrıca saklanmaz.
+function rerHazirla(F, sutunGrup = null) {
   const n = F.length, p = F[0].length;
   const mu = new Float64Array(p), sd = new Float64Array(p);
   for (const f of F) for (let j = 0; j < p; j++) mu[j] += f[j] / n;
   for (const f of F) for (let j = 0; j < p; j++) sd[j] += (f[j] - mu[j]) ** 2 / n;
   let peff = 0;
   for (let j = 0; j < p; j++) { sd[j] = Math.sqrt(sd[j]); if (sd[j] > 1e-6) peff++; }
-  const X = new Float64Array(n * p);   // z-skor; sabit sütun (sd≈0) 0 kalır
+  let iz = peff, grupBoy = null;
+  if (sutunGrup) {
+    grupBoy = new Map();
+    for (let j = 0; j < p; j++) if (sd[j] > 1e-6) grupBoy.set(sutunGrup[j], (grupBoy.get(sutunGrup[j]) || 0) + 1);
+    iz = grupBoy.size;   // her grup Σ w² = boy × (1/boy) = 1
+    for (let j = 0; j < p; j++) if (sd[j] > 1e-6) sd[j] *= Math.sqrt(grupBoy.get(sutunGrup[j]));   // (x-μ)/(sd·√boy) = z/√boy
+  }
+  const X = new Float64Array(n * p);   // z-skor (× grup ağırlığı); sabit sütun (sd≈0) 0 kalır
   for (let i = 0; i < n; i++) for (let j = 0; j < p; j++) X[i * p + j] = sd[j] > 1e-6 ? (F[i][j] - mu[j]) / sd[j] : 0;
-  return { n, p, mu, sd, X, peff };
+  return { n, p, mu, sd, X, peff, iz, grupBoy };
 }
 function rerCekirdek(X, n, p) {   // K = X Xᵀ (900×1652: Node'da ~1 sn, 4 satır bloklu iç çarpım)
   const K = new Float64Array(n * n);
@@ -172,11 +184,11 @@ class ReRidge {
   _bitir(H, my, a, lam) {   // β = Xᵀ α
     const { n, p, X } = H;
     this.b = a.map((z) => { const b = new Float64Array(p); for (let i = 0; i < n; i++) { const v = z[i], oi = i * p; for (let j = 0; j < p; j++) b[j] += X[oi + j] * v; } return b; });
-    Object.assign(this, { mu: H.mu, sd: H.sd, my, n, p, lam, peff: H.peff });
+    Object.assign(this, { mu: H.mu, sd: H.sd, my, n, p, lam, peff: H.peff, iz: H.iz });
     return this;
   }
-  fit(F, Y, lam = 1) {
-    const H = rerHazirla(F), K = rerCekirdek(H.X, H.n, H.p);
+  fit(F, Y, lam = 1, sutunGrup = null) {
+    const H = rerHazirla(F, sutunGrup), K = rerCekirdek(H.X, H.n, H.p);
     const my = [0, 1].map((c) => Y.reduce((s, y) => s + y[c], 0) / H.n);
     for (let i = 0; i < H.n; i++) K[i * H.n + i] += lam;
     rerCholesky(K, H.n);
@@ -185,8 +197,9 @@ class ReRidge {
   // grup: her satırın grup anahtarı. Hata = grubun ortalama dışarıda-bırakma tahmininin hedefe uzaklığı (px);
   // seçim: gruplar üzerinden medyanı en küçük λ. tablo: her λ için medyan/ortalama.
   // bekle: her λ arasında çağrılır (sayfa donmasın; kurulum 900×1652'de Node'da ~4 sn, λ başına ~0,65 sn)
-  async fitSec(F, Y, grup, carpanlar = RER_CARPAN, bekle = null) {
-    const H = rerHazirla(F), n = H.n, K = rerCekirdek(H.X, n, H.p);
+  // sutunGrup: rerHazirla'daki grup ağırlığı (karma); verilmezse RealEye Light'ın ağırlıksız hâli
+  async fitSec(F, Y, grup, carpanlar = RER_CARPAN, bekle = null, sutunGrup = null) {
+    const H = rerHazirla(F, sutunGrup), n = H.n, K = rerCekirdek(H.X, n, H.p);
     const my = [0, 1].map((c) => Y.reduce((s, y) => s + y[c], 0) / n), Yc = Y.map((y) => [y[0] - my[0], y[1] - my[1]]);
     const harita = new Map(); grup.forEach((g, i) => { if (!harita.has(g)) harita.set(g, []); harita.get(g).push(i); });
     const gruplar = [...harita.values()];
@@ -195,7 +208,7 @@ class ReRidge {
     let en = null; const tablo = [];
     for (const c of carpanlar) {
       if (bekle) await bekle();
-      const lam = H.peff * c, { a, artik } = rerGrupLOO(K, n, Yc, gruplar, lam);
+      const lam = H.iz * c, { a, artik } = rerGrupLOO(K, n, Yc, gruplar, lam);
       const E = gruplar.map((G) => Math.hypot(G.reduce((s, i) => s + artik[i][0], 0) / G.length, G.reduce((s, i) => s + artik[i][1], 0) / G.length));
       const sat = { carpan: c, lam, medyan: med(E), ort: E.reduce((s, e) => s + e, 0) / E.length };
       tablo.push(sat);
@@ -203,7 +216,7 @@ class ReRidge {
     }
     if (!en) throw new Error("λ seçilemedi (hata hesaplanamadı)");
     this._bitir(H, my, en.a, en.sat.lam);
-    this.secim = { tablo, grup: gruplar.length, peff: H.peff };
+    this.secim = { tablo, grup: gruplar.length, peff: H.peff, iz: H.iz, grupBoy: H.grupBoy ? Object.fromEntries(H.grupBoy) : null };
     return this;
   }
   predict(f) {
