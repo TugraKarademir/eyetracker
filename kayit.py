@@ -151,7 +151,8 @@ def bakis_testi_yaz(con, lesson, sid, t, dosya, durum, gl_acc=None, model=None):
     with con:
         con.execute("INSERT INTO bakis_testleri(lesson_code,sid,t,dosya,durum,gl_acc,model) VALUES(?,?,?,?,?,?,?)"
                     " ON CONFLICT(dosya) DO UPDATE SET t=excluded.t, durum=excluded.durum,"
-                    " gl_acc=excluded.gl_acc, model=excluded.model",
+                    " gl_acc=excluded.gl_acc, model=excluded.model"
+                    " WHERE NOT (bakis_testleri.durum='bitti' AND excluded.durum<>'bitti')",   # bitti'den ara'ya dönmez
                     (lesson, sid, t, dosya, durum, gl_acc, model))
 
 

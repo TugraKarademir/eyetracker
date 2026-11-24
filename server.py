@@ -53,6 +53,10 @@ KAYIT = kayit.ac(os.path.join(DATA, "dersler.db"))   # kalıcı ders kaydı; yaz
 GL_DB = os.path.join(TEST_DIR, "gazelab.db")
 ISI_MAX_BYTES = 64_000_000   # ısı testi ayrı dosyası (10 görsel × 60 sn ≈ 12 MB); aşılırsa hata, kırpma yok
 GL_LOCK = threading.Lock()
+# Bakış testi kaydı (kimlikli, aynı dosyanın üzerine yazılan): yazma sırası ve geri gitme koruması.
+# dosya yolu -> (günlük satır sayısı, durum 'bitti' mi). Daha kısa ya da bitti'den ara'ya dönen kayıt yazılmaz.
+TESTLOG_LOCK = threading.Lock()
+TESTLOG_SON = {}
 GL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions(
   id TEXT PRIMARY KEY, study_id TEXT, participant TEXT, status TEXT,
@@ -850,6 +854,22 @@ def temiz_cihaz2(c):
             "gpu": _metin(c.get("gpu"), 120), "ua": _metin(c.get("ua"), 300), "uaVeri": uv}
 
 
+def _testlog_geri_mi(yol, n_log, bitti):
+    """Aynı kimlikle gelen kayıt diskteki kayıttan geride mi (daha kısa günlük ya da bitti'den sonra durumsuz)?
+    Bellekte yoksa (sunucu yeniden başladı) diskteki dosyadan okunur. TESTLOG_LOCK altında çağrılır."""
+    son = TESTLOG_SON.get(yol)
+    if son is None and os.path.exists(yol):
+        try:
+            with open(yol, encoding="utf-8") as f:
+                eski = json.load(f)
+            son = (len(eski.get("log") or []), eski.get("durum") == "bitti")
+        except (OSError, ValueError, AttributeError):
+            son = None
+    if son is None:
+        return False
+    return n_log < son[0] or (son[1] and not bitti)
+
+
 def kayit_bakis(g, parsed):
     """Ham bakış yükünden ornek_ekle alanları. Kaba/kalibresiz: nokta ve ekran izi saklanmaz."""
     g = g if isinstance(g, dict) else {}
@@ -1017,18 +1037,28 @@ class Handler(BaseHTTPRequestHandler):
         on = f"{ders}_{sid[2:8]}_" if etiket else ""
         os.makedirs(TEST_DIR, exist_ok=True)
         ad = f"{zaman}_{on}{cihaz}_{son}.json"
-        with open(os.path.join(TEST_DIR, ad), "w", encoding="utf-8") as f:
-            json.dump(b, f, ensure_ascii=False, indent=1)
-        print(f"[testlog] {ad} ({len(b['log'])} satır)")
-        if etiket:
-            self.bakis_testi_bagla(b, ders, sid, ad)
-        oturum = None
-        if isinstance(b.get("gazelab"), dict):
-            try:
-                oturum = gl_kaydet(b["gazelab"], ad)
-                print(f"[testlog] GazeLab oturumu {oturum} -> {GL_DB}")
-            except (sqlite3.Error, TypeError, ValueError) as e:
-                print(f"[testlog] GazeLab kaydı yazılamadı: {e}")
+        yol = os.path.join(TEST_DIR, ad)
+        bitti = b.get("durum") == "bitti"
+        with TESTLOG_LOCK:
+            if kimlik is not None and _testlog_geri_mi(yol, len(b["log"]), bitti):
+                print(f"[testlog] {ad}: eski/kısa kayıt yazılmadı ({len(b['log'])} satır)")
+                return self.send_json({"ok": True, "dosya": ad, "oturum": None, "atlandi": True})
+            gecici = yol + ".tmp"   # yarım yazılmış dosya kalmasın: önce geçici dosya, sonra yerine taşı
+            with open(gecici, "w", encoding="utf-8") as f:
+                json.dump(b, f, ensure_ascii=False, indent=1)
+            os.replace(gecici, yol)
+            if kimlik is not None:
+                TESTLOG_SON[yol] = (len(b["log"]), bitti)
+            print(f"[testlog] {ad} ({len(b['log'])} satır)")
+            if etiket:
+                self.bakis_testi_bagla(b, ders, sid, ad)
+            oturum = None
+            if isinstance(b.get("gazelab"), dict):
+                try:
+                    oturum = gl_kaydet(b["gazelab"], ad)
+                    print(f"[testlog] GazeLab oturumu {oturum} -> {GL_DB}")
+                except (sqlite3.Error, TypeError, ValueError) as e:
+                    print(f"[testlog] GazeLab kaydı yazılamadı: {e}")
         self.send_json({"ok": True, "dosya": ad, "oturum": oturum})
 
     def bakis_testi_bagla(self, b, ders, sid, ad):
@@ -1042,7 +1072,8 @@ class Handler(BaseHTTPRequestHandler):
         with LOCK:
             kayit.bakis_testi_yaz(KAYIT, ders, sid, t, ad, "bitti" if bitti else "ara", gl_acc, model)
             s = CLASSES.get(ders, {}).get("students", {}).get(sid)
-            if s is not None:
+            eski = s.get("bakis") if s is not None else None
+            if s is not None and not (not bitti and eski and eski.get("dosya") == ad and eski.get("durum") in ("bitti", "bitmedi")):
                 s["bakis"] = {"durum": ("bitti" if model else "bitmedi") if bitti else "suruyor",
                               "glAcc": gl_acc, "model": model, "t": round(t), "dosya": ad}
 

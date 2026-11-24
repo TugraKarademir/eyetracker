@@ -871,6 +871,38 @@ class SinifTesti(unittest.TestCase):
         s = server.public_student(server.CLASSES[kod]["students"][sid], server.now())
         self.assertEqual(s["bakisTesti"]["durum"], "bitmedi")
 
+    def test_gec_kalan_ara_kayit_son_kaydi_ezmez(self):
+        kod, sid = self.ogrenci()
+        g = {"kimlik": "20261125_100000_cd34ef", "cihaz": "Win", "ders": kod, "sid": sid, "ad": "Ali"}
+        son = {**g, "log": [{"msg": str(i)} for i in range(5)], "durum": "bitti", "glAcc": 90, "model": "karma"}
+        _, r = post(self.base, "/api/testlog", son)
+        # geç kalan ara kayıt: daha kısa günlük, durum yok
+        st, r2 = post(self.base, "/api/testlog", {**g, "log": [{"msg": "0"}]})
+        self.assertEqual((st, r2["dosya"], r2.get("atlandi")), (200, r["dosya"], True))
+        # daha uzun ama durumsuz (bitti'den ara'ya dönüş) de yazılmaz
+        _, r3 = post(self.base, "/api/testlog", {**g, "log": [{"msg": "x"}] * 9})
+        self.assertTrue(r3.get("atlandi"))
+        with open(os.path.join(self.td, r["dosya"]), encoding="utf-8") as f:
+            d = json.load(f)
+        self.assertEqual((len(d["log"]), d["durum"]), (5, "bitti"))
+        row = server.KAYIT.execute("SELECT durum, gl_acc, model FROM bakis_testleri").fetchone()
+        self.assertEqual(tuple(row), ("bitti", 90.0, "karma"))
+        self.assertEqual(server.CLASSES[kod]["students"][sid]["bakis"]["durum"], "bitti")
+        self.assertFalse([f for f in os.listdir(self.td) if f.endswith(".tmp")])
+        # sunucu yeniden başladı (bellek boş): diskteki dosyadan anlaşılır
+        server.TESTLOG_SON.clear()
+        _, r4 = post(self.base, "/api/testlog", {**g, "log": [{"msg": "0"}]})
+        self.assertTrue(r4.get("atlandi"))
+        # bitti'den sonra daha uzun bitti kaydı yazılır
+        _, r5 = post(self.base, "/api/testlog", {**son, "log": son["log"] + [{"msg": "ek"}]})
+        self.assertNotIn("atlandi", r5)
+
+    def test_bakis_testi_satiri_bittiden_araya_donmez(self):
+        con = server.KAYIT
+        kayit.bakis_testi_yaz(con, "D", "s_1", 1, "a.json", "bitti", 80.0, "karma")
+        kayit.bakis_testi_yaz(con, "D", "s_1", 2, "a.json", "ara", None, None)
+        self.assertEqual(tuple(con.execute("SELECT durum, gl_acc, model FROM bakis_testleri").fetchone()), ("bitti", 80.0, "karma"))
+
     def test_gecersiz_ders_etiketlenmez_ama_kaydedilir(self):
         kod, sid = self.ogrenci()
         for ders, s in (("YOKKOD", sid), (kod, "s_000000000000"), ("../x", sid), (kod, "../../a")):

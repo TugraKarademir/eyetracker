@@ -84,7 +84,8 @@ setInterval(() => { if (analyzer && !paused) meDuygu(); }, 500);
 
 async function sendMetrics() {
   if (paused) kareOnceki = null;   // duraklatma süresi işlenen kare/sn'yi düşürmesin
-  if (paused || !analyzer) return;
+  // Bakış testi açıkken ya da analizör çalışmıyorken (model yükleniyor) ölçüm yok: kurucunun varsayılanları (dikkat 70, enerji 85) gönderilmez
+  if (paused || !analyzer || kalCerceve || !analyzer.running) return;
   const s = analyzer.state;
   if (s.calibrating && s.face) return;   // kalibrasyon bitmeden gönderme
   const g = gaze ? gaze.flush() : null;

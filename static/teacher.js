@@ -133,7 +133,7 @@ function btMetin(bt) {
 }
 function cihazMetin(c) {
   if (!c) return "veri yok";
-  return `${esc(c.tarayici || "tarayıcı ?")} · ${c.cekirdek != null ? `${c.cekirdek} çekirdek` : "çekirdek ?"} · ${esc(c.gpu || "GPU ?")}`;
+  return `${esc(c.tarayici || "tarayıcı veri yok")} · ${c.cekirdek != null ? `${c.cekirdek} çekirdek` : "çekirdek veri yok"} · ${esc(c.gpu || "GPU veri yok")}`;
 }
 function btSatiri(st) {
   if (st.demo) return "";
