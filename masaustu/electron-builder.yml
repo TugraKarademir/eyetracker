@@ -11,6 +11,7 @@ files:
   - sunucu.js
   - ayarlar.js
   - izin.js
+  - kamera.js
   - preload.js
   - baslangic.html
   - baslangic.js

@@ -7,7 +7,8 @@ const path = require("path");
 const { fileURLToPath } = require("url");
 const sunucu = require("./sunucu");
 const ayarlar = require("./ayarlar");
-const { izinVerilsinMi, tamEkranVerilsinMi, koken } = require("./izin");
+const { izinKarari, koken } = require("./izin");
+const { kameraBetigi, UYARI_IMI: KAMERA_UYARI_IMI } = require("./kamera");
 
 // ---------------------------------------------------------------- argümanlar, yollar
 const SMOKE = process.argv.includes("--smoke");
@@ -47,7 +48,7 @@ function paketSunucuYolu() {
 let ayar = null;
 let calisan = null;        // { port, surec, durdur }
 let sunucuKoken = null;    // "http://127.0.0.1:PORT" (yalnız sunucu hazırken)
-let durum = { asama: "basliyor", port: null, veriKlasoru: null, hata: null, zorla: !!VERI_ZORLA };
+let durum = { asama: "basliyor", port: null, veriKlasoru: null, hata: null, zorla: !!VERI_ZORLA, oneDrive: false, kameraUyari: null };
 let baslangicPenceresi = null;
 const sayfaPencereleri = new Set();
 let cikiliyor = false;
@@ -58,6 +59,7 @@ function veriKlasoru() {
 
 function durumYayinla(yeni) {
   durum = { ...durum, ...yeni, zorla: !!VERI_ZORLA };
+  durum.oneDrive = ayarlar.oneDriveAltindaMi(durum.veriKlasoru || "");
   if (baslangicPenceresi && !baslangicPenceresi.isDestroyed()) {
     baslangicPenceresi.webContents.send("dn:durum", durum);
   }
@@ -83,11 +85,21 @@ async function sunucuBaslat() {
   durumYayinla({ asama: "basliyor", port: null, veriKlasoru: veri, hata: null });
   try {
     fs.mkdirSync(veri, { recursive: true });
-    const port = await sunucu.bosPortBul(8030);
+    // Sayfa tercihleri (yüz profili, kamera yeri/zoom) localStorage'da, yani kökene (porta) bağlı:
+    // son başarılı port önce denenir ki aynı köken korunsun.
+    const port = await sunucu.bosPortBul(ayar.sonPort || 8030);
     const { komut, argumanlar } = sunucu.varsayilanKomut(veri, paketSunucuYolu());
     const c = await sunucu.baslat({ komut, argumanlar, port, veri, zamanAsimiMs: 15000 });
     calisan = c;
     sunucuKoken = `http://127.0.0.1:${c.port}`;
+    if (ayar.sonPort !== c.port) {
+      try {
+        ayarlar.kaydet(AYAR_DOSYASI(), { ...ayar, sonPort: c.port });
+        ayar = ayarlar.yukle(AYAR_DOSYASI());
+      } catch (e) {
+        console.error(`Son port kaydedilemedi: ${e.message}`);
+      }
+    }
     c.surec.once("exit", (kod, sinyal) => sunucuKapandi(c, kod, sinyal));
     durumYayinla({ asama: "hazir", port: calisan.port, veriKlasoru: veri, hata: null });
   } catch (e) {
@@ -123,7 +135,18 @@ function sayfaPencereleriniKapat() {
 function sunucuyuYenidenBaslat() {
   return sirala(async () => {
     sayfaPencereleriniKapat();   // eski porttaki sayfalar artık çalışmaz
-    try { await sunucuDurdur(); } catch (e) { console.error(`Sunucu durdurulamadı: ${e.message}`); }
+    try {
+      await sunucuDurdur();
+    } catch (e) {
+      // Eski sunucu hâlâ çalışıyor olabilir: ikinci bir sunucu (aynı veri klasöründe) başlatılmaz.
+      console.error(`Sunucu durdurulamadı: ${e.message}`);
+      durumYayinla({
+        asama: "hata",
+        port: null,
+        hata: `Önceki sunucu durdurulamadı; ikinci bir sunucu başlatılmadı. Uygulamayı kapatıp yeniden açın.\n${e.message}`,
+      });
+      return;
+    }
     await sunucuBaslat();
   });
 }
@@ -274,6 +297,39 @@ function gezinmeKilidiKur(wc, kiosk = false) {
   });
 }
 
+// Ayarlar'daki kamera/çözünürlük seçimi (ayrıntı: kamera.js). Sayfa betiklerinden önce çalışsın diye
+// CDP Page.addScriptToEvaluateOnNewDocument ile eklenir; dom-ready'de yedek olarak yeniden çalıştırılır
+// (betik ikinci kez çalışırsa hiçbir şey yapmaz). Ayar, pencere açılırken geçerli olan değerdir.
+// Seçili kamera sayfada bulunamazsa sayfa konsola bir im yazar; başlangıç ekranında uyarı gösterilir.
+async function kameraSarmalayiciKur(win) {
+  const wc = win.webContents;
+  const cfg = { etiket: ayar.kameraEtiket, cozunurluk: ayar.cozunurluk, koken: sunucuKoken };
+  const betik = kameraBetigi({ ...cfg, kaynak: "belge-oncesi" });
+  const yedekBetik = kameraBetigi({ ...cfg, kaynak: "dom-ready" });
+  const ayniKoken = () => sunucuKoken !== null && koken(wc.getURL()) === sunucuKoken;
+  wc.on("dom-ready", () => {
+    if (ayniKoken()) wc.executeJavaScript(yedekBetik, false).catch(() => {});
+  });
+  wc.on("console-message", (olay) => {
+    if (olay && olay.message === KAMERA_UYARI_IMI && ayniKoken()) {
+      durumYayinla({ kameraUyari: `Seçili kamera (${cfg.etiket || "?"}) bulunamadı; sayfa varsayılan kamerayı kullandı.` });
+    }
+  });
+  try {
+    // Hedef (renderer) ilk yüklemeden önce yok: boş sayfa yüklenir, sonra betik kaydedilir; kayıt sonraki
+    // tüm belgelerde (sunucu sayfası dahil) sayfa betiklerinden önce çalışır. Takılırsa 5 sn'de vazgeçilir.
+    await wc.loadURL("about:blank");
+    wc.debugger.attach("1.3");
+    const kaydet = async () => {
+      await wc.debugger.sendCommand("Page.enable");
+      await wc.debugger.sendCommand("Page.addScriptToEvaluateOnNewDocument", { source: betik });
+    };
+    await Promise.race([kaydet(), new Promise((_, red) => setTimeout(() => red(new Error("CDP zaman aşımı")), 5000))]);
+  } catch (e) {
+    console.error(`Kamera sarmalayıcısı belge öncesine eklenemedi (dom-ready yedeği kullanılacak): ${e.message}`);
+  }
+}
+
 function hedefKioskMu(yol) {
   if (yol.startsWith(SAYFALAR.ogrenci)) return !!ayar.kiosk.ogrenci;
   if (yol.startsWith(SAYFALAR.test)) return !!ayar.kiosk.test;
@@ -299,9 +355,17 @@ function sayfaPenceresiAc(yol, { goster = true, kiosk: kioskZorla } = {}) {
   win.on("closed", () => sayfaPencereleri.delete(win));
   gezinmeKilidiKur(win.webContents, kiosk);
   if (kiosk) kioskKlavyesiKur(win);
-  if (yonetim) anahtarEnjeksiyonuKur(win);
-  else if (goster) win.once("ready-to-show", () => win.show());
-  win.loadURL(sunucuKoken + yol);
+  const adres = sunucuKoken + yol;
+  // Önce kamera sarmalayıcısı (boş sayfa + CDP kaydı), sonra asıl sayfa. Yükleme ve gösterme
+  // dinleyicileri boş sayfadan SONRA kurulur ki boş sayfanın olayları (ör. did-finish-load) karışmasın.
+  kameraSarmalayiciKur(win).finally(() => {
+    if (win.isDestroyed()) return;
+    if (yonetim) anahtarEnjeksiyonuKur(win);
+    // Asıl sayfanın DOM'u hazır olunca gösterilir (ready-to-show boş sayfada tükenir; boş sayfadayken
+    // gösterilen kiosk penceresinde sayfanın requestFullscreen isteği smoke'ta takılıyordu).
+    else if (goster) win.webContents.once("dom-ready", () => { if (!win.isDestroyed()) win.show(); });
+    win.loadURL(adres).catch(() => {});
+  });
   return win;
 }
 
@@ -374,12 +438,20 @@ function ipcKur() {
         test: typeof yeni.kiosk?.test === "boolean" ? yeni.kiosk.test : ayar.kiosk.test,
       },
     };
+    let kameraDegisti = false;
+    if ("kameraEtiket" in yeni || "kameraId" in yeni) {
+      birlesik.kameraId = typeof yeni.kameraId === "string" && yeni.kameraId ? yeni.kameraId : null;
+      birlesik.kameraEtiket = typeof yeni.kameraEtiket === "string" && yeni.kameraEtiket ? yeni.kameraEtiket : null;
+      kameraDegisti = birlesik.kameraEtiket !== ayar.kameraEtiket;
+    }
+    if ("cozunurluk" in yeni) birlesik.cozunurluk = yeni.cozunurluk || null;   // ayarlar.js doğrular
     if (typeof yeni.veriKlasoru === "string" && yeni.veriKlasoru) {
       if (!path.isAbsolute(yeni.veriKlasoru)) throw new Error("Veri klasörü tam yol olmalı");
       birlesik.veriKlasoru = path.resolve(yeni.veriKlasoru);
     }
     ayarlar.kaydet(AYAR_DOSYASI(), birlesik);
     ayar = ayarlar.yukle(AYAR_DOSYASI());
+    if (kameraDegisti) durumYayinla({ kameraUyari: null });
     const yenidenBaslat = veriKlasoru() !== eskiVeri;
     if (yenidenBaslat) sunucuyuYenidenBaslat();   // beklemeden; durum olaylarla gelir
     return { ayar, yenidenBaslat };
@@ -390,14 +462,19 @@ function ipcKur() {
 // ---------------------------------------------------------------- güvenlik: izinler, webview
 function oturumKur() {
   const s = session.defaultSession;
-  const karar = (url, izin) =>
-    // Sayfalar requestFullscreen kullanır; tam ekran da yalnız sunucu kökenine açıktır (kullanıcı onaylı).
-    izin === "fullscreen" ? tamEkranVerilsinMi(url, sunucuKoken) : izinVerilsinMi(url, izin, sunucuKoken);
+  // Sunucu kökeni: kamera/mikrofon, tam ekran, panoya yazma. Başlangıç ekranı: yalnız kamera (Ayarlar'daki
+  // kamera listesinin adları için). Karar saf işlevdedir (izin.js).
+  const baslangicMi = (wc) => !!wc && !!baslangicPenceresi && !baslangicPenceresi.isDestroyed() && wc === baslangicPenceresi.webContents;
+  const karar = (wc, url, izin) => {
+    // Yerel dosyanın kökeni "file://" olarak gelir; başlangıç ekranı için tam dosya adresine bakılır.
+    const adres = baslangicMi(wc) ? wc.getURL() : url;
+    return izinKarari(adres, izin, sunucuKoken, BASLANGIC_HTML);
+  };
   s.setPermissionRequestHandler((wc, izin, geri, ayrinti) => {
-    geri(karar((ayrinti && ayrinti.requestingUrl) || wc.getURL(), izin));
+    geri(karar(wc, (ayrinti && ayrinti.requestingUrl) || wc.getURL(), izin));
   });
   s.setPermissionCheckHandler((wc, izin, istekKoken, ayrinti) => {
-    return karar(istekKoken || (ayrinti && ayrinti.requestingUrl) || (wc ? wc.getURL() : ""), izin);
+    return karar(wc, istekKoken || (ayrinti && ayrinti.requestingUrl) || (wc ? wc.getURL() : ""), izin);
   });
 }
 
@@ -412,6 +489,12 @@ async function smokeKos() {
   const zaman = setTimeout(() => { console.error("SMOKE: zaman aşımı"); cikisYap(1); }, 90000);
   const adimlar = [];
   const yaz = (m) => { adimlar.push(m); console.log(`SMOKE: ${m}`); };
+  // Takılan adım genel zaman aşımı yerine adıyla raporlansın.
+  const adim = (ad, p, ms = 10000) => {
+    let z = null;
+    return Promise.race([p, new Promise((_, red) => { z = setTimeout(() => red(new Error(`${ad}: ${ms} ms zaman aşımı`)), ms); })])
+      .finally(() => clearTimeout(z));
+  };
   try {
     yaz(`veri klasörü: ${veriKlasoru()}`);
     yaz(`profil: ${app.getPath("userData")}`);
@@ -451,25 +534,69 @@ async function smokeKos() {
     yaz(`uygulama menüsü: ${Menu.getApplicationMenu() === null ? "yok" : "VAR"}`);
     if (Menu.getApplicationMenu() !== null) throw new Error("uygulama menüsü kaldırılmadı");
 
+    // Son başarılı port ayarlara yazıldı mı (bir sonraki açılışta önce o denenir)?
+    yaz(`son port ayarı: ${ayar.sonPort}`);
+    if (ayar.sonPort !== durum.port) throw new Error("son port kaydedilmedi");
+    yaz(`OneDrive uyarısı: ${durum.oneDrive}`);
+    const kSec = await win.webContents.executeJavaScript(
+      `(async () => {
+        const r = { secenek: document.getElementById("kameraSec").options.length, cozunurluk: document.getElementById("cozunurlukSec").options.length };
+        try {
+          const l = await Promise.race([navigator.mediaDevices.enumerateDevices(), new Promise((_, red) => setTimeout(() => red(new Error("yanıt yok")), 3000))]);
+          const v = l.filter((d) => d.kind === "videoinput");
+          r.kamera = v.length; r.adli = v.filter((d) => d.label).length;
+        } catch (e) { r.aygitListesi = e.message; }   // bazı ortamlarda (ör. kamerasız sanal makine) yanıt gelmez
+        return r;
+      })()`,
+    );
+    yaz(`başlangıç ekranı kamera listesi: ${JSON.stringify(kSec)}`);
+    if (kSec.cozunurluk !== 3 || kSec.secenek < 1) throw new Error("kamera/çözünürlük seçimi ekranda yok");
+
     // Kiosk penceresi: Esc ile tam ekrandan çıkınca geri girilir; Ctrl+R / Ctrl+= engelli, zoom 1.
+    // Bu pencere için kamera seçimi bellekte ayarlanır (dosyaya yazılmaz): sarmalayıcı sayfada olmalı.
+    const ayarOnce = ayar;
+    ayar = { ...ayar, kameraEtiket: "Smoke Kamera", cozunurluk: { w: 1280, h: 720 } };
     const kw = sayfaPenceresiAc(SAYFALAR.test, { kiosk: true });
+    ayar = ayarOnce;
     await new Promise((coz, red) => {
+      // Önce boş sayfa yüklenir (kamera sarmalayıcısı kaydı); sunucu sayfasının yüklenmesi beklenir.
       const t = setTimeout(() => red(new Error("kiosk penceresi yüklenmedi")), 20000);
-      kw.webContents.once("did-finish-load", () => { clearTimeout(t); coz(); });
+      const f = () => {
+        if (koken(kw.webContents.getURL()) !== sunucuKoken) return;
+        kw.webContents.removeListener("did-finish-load", f);
+        clearTimeout(t);
+        coz();
+      };
+      kw.webContents.on("did-finish-load", f);
     });
+    const kam = await kw.webContents.executeJavaScript(
+      `({ var: !!window.__dnKamera, kaynak: window.__dnKamera && window.__dnKamera.kaynak, etiket: window.__dnKamera && window.__dnKamera.etiket, cozunurluk: window.__dnKamera && window.__dnKamera.cozunurluk, sarili: !String(navigator.mediaDevices.getUserMedia).includes("[native code]") })`,
+    );
+    yaz(`kamera sarmalayıcısı: ${JSON.stringify(kam)}`);
+    if (!kam.var || kam.etiket !== "Smoke Kamera" || !kam.sarili || kam.kaynak !== "belge-oncesi") throw new Error("kamera sarmalayıcısı sayfada yok (ya da sayfa betiklerinden önce eklenmedi)");
+    // "Seçili kamera bulunamadı" imi başlangıç ekranına ulaşıyor mu? (gerçek kamera açılmadan, imin kendisiyle)
+    await kw.webContents.executeJavaScript(`console.warn(${JSON.stringify(KAMERA_UYARI_IMI)})`);
+    await new Promise((r) => setTimeout(r, 400));
+    const kamUyari = await win.webContents.executeJavaScript(
+      `({ gorunur: !document.getElementById("kameraUyari").classList.contains("hidden"), metin: document.getElementById("kameraUyari").textContent })`,
+    );
+    yaz(`kamera uyarısı başlangıç ekranında: ${JSON.stringify(kamUyari)}`);
+    if (!kamUyari.gorunur || !/bulunamadı/.test(kamUyari.metin)) throw new Error("kamera uyarısı başlangıç ekranına ulaşmadı");
+    durumYayinla({ kameraUyari: null });
     await new Promise((r) => setTimeout(r, 800));
-    await kw.webContents.executeJavaScript("document.documentElement.requestFullscreen().then(() => 1, (e) => e.message)", true);
+    const tamEkranIstek = await adim("tam ekran isteği", kw.webContents.executeJavaScript("document.documentElement.requestFullscreen().then(() => 1, (e) => e.message)", true));
+    yaz(`tam ekran isteği: ${tamEkranIstek}`);
     await new Promise((r) => setTimeout(r, 800));
     kw.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     kw.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
     await new Promise((r) => setTimeout(r, 400));
-    const araDurum = await kw.webContents.executeJavaScript("!!document.fullscreenElement");
+    const araDurum = await adim("Esc sonrası durum", kw.webContents.executeJavaScript("!!document.fullscreenElement"));
     await new Promise((r) => setTimeout(r, 1200));
     kw.webContents.sendInputEvent({ type: "keyDown", keyCode: "=", modifiers: ["control"] });
     await new Promise((r) => setTimeout(r, 400));
-    const k = await kw.webContents.executeJavaScript(
+    const k = await adim("kiosk durumu", kw.webContents.executeJavaScript(
       "({ tamEkran: !!document.fullscreenElement, url: location.pathname, dpr: devicePixelRatio })",
-    );
+    ));
     k.zoom = kw.webContents.getZoomFactor();
     k.kiosk = kw.isKiosk();
     k.escSonrasiHemen = araDurum;
@@ -504,6 +631,34 @@ async function smokeKos() {
   }
 }
 
+function smokeTemizleyiciBaslat(klasor) {
+  // Yalnız os.tmpdir() altındaki dn-smoke-* klasörü (yanlış yolu silmeye karşı).
+  const kok = path.resolve(os.tmpdir());
+  const hedef = path.resolve(klasor);
+  if (path.dirname(hedef) !== kok || !path.basename(hedef).startsWith("dn-smoke-")) return;
+  const betik = [
+    "const fs = require('fs');",
+    "const [pid, hedef] = process.argv.slice(-2);",
+    "const yasiyor = () => { try { process.kill(Number(pid), 0); return true; } catch (e) { return e.code === 'EPERM'; } };",
+    "const son = Date.now() + 30000;",
+    "(function dene() {",
+    "  if (!yasiyor()) { try { fs.rmSync(hedef, { recursive: true, force: true }); } catch (_) {} }",
+    "  if (fs.existsSync(hedef) && Date.now() < son) setTimeout(dene, 300);",
+    "})();",
+  ].join("\n");
+  try {
+    const c = require("child_process").spawn(process.execPath, ["-e", betik, String(process.pid), hedef], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    c.unref();
+  } catch (e) {
+    console.error(`Smoke geçici klasörü silinemeyecek: ${hedef} (${e.message})`);
+  }
+}
+
 // ---------------------------------------------------------------- yaşam döngüsü
 let cikisKodu = 0;
 async function cikisYap(kod) {
@@ -511,8 +666,10 @@ async function cikisYap(kod) {
   cikiliyor = true;
   try { await sirala(sunucuDurdur); } catch (e) { console.error(`Sunucu durdurulamadı: ${e.message}`); }
   if (SMOKE_GECICI) {
-    // Geçici veri klasörü silinir (profil Electron açıkken kilitli olabilir; silinemezse kalır).
+    // Geçici veri klasörü hemen silinir. Profil Electron açıkken kilitli olduğundan tüm geçici klasörü,
+    // bu süreç bittikten sonra ayrık küçük bir temizleyici (Electron'un kendi Node'u) siler.
     try { fs.rmSync(path.join(SMOKE_GECICI, "veri"), { recursive: true, force: true }); } catch (_) { /* kalır */ }
+    smokeTemizleyiciBaslat(SMOKE_GECICI);
   }
   app.exit(cikisKodu);
 }

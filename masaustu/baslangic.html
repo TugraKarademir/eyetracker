@@ -69,6 +69,8 @@ pre.cikti {
 label.anahtar { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .not { border-left: 3px solid var(--warn); padding: 8px 12px; background: var(--surface-2); border-radius: 0 10px 10px 0; }
 .hata-metni { color: var(--bad); }
+.uyari { border: 2px solid var(--bad); background: var(--surface); color: var(--bad); border-radius: var(--radius); padding: 14px 18px; }
+select { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; max-width: 100%; }
 </style>
 </head>
 <body>
@@ -92,6 +94,11 @@ label.anahtar { display: flex; align-items: center; gap: 8px; cursor: pointer; }
     </div>
   </section>
 
+  <section class="uyari hidden" id="oneDriveUyari" role="alert">
+    <b>Veri klasörü OneDrive ile eşitleniyor olabilir: öğrenci verileri buluta yüklenebilir. Ayarlar'dan yerel bir klasör seçin.</b>
+  </section>
+  <p class="not small hidden" id="kameraUyari" role="status"></p>
+
   <section class="tiles" aria-label="Ekranlar">
     <button class="tile" data-hedef="ogretmen" disabled><b>Öğretmen paneli</b><span class="small muted">Dersi başlatın, sınıfı canlı izleyin</span></button>
     <button class="tile" data-hedef="ogrenci" disabled><b>Öğrenci</b><span class="small muted">Ders koduyla katılım</span></button>
@@ -107,7 +114,22 @@ label.anahtar { display: flex; align-items: center; gap: 8px; cursor: pointer; }
       <button class="btn" id="veriSec">Klasör seç…</button>
     </div>
     <p class="small muted hidden" id="veriZorlaNot">Veri klasörü komut satırından/ortam değişkeninden verildi; seçilen klasör kaydedilir ama bu oturumda kullanılmaz.</p>
-    <p class="small muted">Klasör değişince sunucu yeniden başlar; açık sayfa pencereleri kapanır.</p>
+    <p class="small muted">Klasör değişince sunucu yeniden başlar; açık sayfa pencereleri kapanır.
+      Var olan veriler yeni klasöre <b>taşınmaz</b>; eski klasörde olduğu gibi kalır (gerekirse kendiniz kopyalayın).</p>
+    <div class="satir">
+      <label for="kameraSec">Kamera:</label>
+      <select id="kameraSec"><option value="">Varsayılan (sayfa seçer)</option></select>
+      <button class="btn hidden" id="kameraAdlari">Kamera adlarını göster</button>
+    </div>
+    <div class="satir">
+      <label for="cozunurlukSec">Çözünürlük:</label>
+      <select id="cozunurlukSec">
+        <option value="">Otomatik (sayfa seçer)</option>
+        <option value="1280x720">1280×720</option>
+        <option value="1920x1080">1920×1080</option>
+      </select>
+    </div>
+    <p class="small muted" id="kameraNot">Seçim, bundan sonra açılan sayfa pencerelerinde (öğrenci, bakış testi, öğretmen yayını) geçerlidir.</p>
     <div class="satir">
       <label class="anahtar"><input type="checkbox" id="kioskOgrenci"> Öğrenci penceresi tam ekran kilitli (kiosk)</label>
     </div>
