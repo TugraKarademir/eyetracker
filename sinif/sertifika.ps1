@@ -94,7 +94,7 @@ finally {
 }
 
 Write-Host ''
-Write-Host 'Tamam. Uretilenler (klasor: ' $klasor ')' -ForegroundColor Green
+Write-Host "Tamam. Uretilenler (klasor: $klasor)" -ForegroundColor Green
 Write-Host '  sertifika.pem, anahtar.pem            -> sunucu (bu bilgisayarda kalir)'
 Write-Host '  DersNabzi-sertifika.crt               -> her lab bilgisayarina kopyalanacak (yerel CA)'
 Write-Host '  ca-anahtar.pem                        -> gizli, kimseye verilmez'

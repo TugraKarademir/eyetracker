@@ -95,13 +95,21 @@ cd E:\eyetracker\masaustu; npx electron . --smoke
 cd E:\eyetracker; powershell -ExecutionPolicy Bypass -File sinif\ip.ps1
 ```
 
+Sertifikayı sınavdan bir gün önce üret ya da lab bilgisayarlarının saatlerinin doğru olduğunu kontrol et: saati geride kalan bilgisayar yeni üretilmiş sertifikayı "henüz geçerli değil" diye reddeder.
+
 **b. Sertifikayı üret** (`<IP>` yerine a'daki adres; yerel CA + o IP için sunucu sertifikası, 1 yıl). Çıktılar `sinif\` içinde, depoya girmez:
 
 ```powershell
 cd E:\eyetracker; powershell -ExecutionPolicy Bypass -File sinif\sertifika.ps1 -IP <IP>
 ```
 
-**c. Güvenlik duvarı** (yönetici PowerShell; bir kez). Ağ "Genel" (Public) profildeyse kural işlemez: ya ağı "Özel" yap ya da `-Profile Private,Domain,Public` yaz.
+**c. Güvenlik duvarı** (yönetici PowerShell; bir kez). Önce ağ profilini kontrol et:
+
+```powershell
+Get-NetConnectionProfile
+```
+
+"Public" görünüyorsa kural işlemez: yönetici olarak `Set-NetConnectionProfile -InterfaceAlias "<ad>" -NetworkCategory Private` çalıştır (`<ad>` = yukarıdaki InterfaceAlias) ya da aşağıdaki kuralda `-Profile Private,Domain,Public` yaz. Sunucu ilk kez başlayınca Windows "python'a izin verilsin mi?" diye sorabilir: Özel ağlar için İzin ver'e tıkla.
 
 ```powershell
 New-NetFirewallRule -DisplayName "DersNabzi 8443" -Direction Inbound -Protocol TCP -LocalPort 8443 -Action Allow -Profile Private,Domain
@@ -115,7 +123,7 @@ cd E:\eyetracker; python server.py --port 8030 --https-port 8443 --cert sinif\se
 
 **e. Öğretmen paneli** (öğretmen bilgisayarında tarayıcıya yaz): `https://localhost:8443/teacher.html` (ya da `http://localhost:8030/teacher.html`).
 
-**f. Lab bilgisayarına sertifikayı kur** (her lab bilgisayarında bir kez). `sinif\DersNabzi-sertifika.crt` dosyasını USB ya da ağ paylaşımıyla kopyala, dosyanın olduğu klasörde çalıştır (yönetici gerekmez; Chrome/Edge kapatılıp yeniden açılır):
+**f. Lab bilgisayarına sertifikayı kur** (her lab bilgisayarında bir kez). `sinif\DersNabzi-sertifika.crt` dosyasını USB ya da ağ paylaşımıyla kopyala, dosyanın olduğu klasörde çalıştır (yönetici hakkı gerekmez; Chrome/Edge kapatılıp yeniden açılır). Komut çalışınca Windows "Bu kök sertifikayı yüklemek istiyor musunuz?" penceresi açılır; her lab bilgisayarında biri **Evet**'e tıklamalıdır:
 
 ```powershell
 certutil -user -addstore Root DersNabzi-sertifika.crt
