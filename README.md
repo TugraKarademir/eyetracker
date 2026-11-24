@@ -125,6 +125,33 @@ Araştırma/ders kaydını incelemek için: `http://localhost:8000/admin.html`
 Katılımcılardan açık rıza ve aydınlatma (amaç, saklanan veriler, silme hakkı) alınmalıdır; kurumun etik
 kurul/KVKK gereklilikleri uygulanmalıdır. Veriler öğrenci hakkında not/disiplin kararı için kullanılmamalıdır.
 
+## Masaüstü uygulaması
+
+`masaustu/` klasörü DersNabzı'yı Windows'ta tek uygulama olarak açar (Electron). Ayrı bir sürüm değildir:
+aynı `server.py` sunucusunu arka planda başlatır, aynı sayfaları (öğretmen, öğrenci, bakış testi, yönetim)
+pencerelerde açar ve aynı veri biçimini kullanır. Uygulama kapanınca sunucu da kapanır.
+
+- **Geliştirme:** `cd masaustu && npm install && npm start` (Python 3.9+ gerekir; sunucu `python server.py` ile başlar).
+  Otomatik deneme: `npx electron . --smoke` (geçici veri ve profil klasörüyle çalışır, gerçek `data/`'ya dokunmaz).
+- **Paketleme:** `powershell -ExecutionPolicy Bypass -File masaustu/build/paketle.ps1`. Önce PyInstaller ile
+  sunucu tek klasör `dersnabzi-sunucu` olarak derlenir (`masaustu/build-py/`, `pip install pyinstaller` gerekir),
+  sonra electron-builder NSIS kurulum dosyasını `masaustu/dist/` altına üretir (ilk çalıştırmada NSIS araçlarını indirir).
+  Kurulumda sunucu `resources/sunucu/dersnabzi-sunucu.exe` olarak durur; Python kurulu olması gerekmez.
+  Üretilen dosyalar (`build-py/`, `dist/`) depoya girmez.
+- **Veri klasörü:** tek ve seçilebilir; ders kayıtları, yönetici anahtarı ve bakış testi kayıtları
+  (`<veri>/test_kayitlari/`) hep oradadır. Varsayılan: geliştirmede depodaki `data/` (tarayıcı sürümüyle aynı),
+  kurulu uygulamada `Belgeler/DersNabzı/veri`. Başlangıç ekranında görünür, **Ayarlar**'dan değiştirilir
+  (değişince sunucu yeniden başlar). Kurulum klasörüne hiçbir veri yazılmaz.
+- **Kiosk:** öğrenci ve bakış testi pencereleri tam ekran kiosk olarak açılır (Ayarlar'dan kapatılabilir);
+  öğretmen ve yönetim normal penceredir. Kiosk penceresinden çıkış **Ctrl+Shift+Q** (onay sorar).
+  Esc sayfa tam ekranından çıkarsa pencere hemen tam ekrana döner; bu yüzden tam ekranda kalibrasyon Esc ile
+  iptal edilemez, ekrandaki **Vazgeç** düğmesi kullanılır.
+- **Kamera izni:** yalnız uygulamanın kendi başlattığı sunucunun adresine otomatik verilir; başka adreslere verilmez.
+- **Yönetim ekranı:** uygulamadan açılınca yönetici anahtarını uygulama verir (adrese ya da ekrana yazılmaz).
+- **Sınırlar:** yüz/bakış modelleri (MediaPipe, face-api, WebGazer) CDN'den yüklendiği için internet gerekir;
+  yalnız Windows (x64) paketi var; kurulum dosyası imzasız olduğundan Windows SmartScreen uyarı verebilir.
+  Elle sınanmadı: gerçek kamerayla kullanım, Ctrl+Shift+Q onay penceresi, Alt+F4 davranışı, klasör seçme penceresi.
+
 ## Sınırlar / sonraki adımlar
 
 - Söz alan öğrenci yalnızca sesle katılır; öğrenci kamerasının yayınlanması yok (gizlilik tercihi).
