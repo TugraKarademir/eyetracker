@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS bakis_testleri(lesson_code TEXT, sid TEXT, t REAL,
 """
 _KOD = re.compile(r"^[A-Z0-9_-]{1,20}$")
 _TUR = ("insan", "yz", "diger")
-_OZEL = ("share", "mat_pts", "gaze", "wg_share", "head")  # JSON alanlar
+_OZEL = ("share", "mat_pts", "gaze", "wg_share", "head", "ham")  # JSON alanlar (ham: 2 sn penceresinin ham yüz ölçüleri)
 _ALAN = ("attention", "energy", "emotion", "face", "away", "eyes_closed", "tab_hidden",
          "gaze_cal", "coarse")
 GONDERIM_SN = 2.0   # öğrenci 2 sn'de bir paket gönderir: paket [t - 2, t] aralığını kapsar
@@ -50,6 +50,10 @@ def ac(yol):
     if "gecis" not in {r[1] for r in con.execute("PRAGMA table_info(samples)")}:
         with con:
             con.execute("ALTER TABLE samples ADD COLUMN gecis INTEGER DEFAULT 0")
+    # Göç: ham yüz ölçüleri (sınıf testi 24.11): yaw/pitch/EAR/MAR/kırpma/ifade/3B baş özeti, JSON
+    if "ham" not in {r[1] for r in con.execute("PRAGMA table_info(samples)")}:
+        with con:
+            con.execute("ALTER TABLE samples ADD COLUMN ham TEXT")
     # Göç: dersin öğretmeni (öğretmen girişi henüz yok; ders başlatırken listeden seçilir, seçilmezse NULL)
     if "teacher_id" not in {r[1] for r in con.execute("PRAGMA table_info(lessons)")}:
         with con:

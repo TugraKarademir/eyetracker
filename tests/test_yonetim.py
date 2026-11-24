@@ -1,4 +1,5 @@
 """yonetim.py testleri."""
+import json
 import unittest
 
 from kayit import (ac, ders_ekle, ders_bitir, ogrenci_ekle, materyal_ekle,
@@ -203,6 +204,22 @@ class YonetimTest(unittest.TestCase):
     def test_csv_ham(self):
         con, _, _ = kur()
         self.assertEqual(len(yonetim.csv_ham(con, "D1").splitlines()), 5)
+
+    def test_csv_ham_ham_sutunlari(self):
+        import csv as _csv, io as _io
+        con, _, _ = kur()
+        ornek_ekle(con, "D1", "s2", 130, satir(ham={"n": 7, "yaw": {"ort": 0.01, "min": -0.02, "max": 0.03},
+                                                  "ifade": {"happy": 0.5}, "pose3": None, "kirpma": 1}))
+        rows = list(_csv.DictReader(_io.StringIO(yonetim.csv_ham(con, "D1"))))
+        self.assertEqual(len(rows), 5)
+        self.assertIn("gecis", rows[0])   # eski sütunlar yerinde
+        r = next(x for x in rows if x["t"] == "130.0")
+        self.assertEqual((r["ham_n"], r["ham_yaw_ort"], r["ham_yaw_min"], r["ham_ifade_happy"], r["ham_kirpma"]),
+                         ("7", "0.01", "-0.02", "0.5", "1"))
+        self.assertEqual((r["ham_pose3_dist"], r["ham_ear_ort"]), ("", ""))
+        self.assertEqual(json.loads(r["ham"])["n"], 7)
+        eski = next(x for x in rows if x["t"] != "130.0")
+        self.assertEqual((eski["ham_n"], eski["ham"]), ("", ""))
 
     def test_ders_zaman_kutulari(self):
         con, _, _ = kur()

@@ -84,6 +84,30 @@ class KayitTest(unittest.TestCase):
         self.assertEqual(say(con, "samples"), 2)
         ac(yol).close()   # ikinci açılış göçü tekrarlamaz
 
+    def test_eski_veritabanina_ham_sutunu_eklenir_ve_yazilir(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        yol = os.path.join(d, "eski.db")
+        eski = sqlite3.connect(yol)
+        eski.execute("CREATE TABLE samples(lesson_code TEXT, sid TEXT, t REAL, material_id INTEGER,"
+                     " attention REAL, energy REAL, emotion TEXT, face INTEGER, away INTEGER,"
+                     " eyes_closed INTEGER, tab_hidden INTEGER, gaze_cal INTEGER, coarse INTEGER,"
+                     " share TEXT, mat_pts TEXT, gaze TEXT, wg_share TEXT, head TEXT, gecis INTEGER DEFAULT 0)")
+        eski.execute("INSERT INTO samples(lesson_code, sid, t) VALUES('D0','s0',1)")
+        eski.commit()
+        eski.close()
+        con = ac(yol)
+        self.addCleanup(con.close)
+        self.assertIsNone(con.execute("SELECT ham FROM samples").fetchone()[0])
+        ders_ekle(con, "D1", "Ders", "Konu", 1)
+        ogrenci_ekle(con, "D1", "s1", "Ali", None, 2, False)
+        ornek_ekle(con, "D1", "s1", 5, dict(ROW, ham={"n": 6, "ear": {"ort": 0.3, "min": 0.2}}))
+        ornek_ekle(con, "D1", "s1", 7, ROW)   # ham'sız eski satır biçimi
+        h = [r[0] for r in con.execute("SELECT ham FROM samples WHERE lesson_code='D1' ORDER BY t")]
+        self.assertEqual(json.loads(h[0]), {"n": 6, "ear": {"ort": 0.3, "min": 0.2}})
+        self.assertIsNone(h[1])
+        ac(yol).close()   # ikinci açılış göçü tekrarlamaz
+
     def test_eski_students_tablosuna_onay_sutunlari_eklenir(self):
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, True)

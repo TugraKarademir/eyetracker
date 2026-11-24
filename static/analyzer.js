@@ -12,9 +12,57 @@ const POSE_CFG = { WIN: 300, EVERY: 0.5, MIN_N: 30, P_LO: 0.1, P_HI: 0.9,
 
 const FACEAPI_MODELS = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model/";
 
+// Ham ölçü toplayıcı (sınıf testi, 24.11): analizörün her karede ZATEN hesapladığı değerleri (yaw, pitch, EAR, MAR, kapalı göz
+// kararı, face-api ifade olasılıkları) ve bakış modülünün 3B baş pozunu gönderim penceresi (≈2 sn) boyunca biriktirir.
+// Salt okunur: hiçbir hesabı değiştirmez. al() özeti verir; hiç kare yoksa null (uydurma yok). Ölçülemeyen alan null.
+class HamToplayici {
+  constructor() {
+    this.n = 0; this.yuzN = 0; this.t0 = null; this.t1 = null;
+    this.yaw = []; this.pitch = []; this.ear = []; this.mar = []; this.kapali = 0;
+    this.ifade = {}; this.ifadeN = 0; this.p3 = { yaw: [], pitch: [], roll: [], dist: [] }; this.p3t = undefined;
+  }
+  kare(t) { if (this.t0 == null) this.t0 = t; this.t1 = t; this.n++; }
+  yuz({ yaw, pitch, ear, mar, kapali, ifade }) {
+    this.yuzN++;
+    const ekle = (a, v) => { if (Number.isFinite(v)) a.push(v); };
+    ekle(this.yaw, yaw); ekle(this.pitch, pitch); ekle(this.ear, ear); ekle(this.mar, mar);
+    if (kapali) this.kapali++;
+    if (ifade && typeof ifade === "object") {
+      let oldu = false;
+      for (const k in ifade) if (Number.isFinite(ifade[k])) { this.ifade[k] = (this.ifade[k] || 0) + ifade[k]; oldu = true; }
+      if (oldu) this.ifadeN++;
+    }
+  }
+  // p: { t, yaw, pitch, roll, dist } (bakış modülünün son karesi); aynı kare (aynı t) iki kez sayılmaz
+  poz(p) {
+    if (!p || p.t == null || p.t === this.p3t) return;
+    this.p3t = p.t;
+    for (const k of ["yaw", "pitch", "roll", "dist"]) if (Number.isFinite(p[k])) this.p3[k].push(p[k]);
+  }
+  al(tSon) {
+    if (!this.n) return null;
+    const y = (v, d) => (v == null ? null : +v.toFixed(d));
+    const ort = (a) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
+    const mn = (a) => (a.length ? Math.min(...a) : null), mx = (a) => (a.length ? Math.max(...a) : null);
+    const p3n = Math.max(...Object.values(this.p3).map((a) => a.length));
+    return {
+      n: this.n, yuzN: this.yuzN, ms: Math.round(((tSon ?? this.t1) - this.t0) * 1000),
+      yaw: { ort: y(ort(this.yaw), 4), min: y(mn(this.yaw), 4), max: y(mx(this.yaw), 4) },
+      pitch: { ort: y(ort(this.pitch), 4), min: y(mn(this.pitch), 4), max: y(mx(this.pitch), 4) },
+      ear: { ort: y(ort(this.ear), 4), min: y(mn(this.ear), 4) },
+      mar: { ort: y(ort(this.mar), 4), max: y(mx(this.mar), 4) },
+      kirpma: this.yuzN ? this.kapali : null,
+      ifade: this.ifadeN ? Object.fromEntries(Object.entries(this.ifade).map(([k, v]) => [k, +(v / this.ifadeN).toFixed(3)])) : null,
+      pose3: p3n ? { yaw: y(ort(this.p3.yaw), 2), pitch: y(ort(this.p3.pitch), 2), roll: y(ort(this.p3.roll), 2), dist: y(ort(this.p3.dist), 1), n: p3n } : null,
+      islemeFps: null, isciGecikmeMs: null,
+    };
+  }
+}
+
 class FocusAnalyzer {
-  constructor(video, { interval = 300, onUpdate, getEyes = () => null, getProfile = () => null } = {}) {
+  constructor(video, { interval = 300, onUpdate, getEyes = () => null, getProfile = () => null, getPose3 = () => null } = {}) {
     this.video = video; this.interval = interval; this.onUpdate = onUpdate || (() => {}); this.getEyes = getEyes; this.getProfile = getProfile;
+    this.getPose3 = getPose3; this._ham = new HamToplayici();   // ham ölçü penceresi (yalnız kayıt; hesaplara girmez)
     this.running = false;
     this.calib = { yaw: [], pitch: [], ear: [] };
     this.base = null;              // { yaw, pitch, ear }
@@ -39,7 +87,15 @@ class FocusAnalyzer {
 
   // Her start()/stop() yeni bir "nesil" açar. Duraklat/Devam hızlı basılınca, o sırada süren eski step()
   // bitince kendi döngüsünü yeniden kurmasın diye döngü yalnızca kendi nesli güncelse devam eder.
-  start() { if (!this.running) { this.running = true; this.gen = (this.gen || 0) + 1; this.loop(this.gen); } }
+  start() { if (!this.running) { this.running = true; this.gen = (this.gen || 0) + 1; this._ham = new HamToplayici(); this.loop(this.gen); } }
+  /** Son gönderimden bu yana ham ölçü özeti ve pencereyi sıfırla. Analizör çalışmıyorsa ya da kare yoksa null. */
+  hamAl() {
+    const h = this._ham; this._ham = new HamToplayici();
+    if (!this.running || !h) return null;
+    const o = h.al(performance.now() / 1000);
+    if (o && this.base) o.taban = { yaw: +this.base.yaw.toFixed(4), pitch: +this.base.pitch.toFixed(4), ear: +this.base.ear.toFixed(4) };
+    return o;
+  }
   stop() { this.running = false; this.gen = (this.gen || 0) + 1; clearTimeout(this.timer); }
   recalibrate() { this.base = null; this.calib = { yaw: [], pitch: [], ear: [] }; this.poseHist = []; this.screenEnv = null; this.state.calibrating = true; }
 
@@ -146,6 +202,8 @@ class FocusAnalyzer {
     }
     const s = this.state;
     s.tabHidden = hidden; s.face = !!det;
+    const ham = this._ham;   // bu adımın penceresi (gönderim sırasında değişse bile aynı nesneye yazılır)
+    try { ham.kare(now); ham.poz(this.getPose3()); } catch {}
     let raw = 0, closed = false, away = false;
 
     if (det) {
@@ -227,6 +285,7 @@ class FocusAnalyzer {
       // Yüz profilinde nötr duygu tabanı varsa önce o düşülür (yapısal yüz ifadesi duygu sayılmaz).
       const eHam = { ...det.expressions }, tb = prof?.yuz?.notr?.duygu?.faceapi || null;
       const e = notrTabanDuzelt(eHam, tb, "neutral");
+      try { ham.yuz({ yaw, pitch, ear: EAR, mar: MAR, kapali: eyeShut, ifade: eHam }); } catch {}
       if (now - (this.emoLogT || 0) >= 5) {
         this.emoLogT = now;
         const ilk = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, v]) => `${k} %${Math.round(100 * v)}`).join(", ");

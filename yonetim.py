@@ -570,15 +570,37 @@ def csv_uzun(con, dersler=None):
     return _csv(out)
 
 
+# samples.ham (2 sn ham yüz ölçüsü özeti, static/analyzer.js HamToplayici) düzleştirilmiş sütunları: "yaw_ort" → ham["yaw"]["ort"]
+HAM_SUTUN = ("n", "yuzN", "ms", "yaw_ort", "yaw_min", "yaw_max", "pitch_ort", "pitch_min", "pitch_max",
+             "ear_ort", "ear_min", "mar_ort", "mar_max", "kirpma",
+             "ifade_neutral", "ifade_happy", "ifade_sad", "ifade_angry", "ifade_fearful", "ifade_disgusted",
+             "ifade_surprised", "pose3_yaw", "pose3_pitch", "pose3_roll", "pose3_dist", "pose3_n",
+             "islemeFps", "isciGecikmeMs", "taban_yaw", "taban_pitch", "taban_ear")
+
+
+def _ham_duz(metin):
+    h = _j(metin)
+    if not isinstance(h, dict):
+        return [None] * len(HAM_SUTUN)
+    out = []
+    for ad in HAM_SUTUN:
+        k, _, alt = ad.partition("_")
+        v = h.get(ad) if not alt or ad in h else (h.get(k) or {}).get(alt) if isinstance(h.get(k), dict) else None
+        out.append(v)
+    return out
+
+
 def csv_ham(con, code):
     out = [["ders", "ogrenci", "t", "material_id", "attention", "energy", "emotion",
             "face", "away", "eyes_closed", "tab_hidden", "gaze_cal", "coarse",
-            "share", "mat_pts", "gaze", "wg_share", "head", "gecis"]]
+            "share", "mat_pts", "gaze", "wg_share", "head", "gecis"]
+           + ["ham_" + a for a in HAM_SUTUN] + ["ham"]]
     for r in _sorgu(con, "SELECT * FROM samples WHERE lesson_code=? ORDER BY sid, t",
                     code):
+        ham = r["ham"] if "ham" in r.keys() else None   # göç görmemiş eski veritabanı
         out.append([code, r["sid"], r["t"], r["material_id"], r["attention"],
                     r["energy"], r["emotion"], r["face"], r["away"],
                     r["eyes_closed"], r["tab_hidden"], r["gaze_cal"], r["coarse"],
                     r["share"], r["mat_pts"], r["gaze"], r["wg_share"], r["head"],
-                    r["gecis"]])
+                    r["gecis"]] + _ham_duz(ham) + [ham])
     return _csv(out)

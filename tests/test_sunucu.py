@@ -272,6 +272,49 @@ class SunucuOrnek(unittest.TestCase):
         self.assertEqual(len(d["scrSon"]), 2)
         self.assertEqual(max(d["heat"]), 100)
 
+    HAM = {"n": 6, "yuzN": 5, "ms": 1980, "yaw": {"ort": 0.012, "min": -0.03, "max": 0.05},
+           "pitch": {"ort": 0.4, "min": 0.38, "max": 0.42}, "ear": {"ort": 0.29, "min": 0.21},
+           "mar": {"ort": 0.1, "max": 0.3}, "kirpma": 1,
+           "ifade": {"neutral": 0.8, "happy": 0.1, "sad": 0.0, "angry": 0.0, "fearful": 0.0, "disgusted": 0.0, "surprised": 0.1},
+           "pose3": {"yaw": 3.2, "pitch": -5.1, "roll": 1.0, "dist": 55.3, "n": 40},
+           "islemeFps": 21.4, "isciGecikmeMs": 30, "taban": {"yaw": 0.01, "pitch": 0.4, "ear": 0.3}}
+
+    def test_metrics_ham_saklanir_bellek_degismez(self):
+        kod, _, sid = self.ogrenci()
+        st, _ = self.metrik(kod, sid, ham=self.HAM)
+        self.assertEqual(st, 200)
+        r = server.KAYIT.execute("SELECT ham FROM samples").fetchone()
+        self.assertEqual(json.loads(r["ham"]), self.HAM)
+        smp = server.CLASSES[kod]["students"][sid]["samples"]
+        self.assertEqual(len(smp), 1)
+        self.assertEqual(len(smp[0]), 5)   # sınıf belleğindeki örnek biçimi aynı (rapor/panel)
+
+    def test_metrics_hamsiz_eski_davranis(self):
+        kod, _, sid = self.ogrenci()
+        st, _ = self.metrik(kod, sid)
+        self.assertEqual(st, 200)
+        r = server.KAYIT.execute("SELECT attention, ham FROM samples").fetchone()
+        self.assertEqual((r["attention"], r["ham"]), (80, None))
+
+    def test_metrics_bozuk_ham_atilir_olcum_kaydedilir(self):
+        kod, _, sid = self.ogrenci()
+        for bozuk in ([1, 2, 3], "metin", {"n": 1, "dolgu": {f"k{i}": i for i in range(10)}, "x" * 40: 1,
+                                            **{f"a{i}": i for i in range(40)}},
+                      {"n": 1, "buyuk": {"k": 1}, **{f"uzun{i}": 123456789.123456 for i in range(30)},
+                       "sss": {f"q{i}": 1.123456789 for i in range(15)}, "zz": "y" * 3000}):
+            st, _ = self.metrik(kod, sid, ham=bozuk)
+            self.assertEqual(st, 200)
+        rows = server.KAYIT.execute("SELECT ham FROM samples ORDER BY rowid").fetchall()
+        self.assertEqual(len(rows), 4)
+        self.assertTrue(all(r["ham"] is None for r in rows))
+
+    def test_temiz_ham_alan_dogrulama(self):
+        h = server.temiz_ham({"n": 3, "yaw": {"ort": 0.1, "kotu": "x", "b": True}, "ad": "<script>", "liste": [1],
+                              "derin": {"a": {"b": 1}}, "bayrak": True, "sonsuz": float("inf"), "ifade": None, "k-1": 2})
+        self.assertEqual(h, {"n": 3, "yaw": {"ort": 0.1}, "derin": {}, "ifade": None})
+        self.assertIsNone(server.temiz_ham({"ad": "x"}))
+        self.assertIsNone(server.temiz_ham(None))
+
     def test_metrics_coarse_bakis_saklamaz(self):
         kod, _, sid = self.ogrenci()
         self.metrik(kod, sid, gaze={"cal": False, "coarse": True, "share": {"disari": .2},

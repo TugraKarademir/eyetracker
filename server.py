@@ -277,7 +277,8 @@ def veri_paketi():
         z.writestr("BENIOKU.txt", (
             "DersNabzı model geliştirme veri paketi (" + fmt_ts(time.time()) + ")\n\n"
             "dersler.db   : dersler, öğretmenler (teachers), öğrenciler, 2 sn örnekler (samples: dikkat, bakış payları,\n"
-            "               materyal noktaları, tam sayfa bakış izi), kurulumlar (setups), ders sayfası kalibrasyonları\n"
+            "               materyal noktaları, tam sayfa bakış izi, ham: yaw/pitch/EAR/MAR/kırpma/ifade/3B baş özeti),\n"
+            "               kurulumlar (setups), ders sayfası kalibrasyonları\n"
             "               (calibrations.report: hata, isabet, GazeLab, aktarılan model), olaylar.\n"
             "gazelab.db   : bakış testi oturumları; yöntem başına GazeLab ve kontrol ölçüleri (method_stats),\n"
             "               aşama ve oturum özetleri, ham bakış/baş/fare kayıtları (recordings).\n"
@@ -428,6 +429,50 @@ def temiz_hse(h):
         return None
     return {"top": h["top"], "p": round(clamp(h.get("p"), 0, 1), 2),
             "valence": round(clamp(h.get("valence"), -1, 1), 2), "arousal": round(clamp(h.get("arousal"), -1, 1), 2)}
+
+
+HAM_MAX_BAYT = 4096
+
+
+def temiz_ham(h):
+    """Öğrencinin 2 sn ham yüz ölçüsü özeti (static/analyzer.js HamToplayici): yalnız sayı/null değerli, en çok iki düzey
+    küçük nesne; JSON'u en çok 4 KB. Geçersiz alan atılır; nesne değilse, çok büyükse ya da geriye bir şey kalmazsa None."""
+    if not isinstance(h, dict) or len(h) > 32:
+        return None
+    try:
+        if len(json.dumps(h, ensure_ascii=False)) > HAM_MAX_BAYT:
+            return None
+    except (TypeError, ValueError):
+        return None
+
+    def sayi(v):
+        if v is None:
+            return True, None
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+            return False, None
+        return True, max(-1e6, min(1e6, v))
+
+    def anahtar(k):
+        return isinstance(k, str) and 0 < len(k) <= 32 and re.fullmatch(r"[A-Za-z0-9_]+", k)
+
+    out = {}
+    for k, v in h.items():
+        if not anahtar(k):
+            continue
+        if isinstance(v, dict):
+            if len(v) > 16:
+                continue
+            ic = {}
+            for k2, v2 in v.items():
+                ok, x = sayi(v2)
+                if anahtar(k2) and ok:
+                    ic[k2] = x
+            out[k] = ic
+        else:
+            ok, x = sayi(v)
+            if ok:
+                out[k] = x
+    return out or None
 
 
 def material_pct(samples):
@@ -1695,6 +1740,7 @@ class Handler(BaseHTTPRequestHandler):
         row = {"attention": m["attention"], "energy": m["energy"], "emotion": emotion, "face": int(m["face"]),
                "away": int(m["lookingAway"]), "eyes_closed": int(m["eyesClosed"]), "tab_hidden": int(m["tabHidden"])}
         row.update(kayit_bakis(b.get("gaze"), parsed))
+        row["ham"] = temiz_ham(b.get("ham"))   # isteğe bağlı; yoksa/bozuksa NULL, ölçüm yine kaydedilir
         kayit.ornek_ekle(KAYIT, cls["code"], s["id"], t, row)
         kur = temiz_kurulum(b.get("kurulum"))
         if kur:

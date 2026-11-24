@@ -46,7 +46,7 @@ $("#camBtn").onclick = async () => {
   connect();
   startGaze();
   try {
-    analyzer = new FocusAnalyzer($("#video"), { onUpdate: renderMe, getEyes: () => gaze?.face || null, getProfile: () => (gaze?.report ? { ...(gaze.report.profil || {}), yuz: gaze.report.yuz || null } : null) });
+    analyzer = new FocusAnalyzer($("#video"), { onUpdate: renderMe, getEyes: () => gaze?.face || null, getPose3: gazePose3, getProfile: () => (gaze?.report ? { ...(gaze.report.profil || {}), yuz: gaze.report.yuz || null } : null) });
     await analyzer.load((t) => ($("#vbadge").textContent = t));
     $("#vbadge").textContent = "Kalibrasyon: ekrana bakın…";
     analyzerHazir = true;
@@ -87,21 +87,37 @@ async function sendMetrics() {
   // Bakış testi açıkken ya da analizör çalışmıyorken (model yükleniyor) ölçüm yok: kurucunun varsayılanları (dikkat 70, enerji 85) gönderilmez
   if (paused || !analyzer || kalCerceve || !analyzer.running) return;
   const s = analyzer.state;
-  if (s.calibrating && s.face) return;   // kalibrasyon bitmeden gönderme
+  if (s.calibrating && s.face) { analyzer.hamAl?.(); return; }   // kalibrasyon bitmeden gönderme (o karelerin ham ölçüsü de atılır)
   const g = gaze ? gaze.flush() : null;
   // Bakış kalibre ise "ekran dışı" kararı baş yönünden daha güvenilirdir
   const away = s.lookingAway || !!(g && (g.cal || g.coarse) && (g.share?.disari || 0) >= 0.6);
   const kal = kalYeni();
   const ht = $("#hseChk").checked ? hse.top() : null;   // HSEmotion: yalnız sınıf, oran ve valence/arousal (görüntü değil)
+  let yedek = null;
   try {
+    const kurulum = kurulumBilgi();
+    // Ham ölçüler (yaw/pitch/EAR/MAR/kırpma/ifade/3B baş, ≈2 sn penceresi): analizör kare işlemediyse gönderilmez
+    const ham = analyzer.hamAl ? analyzer.hamAl() : null;
+    if (ham) { ham.islemeFps = sonIsleme.fps != null ? +sonIsleme.fps.toFixed(1) : null; ham.isciGecikmeMs = sonIsleme.gecikmeMs; }
     const govde = { code: CODE, sid: SID, attention: s.attention, energy: s.energy, emotion: s.emotion,
-      face: s.face, lookingAway: away, eyesClosed: s.eyesClosed, tabHidden: document.hidden, gaze: g, ekran: ekranBilgi(), kurulum: kurulumBilgi(), ...kal,
-      hse: ht ? { top: ht.name, p: ht.p, valence: hse.valence, arousal: hse.arousal } : null };
+      face: s.face, lookingAway: away, eyesClosed: s.eyesClosed, tabHidden: document.hidden, gaze: g, ekran: ekranBilgi(), kurulum, ...kal,
+      hse: ht ? { top: ht.name, p: ht.p, valence: hse.valence, arousal: hse.arousal } : null, ...(ham ? { ham } : {}) };
     const t = Date.now();
+    // Yerel yedek (bellekte): gönderilen gövdenin aynısı + gönderim zamanı + sunucu yanıtı (başarısız gönderim de kalır)
+    yedek = { t, govde, sunucu: null };
+    if (window.DNYedek) DERS_YEDEK.push(yedek);
     await api("/api/metrics", govde);
-    if (window.DNYedek) DERS_YEDEK.push(DNYedek.dersSatiri(govde, t));   // yalnız sunucuya giden ölçüm (yerel yedek; bellekte)
+    yedek.sunucu = "ok";
     if (kal.kal) sonKalAt = kal.kal.at;   // yalnız başarılı gönderimden sonra: başarısızsa rapor bir sonrakinde yeniden gider
-  } catch (err) { if (/aktif değil/.test(err.message)) finish(); }
+  } catch (err) {
+    if (yedek) yedek.sunucu = "hata: " + String(err?.message || err).slice(0, 200);
+    if (/aktif değil/.test(err.message)) finish();
+  }
+}
+// Bakış modülünün son karesindeki 3B baş pozu (ham ölçü toplayıcısı için; aynı kare iki kez sayılmaz)
+function gazePose3() {
+  const L = gaze?.latest, p = L?.pose3;
+  return p ? { t: L.t, yaw: p.yaw, pitch: p.pitch, roll: p.roll, dist: p.dist } : null;
 }
 // Kalıcı kayıt için kurulum özeti (sunucu doğrular/kırpar) ve yalnız yeni kalibrasyon raporu
 let sonKalAt = null;
@@ -112,7 +128,7 @@ function kalYeni() {
 }
 // Gerçek işlenen kare/sn: iki gönderim arasında işlenen kare (diag.kare) / geçen duvar saati.
 // İşçi gecikmesi: aynı aralıkta kare yakalama → işçi sonucu ortalaması (yalnız işçi yolunda).
-let kareOnceki = null;
+let kareOnceki = null, sonIsleme = { fps: null, gecikmeMs: null };   // sonIsleme: son ölçümün yuvarlanmamış hâli (ham ölçüler)
 function islemeOlcu(d) {
   const t = performance.now(), o = kareOnceki;
   kareOnceki = d ? { t, kare: d.kare, gMs: d.gecikmeMs, gN: d.gecikmeN } : null;
@@ -125,7 +141,7 @@ function kurulumBilgi() {
   const st = $("#video").srcObject?.getVideoTracks?.()[0]?.getSettings?.() || {};
   const m = (navigator.userAgent.match(/(Edg|OPR|Firefox|Chrome|Version)\/(\d+)/) || []);
   const ad = { Edg: "Edge", OPR: "Opera", Version: "Safari" }[m[1]] || m[1];
-  const d = gaze?.diag, { fps, gecikmeMs } = islemeOlcu(d);
+  const d = gaze?.diag, { fps, gecikmeMs } = (sonIsleme = islemeOlcu(d));
   const dist = gaze?.latest?.pose3?.dist;
   return { kamera: st.width ? `${st.width}x${st.height}` : null, fps: st.frameRate ? Math.round(st.frameRate) : null,
     ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, dpr: +(devicePixelRatio || 1).toFixed(2),
@@ -218,17 +234,22 @@ $("#handBtn").onclick = () => { setHand(!handUp); ev({ type: "hand", up: handUp 
 document.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => { ev({ type: "reaction", emoji: b.dataset.r }); floatEmoji(b.dataset.r); }));
 $("#chatForm").onsubmit = (e) => { e.preventDefault(); const v = $("#chatIn").value.trim(); if (v) { ev({ type: "chat", text: v }); $("#chatIn").value = ""; } };
 
-// Yerel yedek: bu öğrencinin gönderilen ders ölçümleri (bellekte; localStorage yok). Ders bitince bir kez CSV iner;
-// "Ders verimi indir" düğmesi istendiğinde yeniden indirir (sinyal kaçarsa).
+// Yerel yedek: bu öğrencinin gönderilen ders ölçümleri ({t, govde, sunucu}; bellekte, localStorage yok). Ders bitince bir kez
+// iki dosya iner: düzleştirilmiş CSV ve gövdelerin kayıpsız JSON'u; "Ders verimi indir" düğmesi ikisini yeniden indirir.
 const DERS_YEDEK = [];
 let dersYedekIndi = false;
 function dersYedekIndir() {
   if (!window.DNYedek) return false;
+  const tarih = new Date();
+  let ok = true;
   try {
-    DNYedek.indir(DNYedek.csvMetni([{ baslik: `Ders ölçümleri (${CODE || "-"})`, rows: DERS_YEDEK }]),
-      DNYedek.dosyaAdi(CODE, AD, new Date(), "ders.csv"), "text/csv;charset=utf-8");
-    return true;
-  } catch (e) { console.warn("ders yedeği", e); return false; }
+    DNYedek.indir(DNYedek.csvMetni([{ baslik: `Ders ölçümleri (${CODE || "-"})`, rows: DNYedek.dersCsvSatirlari(DERS_YEDEK) }]),
+      DNYedek.dosyaAdi(CODE, AD, tarih, "ders.csv"), "text/csv;charset=utf-8");
+  } catch (e) { console.warn("ders yedeği (csv)", e); ok = false; }
+  try {
+    DNYedek.indir(DNYedek.dersJson(DERS_YEDEK), DNYedek.dosyaAdi(CODE, AD, tarih, "ders.json"), "application/json;charset=utf-8");
+  } catch (e) { console.warn("ders yedeği (json)", e); ok = false; }
+  return ok;
 }
 $("#dersYedekBtn").onclick = () => dersYedekIndir();
 function finish() {
