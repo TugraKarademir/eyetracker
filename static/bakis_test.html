@@ -456,7 +456,7 @@ function line(x1, y1, x2, y2, color) {
 }
 
 document.addEventListener("pointerdown", (e) => {
-  if (!gaze || e.target.closest("#panel") || e.target.closest("#guide") || e.target.closest("#startCard") || e.target.closest("#tamDon") || e.target.closest("#baslaKart") || e.target.closest("#hazirKart") || e.target.closest("#glRapor") || e.target.closest("#sonucKat") || e.target.closest(".gaze-ov") || e.target.closest("#isiKat") || camBusy || bakarakSuruyor || ISI.suruyor) return;   // ısı testi: tıklama öğretmez
+  if (!gaze || e.target.closest("#panel") || e.target.closest("#guide") || e.target.closest("#startCard") || e.target.closest("#tamDon") || e.target.closest("#baslaKart") || e.target.closest("#hazirKart") || e.target.closest("#glRapor") || e.target.closest("#sonucKat") || e.target.closest(".gaze-ov") || e.target.closest("#isiKat") || e.target.closest("#kayitHata") || camBusy || bakarakSuruyor || ISI.suruyor) return;   // ısı testi: tıklama öğretmez
   // Rehberli mod: yalnız sarı hedeflere tıklanır; etiket tıklanan piksel değil hedefin merkezi (göz oraya bakıyor)
   const tgt = guide ? guide.targets.find((t) => Math.hypot(t.x - e.clientX, t.y - e.clientY) < GUIDE.HIT) : null;
   if (guide && !tgt) { toast("Sarı hedeflerden birine bakıp üstüne tıklayın.", 1500); return; }
@@ -1204,7 +1204,9 @@ function kameraBirlesik() {
 }
 async function guideFinish(neden) {
   const g = guide; guideStop();
-  glFazBitir(); await isiTestiAdimi(); GLK.sure.bitis = simdi(); GLK.bitti = true; adimBasla("sonuc");
+  glFazBitir(); GLK.sure.bitis = simdi();   // toplam süre ve RealEye ölçümü ısı testinden ÖNCE sabitlenir (mevcut sonuçlar değişmez)
+  const reSureOnce = reSure(), reSureVeri = JSON.parse(JSON.stringify(RE.sure));
+  await isiTestiAdimi(); GLK.bitti = true; adimBasla("sonuc");
   const m = clicks.filter((c) => c.err != null), V = m.filter((c) => c.dogrulama === "kontrol"), last = V.length ? V : m.slice(-TEST.LAST);
   { // Bakarak + 5 tıklamalı düzeltme: düzeltme tıklamaları (öğretmeden önce ölçülür) ve kontrol noktaları (hiç öğretilmez)
     const K = clicks.filter((c) => c.dogrulama === "kontrol"), D = clicks.filter((c) => !c.dogrulama);
@@ -1222,7 +1224,7 @@ async function guideFinish(neden) {
     if (KD.length) tlog(`DEPO KARŞILAŞTIRMA (aynı 5 kontrol noktası): depo kalibrasyonu hemen ardından ${md(KD, "depo")} | bizim akıştan sonra: bizim ${md(K, "biz")} · depo (kaymış, ~1 dk sonra) ${md(K, "depo")}`, { KD: KD.map((c) => c.v) });
     if (modelBk) tlog(`KARŞILAŞTIRMA | KONTROL (yeni noktalar, öğretilmedi): bakarak+düzeltme bizim ${md(K, "biz")} · bizim+WebGazer yaması ${md(K, "bizW")} · WebGazer yöntemi (MediaPipe) ${md(K, "wgMP")} · bizim+göz küresi ${md(K, "bizK")} · göz küresi yöntemi ${md(K, "kureM")} · RealEye Light ${md(K, "reL")} · göz katsayıları ${md(K, "bizB")} · karışım %70 ${md(K, "karisim70")} · WebGazer ${md(K, "wg")} · yalnız bakarak bizim ${md(K, "bizBk")} · yalnız bakarak göz katsayıları ${md(K, "bizBBk")} · BAŞ TURLU: bizim ${md(K, "bizH")} · göz katsayıları ${md(K, "bizBH")} · göz küresi ${md(K, "kureMH")} | DÜZELTME tıklamaları (öğretmeden önce): bizim ${md(D, "biz")} · bizim+WebGazer yaması ${md(D, "bizW")} · WebGazer yöntemi (MediaPipe) ${md(D, "wgMP")} · bizim+göz küresi ${md(D, "bizK")} · göz küresi yöntemi ${md(D, "kureM")} · RealEye Light (yalnız bakarak modeliyle; düzeltme sonunda yeniden kurulur) ${md(D, "reL")} · göz katsayıları ${md(D, "bizB")} · karışım %70 ${md(D, "karisim70")} · WebGazer ${md(D, "wg")}`,
       { K: K.map((c) => c.v), D: D.map((c) => c.v) });
-    tlog(`RealEye Light: kurulumlar ${RE.kurulum.map((k) => `${k.neden}: ${k.kare}/${k.kareAday} kare, ${k.satir} satır, ${k.grup} grup, λ ${+k.lam.toFixed(3)}, ${k.ms} ms`).join(" · ") || "yok"} | öznitelik süresi ${reSure()} | GazeLab ${GLK.dog?.yontem?.reL ? Math.round(GLK.dog.yontem.reL.acc) + " px" : "veri yok"}`, { reKurulum: RE.kurulum, reSure: RE.sure });
+    tlog(`RealEye Light: kurulumlar ${RE.kurulum.map((k) => `${k.neden}: ${k.kare}/${k.kareAday} kare, ${k.satir} satır, ${k.grup} grup, λ ${+k.lam.toFixed(3)}, ${k.ms} ms`).join(" · ") || "yok"} | öznitelik süresi ${reSureOnce} | GazeLab ${GLK.dog?.yontem?.reL ? Math.round(GLK.dog.yontem.reL.acc) + " px" : "veri yok"}`, { reKurulum: RE.kurulum, reSure: reSureVeri });
   }
   const acc = last.length ? Math.round(med(last.map((c) => c.err))) : null;
   const hit = last.length ? Math.round(100 * last.filter((c) => c.ok).length / last.length) : null;
@@ -1370,6 +1372,16 @@ function ekranGeometrik() {
     basPayi: { yatay: X.basPay, dikey: Yk.basPay }, tiklama: C.length,
     metin: `yatay ${inc(X.k)} inç, dikey ${inc(Yk.k)} inç → ~${inc(ort)} inç (${C.length} tıklama; uyum R² yatay ${X.r2?.toFixed(2)}, dikey ${Yk.r2?.toFixed(2)}${uyum > 0.25 ? "; yatay ve dikey %25'ten çok farklı, güvenilmez" : ""}) — varsayım: iris 11,7 mm, göz dönme yarıçapı ${GEO.DONME_MM} mm` };
 }
+function kayitHataGoster(neden) {   // gönderim başarısızsa yalnız günlükte kalmasın: ekranda görünür (tıklayınca kapanır)
+  let el = $("#kayitHata");
+  if (!el) {
+    el = document.createElement("div"); el.id = "kayitHata";
+    Object.assign(el.style, { position: "fixed", left: "50%", bottom: "16px", transform: "translateX(-50%)", zIndex: "40", maxWidth: "min(640px,92vw)", padding: "10px 16px", borderRadius: "10px",
+      border: "1px solid #f87171", background: "#3b1219", color: "#fecaca", font: "15px system-ui", textAlign: "center", cursor: "pointer" });
+    el.onclick = (e) => { e.stopPropagation(); el.remove(); }; document.body.append(el);
+  }
+  el.textContent = `⚠ Kayıt bilgisayara GÖNDERİLEMEDİ (${neden}). Veri sunucuya yazılmadı; kapatmak için tıklayın.`;
+}
 async function testKaydiGonder() {
   try {
     const cihaz = navigator.userAgent.match(/Android[^;)]*|iPhone|Windows NT [\d.]+|Mac OS X/)?.[0] || "bilinmiyor";
@@ -1377,8 +1389,8 @@ async function testKaydiGonder() {
       body: JSON.stringify({ cihaz, ua: navigator.userAgent, ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, log: testLog, tiklamaOz: tiklamaOz, gazelab: glPaket() }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.status);
-    tlog(`kayıt bilgisayara gönderildi: test_kayitlari/${j.dosya}`); return j.dosya;
-  } catch (e) { tlog(`kayıt gönderilemedi: ${e.message}`); return null; }
+    tlog(`kayıt bilgisayara gönderildi: test_kayitlari/${j.dosya}`); $("#kayitHata")?.remove(); return j.dosya;
+  } catch (e) { tlog(`kayıt gönderilemedi: ${e.message}`); kayitHataGoster(e.message); return null; }
 }
 function guideStop() {
   guide = null; document.querySelectorAll(".tgt").forEach((n) => n.remove());
@@ -1653,29 +1665,37 @@ function wgKameraBilgi() {
 // tüm yöntemlerin tahmini (glTahmin, gazelab kaydıyla aynı saat) pencere pikseli + görsele göre u,v (0–1, dışarı taşabilir) olarak saklanır.
 // Görseller tarayıcıda yerel nesne adresiyle okunur, hiçbir yere gönderilmez; kayda yalnız adı, doğal boyutu ve gösterim dikdörtgeni girer.
 // Bu adımda hiçbir model öğrenmez (tıklama işlenmez; F/Y/FB/RE/WebGazer verisi değişirse kayda "ogrenmeIhlali" yazılır), tahmin gösterilmez.
-const ISI = { gorseller: [], sureMs: 15000, SURE: [5, 60], EN_COK: 10, yukleme: null, suruyor: false, aktif: null, rect: null, veri: null };
+const ISI = { gorseller: [], sureMs: 15000, SURE: [5, 60], EN_COK: 10, yukleme: null, suruyor: false, aktif: null, rect: null, veri: null, nesil: 0 };
 const isiUV = (x, y) => { const r = ISI.rect; return r ? [+((x - r.x) / r.w).toFixed(3), +((y - r.y) / r.h).toFixed(3)] : [null, null]; };
 function isiDikdortgen(w, h) {   // en-boy korunarak pencereye sığdırılır ve ortalanır (CSS px)
   const s = Math.min(innerWidth / w, innerHeight / h), gw = w * s, gh = h * s;
   return { x: +((innerWidth - gw) / 2).toFixed(1), y: +((innerHeight - gh) / 2).toFixed(1), w: +gw.toFixed(1), h: +gh.toFixed(1) };
 }
-async function isiDosyaSec(files) {
+async function isiDosyaSec(files) {   // ikinci seçim eskisinin yüklemesini geçersiz kılar (nesil sayacı); eski çağrı null döner
+  const nesil = ++ISI.nesil;
   for (const G of ISI.gorseller) URL.revokeObjectURL(G.url);
   ISI.gorseller = [];
-  const L = [...files].filter((f) => /^image\/(png|jpeg|webp)$/.test(f.type)), atla = files.length - L.length;
+  const L = [...files].filter((f) => /^image\/(png|jpeg|webp)$/.test(f.type)), atla = files.length - L.length, yeni = [];
   const yukle = async () => {
     for (const f of L.slice(0, ISI.EN_COK)) {
+      if (nesil !== ISI.nesil) break;
       const url = URL.createObjectURL(f), img = new Image(); img.src = url;
-      try { await img.decode(); ISI.gorseller.push({ ad: f.name, url, w: img.naturalWidth, h: img.naturalHeight }); }
+      try { await img.decode(); yeni.push({ ad: f.name, url, w: img.naturalWidth, h: img.naturalHeight }); }
       catch { URL.revokeObjectURL(url); tlog(`ısı testi: görsel açılamadı (${f.name})`); }
     }
+    if (nesil !== ISI.nesil) { for (const G of yeni) URL.revokeObjectURL(G.url); return; }
+    ISI.gorseller = yeni;
   };
   ISI.yukleme = yukle(); await ISI.yukleme;
+  if (nesil !== ISI.nesil) return null;
   const n = ISI.gorseller.length;
   return n ? `${n} görsel seçildi${L.length > ISI.EN_COK ? ` (en çok ${ISI.EN_COK})` : ""}${atla ? `; ${atla} dosya PNG/JPEG/WebP değil, atlandı` : ""}` : "Görsel seçilmedi: ısı testi adımı atlanır.";
 }
+const _isiMid = new WeakMap(); let _isiMidN = 0;
+const isiMid = (m) => (m ? (_isiMid.get(m) ?? (_isiMid.set(m, ++_isiMidN), _isiMidN)) : 0);   // model nesnesi yeniden kurulursa kimliği değişir
 const isiOgrenmeSayaci = () => ({ F: F.length, Y: Y.length, FB: FB.length, FW: FW.length, YW: YW.length, FM: FM.length, FK: FK.length, YK: YK.length, FKM: FKM.length,
-  FH: FH.length, YH: YH.length, FBH: FBH.length, FKH: FKH.length, YKH: YKH.length, RE: RE.kareler.length, wg: wgN, fuzF: fuzF.length, tiklama: clicks.length });
+  FH: FH.length, YH: YH.length, FBH: FBH.length, FKH: FKH.length, YKH: YKH.length, RE: RE.kareler.length, wg: wgN, fuzF: fuzF.length, tiklama: clicks.length,
+  aciS: aciS.length, karisimGecmis: karisimGecmis.length, model: isiMid(model), modelB: isiMid(modelB), modelW: isiMid(modelW), modelM: isiMid(modelM), modelK: isiMid(modelK), modelKM: isiMid(modelKM), reModel: isiMid(RE.model) });
 function isiKosul(c) {   // toplama koşulları anlık görüntüsü (adım başı ve sonu)
   const d = gaze?.diag || {}, st = video.srcObject?.getVideoTracks()[0]?.getSettings?.() || {}, l = gaze?.latest;
   return { t: c ? Math.round(simdi() - c.t0) : 0, pencere: { w: innerWidth, h: innerHeight },
@@ -1697,19 +1717,21 @@ function isiKare(t, l, P) {   // glKare'den, görsel ekrandayken her MediaPipe k
 }
 async function isiTestiAdimi() {
   if (ISI.yukleme) await ISI.yukleme;
-  if (!ISI.gorseller.length || !gaze) return;
+  if (!ISI.gorseller.length) return;
+  if (!gaze) { ISI.veri = { surum: 1, atlandi: "bakış modeli (gaze) yok" }; tlog("ısı testi atlandı: bakış modeli yok"); return; }   // adım listesinde "atlandı" görünür
   adimBasla("isi");
   const n = ISI.gorseller.length, sn = ISI.sureMs / 1000;
   await hazirKarti("🔥 Isı testi", `${n} görsel tam ekranda sırayla gösterilecek (her biri ${sn} sn, toplam ~${Math.round(n * sn)} sn).<br>
     <b>Görsellere doğal şekilde bakın; tıklamayın.</b><br><span style="opacity:.75">Bu adımda hiçbir model öğrenmez ve bakış noktası gösterilmez.</span>`, "Başla");
   const once = isiOgrenmeSayaci();
   glFazBasla("isi_testi");
+  tamDon.style.zIndex = "30";   // ısı katmanının (25) üstünde: tam ekrandan çıkılırsa dönüş düğmesi kullanılabilir
   const c = GLK.cur, tt = () => Math.round(simdi() - c.t0);
   const veri = ISI.veri = { surum: 1, saat: "ms; isi_testi aşamasının başından (GazeLab kayıtlarıyla aynı saat)",
     bicim: { kare: "{t, k: kırpma 0/1, p: {yöntem: [x, y, u, v]}}; x,y pencere CSS px; u,v gösterim dikdörtgenine göre 0–1 (dışarı taşabilir)",
-             wg: "[t, x, y, u, v] (WebGazer kendi döngüsünden)", duygu: "{t, fa: face-api, hse: HSEmotion, va: [valans, uyarılma]}" },
+             wg: "[t, x, y, u, v] (WebGazer kendi döngüsünden)", duygu: "{t, fa: face-api, hse: HSEmotion, va: [valans, uyarılma]}; t = örneğin BAŞLANGIÇ zamanı (ms, aşama saati; bir örnek yüzlerce ms sürer), görsele başlangıç zamanına göre atanır" },
     planSureMs: ISI.sureMs, gorseller: [], kosullar: { bas: isiKosul(c) },
-    analiz: { duygu: [duyguHazir.fa && "face-api", duyguHazir.hse && "HSEmotion"].filter(Boolean), dikkatEnerji: "yok (bu sayfada hesaplanmıyor)" } };
+    analiz: { duygu: [duyguHazir.fa && "face-api", duyguHazir.hse && "HSEmotion"].filter(Boolean), dikkatEnerji: null, dikkatEnerjiNeden: "bu sayfada hesaplanmıyor" } };
   const kat = document.createElement("div"); kat.id = "isiKat";
   Object.assign(kat.style, { position: "fixed", inset: "0", zIndex: "25", background: "#000", cursor: "none" });
   const img = document.createElement("img"); img.alt = ""; img.draggable = false;
@@ -1735,7 +1757,7 @@ async function isiTestiAdimi() {
       tlog(`  ısı testi görseli "${G.ad}" (${G.w}×${G.h}, gösterim ${Math.round(g.dikdortgen.w)}×${Math.round(g.dikdortgen.h)} px): ${g.sureMs} ms, ${g.kareler.length} kare (${g.kareler.filter((k) => k.k).length} kırpma), WebGazer ${g.wg.length}`);
     }
   } finally {
-    ISI.aktif = null; ISI.suruyor = false; wgAyarla(false); if (DS) DS.dur = true;
+    ISI.aktif = null; ISI.suruyor = false; wgAyarla(false); if (DS) DS.dur = true; tamDon.style.zIndex = "12";
     removeEventListener("resize", boyut); kat.remove(); ISI.rect = null;
     veri.kosullar.bit = isiKosul(c);
     { const a = veri.kosullar.bas, b = veri.kosullar.bit, s = (b.t - a.t) / 1000, A = a.sayac, B = b.sayac, gn = B.gecikmeN - A.gecikmeN, iN = B.islemeN - A.islemeN;
@@ -1745,7 +1767,9 @@ async function isiTestiAdimi() {
         islemeMsKare: iN ? Math.round((B.islemeMs - A.islemeMs) / iN) : null, isciGecikmeMs: gn ? Math.round((B.gecikmeMs - A.gecikmeMs) / gn) : null,
         isci: a.isci == null && b.isci == null ? null : a.isci === b.isci ? !!b.isci : "gecis",
         mesafeMedyanCm: M.length ? Math.round(M[M.length >> 1]) : null, mesafeN: M.length,
-        tamEkranKaldi: a.tamEkran && b.tamEkran, pencereDegisti: a.pencere.w !== b.pencere.w || a.pencere.h !== b.pencere.h }; }
+        tamEkranKaldi: a.tamEkran && b.tamEkran, pencereDegisti: a.pencere.w !== b.pencere.w || a.pencere.h !== b.pencere.h,
+        duyguOrnekleyici: !!DS, duyguHedefMs: Math.round(1000 / DUYGU.HZ),   // hedef aralık; ölçülen medyan aşağıda
+        duyguOrnekMs: (() => { if (!DS) return null; const d = DS.S.slice(1).map((r, i) => (r.t - DS.S[i].t) * 1000).sort((x, y) => x - y); return d.length ? Math.round(d[d.length >> 1]) : null; })() }; }
     const yuv = (o) => (o ? Object.fromEntries(Object.entries(o).map(([k, v]) => [k, +v.toFixed(3)])) : null);
     for (const g of veri.gorseller) {
       delete g._mesafe;
@@ -1756,7 +1780,7 @@ async function isiTestiAdimi() {
     const son = isiOgrenmeSayaci(), degisen = Object.keys(once).filter((k) => once[k] !== son[k]);
     console.assert(!degisen.length, "ısı testi sırasında model verisi değişti", degisen);
     if (degisen.length) { veri.ogrenmeIhlali = degisen.map((k) => `${k}: ${once[k]}→${son[k]}`); tlog(`HATA: ısı testi sırasında model verisi değişti (${veri.ogrenmeIhlali.join(", ")})`); }
-    else veri.ogrenme = "yok (F/Y/FB/RE/WebGazer/tıklama sayaçları adım başı ve sonunda aynı)";
+    else veri.ogrenme = "yok (eğitim dizileri F/Y/FB/FW/YW/FM/FK/YK/FKM/FH/YH/FBH/FKH/YKH, RealEye kareleri, açı modeli verisi, karışım geçmişi, WebGazer öğretilen nokta, tıklama sayısı ve model nesneleri adım başı ve sonunda aynı; pencere ofseti ölçümü (_learnOffset) kontrol edilmez, model değildir)";
     glFazBitir();
     const o = veri.kosullar.ozet;
     tlog(`ISI TESTİ bitti: ${veri.gorseller.length} görsel, ${o.sureMs} ms · işlenen ${o.islenenFps ?? "-"} kare/sn · ${o.isci === "gecis" ? "işçi→ana" : o.isci == null ? "işleme yeri bilinmiyor" : o.isci ? `işçi (gecikme ${o.isciGecikmeMs ?? "-"} ms)` : "ana iş parçacığı"} · uzaklık ~${o.mesafeMedyanCm ?? "-"} cm · duygu örneği ${veri.gorseller.reduce((a, g) => a + g.duygu.length, 0)}`);
@@ -1895,12 +1919,13 @@ const r1 = (v) => (v == null || !isFinite(v) ? null : +v.toFixed(1));
 const r2 = (v) => (v == null || !isFinite(v) ? null : +v.toFixed(2));
 function glYontemTablosu() {
   const K = clicks.filter((c) => c.dogrulama === "kontrol" && c.v), D = clicks.filter((c) => !c.dogrulama && c.v);
-  const sureTop = GLK.recs.reduce((a, r) => a + (r.rect.exposureMs || 0), 0) / 1000;
-  const keys = Object.keys(YONTEM).filter((k) => K.some((c) => c.v[k]) || D.some((c) => c.v[k]) || GLK.dog?.yontem?.[k] || GLK.recs.some((r) => r.gaze[k]?.length));
+  const RECS = GLK.recs.filter((r) => r.stimulus_id !== "isi_testi");   // ısı testi yöntem tablosuna girmez (mevcut sonuçlar değişmez)
+  const sureTop = RECS.reduce((a, r) => a + (r.rect.exposureMs || 0), 0) / 1000;
+  const keys = Object.keys(YONTEM).filter((k) => K.some((c) => c.v[k]) || D.some((c) => c.v[k]) || GLK.dog?.yontem?.[k] || RECS.some((r) => r.gaze[k]?.length));
   const rows = keys.map((k) => {
     const kv = K.filter((c) => c.v[k]).map((c) => c.v[k]), dv = D.filter((c) => c.v[k]).map((c) => c.v[k]), g = GLK.dog?.yontem?.[k];
     let n = 0, span = 0, fix = 0, fixMs = 0, sak = 0, sakDer = 0;
-    for (const r of GLK.recs) {
+    for (const r of RECS) {
       const G = r.gaze[k]; if (!G || G.length < 2) continue;
       n += G.length; span += (G.at(-1)[0] - G[0][0]) / 1000;
       const I = GL.ivt(G); fix += I.fixations.length; fixMs += I.fixations.reduce((a, f) => a + f.dur, 0); sak += I.saccades.length; sakDer += I.saccades.reduce((a, s) => a + s.amp, 0);
@@ -2101,7 +2126,7 @@ basla.innerHTML = `<div style="font-size:22px">🎯 Bakış testi</div>
   </div>
   <button id="baslaBtn" style="font:inherit;font-size:20px;padding:12px 28px;border-radius:12px;border:1px solid #facc15;background:#1c2633;color:#facc15;cursor:pointer">▶ Başla</button>`;
 document.body.append(basla);
-$("#isiDosya").onchange = async (e) => { $("#isiBilgi").textContent = "Görseller okunuyor…"; $("#isiBilgi").textContent = await isiDosyaSec(e.target.files || []); };
+$("#isiDosya").onchange = async (e) => { $("#isiBilgi").textContent = "Görseller okunuyor…"; const m = await isiDosyaSec(e.target.files || []); if (m != null) $("#isiBilgi").textContent = m; };
 $("#baslaBtn").onclick = async () => {
   { const v = +$("#isiSure").value; ISI.sureMs = 1000 * (Number.isFinite(v) && v > 0 ? Math.min(ISI.SURE[1], Math.max(ISI.SURE[0], Math.round(v))) : 15); }
   try { await document.documentElement.requestFullscreen?.({ navigationUI: "hide" }); } catch (e) { tlog(`tam ekran açılamadı (${e.message}); pencere modunda devam`); }
