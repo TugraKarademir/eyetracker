@@ -73,11 +73,24 @@ function sirala(is) {
   return p;
 }
 
+// Bilerek durdurulan sunucu (sunucuKapandi bunu "beklenmedik kapanma" saymasın).
+let durduruluyor = null;
+
+// Sunucu tutamağı durdurma BAŞARILI olana dek saklanır: durdur() atarsa eski sunucu hâlâ çalışıyor olabilir,
+// tutamak kaybolsaydı "Yeniden dene" aynı veri klasöründe ikinci sunucu açardı.
 async function sunucuDurdur() {
   const c = calisan;
+  if (!c) return;
+  durduruluyor = c;
+  try {
+    await c.durdur();
+  } catch (e) {
+    durduruluyor = null;
+    throw e;
+  }
+  durduruluyor = null;
   calisan = null;
   sunucuKoken = null;
-  if (c) await c.durdur();
 }
 
 async function sunucuBaslat() {
@@ -111,7 +124,7 @@ async function sunucuBaslat() {
 
 // Sunucu kendiliğinden kapandıysa (bilerek durdurulmadıysa: calisan hâlâ bu süreç) hata durumuna geçilir.
 function sunucuKapandi(c, kod, sinyal) {
-  if (calisan !== c) return;   // sunucuDurdur() önce calisan'ı boşaltır: bilerek durdurma
+  if (calisan !== c || durduruluyor === c) return;   // bilerek durdurma
   calisan = null;
   sunucuKoken = null;
   const neden = kod !== null && kod !== undefined ? `kod ${kod}` : `sinyal ${sinyal}`;
@@ -134,6 +147,8 @@ function sayfaPencereleriniKapat() {
 
 function sunucuyuYenidenBaslat() {
   return sirala(async () => {
+    // Durdurulamayan sunucu çözülene (uygulama kapanıp açılana) dek yeni sunucu açılmaz.
+    if (calisan && durum.asama === "durdurulamadi") return;
     sayfaPencereleriniKapat();   // eski porttaki sayfalar artık çalışmaz
     try {
       await sunucuDurdur();
@@ -141,9 +156,9 @@ function sunucuyuYenidenBaslat() {
       // Eski sunucu hâlâ çalışıyor olabilir: ikinci bir sunucu (aynı veri klasöründe) başlatılmaz.
       console.error(`Sunucu durdurulamadı: ${e.message}`);
       durumYayinla({
-        asama: "hata",
+        asama: "durdurulamadi",
         port: null,
-        hata: `Önceki sunucu durdurulamadı; ikinci bir sunucu başlatılmadı. Uygulamayı kapatıp yeniden açın.\n${e.message}`,
+        hata: `Önceki sunucu kapatılamadı (pid ${calisan && calisan.surec ? calisan.surec.pid : "?"}). Uygulamayı kapatıp yeniden açın.\n${e.message}`,
       });
       return;
     }
@@ -621,6 +636,32 @@ async function smokeKos() {
     await sunucuyuYenidenBaslat();
     yaz(`yeniden dene: durum=${durum.asama}, port=${durum.port}`);
     if (durum.asama !== "hazir" || !(await sunucu.saglikVar(durum.port, calisan.oturum))) throw new Error("yeniden başlatma başarısız");
+    // Başlangıç ekranı: veri klasörü alanları gerçek klasörü göstermeli
+    const veriAlanlari = await win.webContents.executeJavaScript(
+      `({ durum: document.getElementById("durumVeri").textContent, ayar: document.getElementById("ayarVeri").textContent })`,
+    );
+    yaz(`veri alanları: ${JSON.stringify(veriAlanlari)}`);
+    if (veriAlanlari.durum !== veriKlasoru()) throw new Error("#durumVeri gerçek veri klasörünü göstermiyor");
+    // Ayarlar alanı kayıtlı ayarı gösterir; --veri/env ile zorlanmadıysa gerçek klasörle aynıdır.
+    if (veriAlanlari.ayar !== ayar.veriKlasoru) throw new Error("#ayarVeri kayıtlı veri klasörünü göstermiyor");
+
+    // Durdurma başarısız: tutamak korunur, ikinci sunucu açılmaz, ekran hata + kilit gösterir
+    const asil = calisan;
+    const asilDurdur = asil.durdur;
+    asil.durdur = async () => { throw new Error("sahte durdurma hatası"); };
+    await sunucuyuYenidenBaslat();
+    await sunucuyuYenidenBaslat();   // ikinci deneme de yeni sunucu açmamalı
+    await new Promise((r) => setTimeout(r, 300));
+    const dEkran = await win.webContents.executeJavaScript(
+      `({ ozet: document.getElementById("hataOzet").textContent, kutu: !document.getElementById("hataKutusu").classList.contains("hidden"), dene: document.getElementById("yenidenDene").disabled, dugmelerKapali: [...document.querySelectorAll("[data-hedef]")].every((b) => b.disabled) })`,
+    );
+    yaz(`durdurulamadı: durum=${durum.asama}, ekran=${JSON.stringify(dEkran)}`);
+    if (durum.asama !== "durdurulamadi" || calisan !== asil || !dEkran.kutu || !dEkran.dene || !dEkran.dugmelerKapali
+      || !dEkran.ozet.includes(`pid ${asil.surec.pid}`) || !/kapatılamadı/.test(dEkran.ozet)) {
+      throw new Error("durdurulamayan sunucu durumu beklenen gibi değil");
+    }
+    if (!(await sunucu.saglikVar(asil.port, asil.oturum))) throw new Error("asıl sunucu hâlâ çalışmalı");
+    asil.durdur = asilDurdur;   // çıkışta gerçekten durdurulsun
     clearTimeout(zaman);
     yaz("tamam");
     await cikisYap(0);
@@ -696,6 +737,7 @@ if (!app.requestSingleInstanceLock()) {
     // Paketli uygulamada varsayılan veri klasörü kurulum klasörü dışında: Belgeler/DersNabzı/veri.
     if (app.isPackaged) ayarlar.varsayilanVeriKlasoru(path.join(app.getPath("documents"), "DersNabzı", "veri"));
     ayar = ayarlar.yukle(AYAR_DOSYASI());
+    durum.veriKlasoru = veriKlasoru();   // başlangıç ekranı ilk durum sorgusunda boş görmesin
     Menu.setApplicationMenu(null);   // varsayılan menü kısayolları (yenile, yakınlaştır, DevTools) kapalı
     oturumKur();
     ipcKur();

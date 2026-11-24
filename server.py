@@ -1309,17 +1309,26 @@ def _ust_surec_izle(kapat=None, bekleme=2.0):
 
     def izle():
         try:
-            kaynak = getattr(sys.stdin, "buffer", sys.stdin)
-            while kaynak.read(4096):
+            try:
+                kaynak = getattr(sys.stdin, "buffer", sys.stdin)
+                while kaynak.read(4096):
+                    pass
+            except Exception:
                 pass
-        except Exception:
-            pass
-        print("Uygulama kapandı (stdin kapandı); sunucu sonlanıyor.")
-        if kapat is not None:
-            t = threading.Thread(target=kapat, daemon=True)
-            t.start()
-            t.join(bekleme)
-        os._exit(0)
+            # Electron ölünce stdout/stderr boruları da kapanır: yazma hatası çıkışı engellememeli.
+            try:
+                print("Uygulama kapandı (stdin kapandı); sunucu sonlanıyor.")
+            except BaseException:
+                pass
+            if kapat is not None:
+                try:
+                    t = threading.Thread(target=kapat, daemon=True)
+                    t.start()
+                    t.join(bekleme)
+                except BaseException:
+                    pass
+        finally:
+            os._exit(0)
 
     t = threading.Thread(target=izle, name="ust-surec-izle", daemon=True)
     t.start()

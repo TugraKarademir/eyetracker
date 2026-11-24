@@ -606,6 +606,63 @@ class UstSurecIzleme(unittest.TestCase):
         time.sleep(3)
         self.assertIsNone(p.poll())
 
+    def test_ust_surec_oldugunda_borular_da_kapaninca_cikar(self):
+        """Electron ölünce stdin/stdout/stderr boruları birlikte kapanır: bekçinin print'i patlasa da süreç çıkmalı."""
+        import socket
+        import time
+        kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        veri = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, veri, True)
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        bilgi = os.path.join(veri, "bilgi.txt")
+        ust = """
+import os, subprocess, sys, time, urllib.request
+env = dict(os.environ, DERSNABZI_OTURUM='t', DERSNABZI_DATA=sys.argv[3], PYTHONIOENCODING='utf-8')
+p = subprocess.Popen([sys.executable, sys.argv[1], '--port', sys.argv[2], '--data', sys.argv[3]], env=env,
+    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+son = time.time() + 20
+while time.time() < son:
+    try:
+        urllib.request.urlopen('http://127.0.0.1:%s/api/saglik' % sys.argv[2], timeout=1).read()
+        break
+    except Exception:
+        time.sleep(0.2)
+else:
+    os._exit(3)
+open(sys.argv[4], 'w').write(str(p.pid))
+os._exit(0)
+"""
+        r = subprocess.run([sys.executable, "-c", ust, os.path.join(kok, "server.py"), str(port), veri, bilgi],
+                           cwd=kok, timeout=40)
+        self.assertEqual(r.returncode, 0)
+        pid = int(open(bilgi).read())
+
+        def yasiyor():
+            if os.name == "nt":
+                out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"], capture_output=True, text=True).stdout
+                return str(pid) in out
+            try:
+                os.kill(pid, 0)
+                return True
+            except OSError:
+                return False
+
+        def temizle():
+            if yasiyor():
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True)
+                else:
+                    os.kill(pid, 9)
+        self.addCleanup(temizle)
+        son = time.time() + 10
+        while time.time() < son and yasiyor():
+            time.sleep(0.2)
+        self.assertFalse(yasiyor(), "sunucu yetim kaldı")
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", port))   # port serbest
+
 
 if __name__ == "__main__":
     unittest.main()

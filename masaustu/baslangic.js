@@ -11,9 +11,10 @@
     $("durumMetni").textContent =
       d.asama === "hazir" ? `Sunucu çalışıyor (port ${d.port})`
         : d.asama === "hata" ? "Sunucu başlatılamadı"
-          : "Sunucu başlatılıyor…";
+          : d.asama === "durdurulamadi" ? "Sunucu durdurulamadı"
+            : "Sunucu başlatılıyor…";
     $("durumVeri").textContent = d.veriKlasoru || "—";
-    const hata = d.asama === "hata";
+    const hata = d.asama === "hata" || d.asama === "durdurulamadi";
     $("hataKutusu").classList.toggle("hidden", !hata);
     if (hata) {
       const metin = String(d.hata || "");
@@ -22,7 +23,7 @@
       $("hataCikti").textContent = i >= 0 ? metin.slice(i + 1) : "";
       $("hataCikti").classList.toggle("hidden", i < 0);
     }
-    $("yenidenDene").disabled = false;
+    $("yenidenDene").disabled = d.asama === "durdurulamadi";
     for (const b of document.querySelectorAll("[data-hedef]")) b.disabled = d.asama !== "hazir";
     $("oneDriveUyari").classList.toggle("hidden", !d.oneDrive);
     sayfaKameraUyari = d.kameraUyari || null;
@@ -124,7 +125,10 @@
 
   $("yenidenDene").addEventListener("click", () => {
     $("yenidenDene").disabled = true;
-    api.yenidenDene().catch(() => { $("yenidenDene").disabled = false; });
+    api.yenidenDene().catch((e) => {
+      $("yenidenDene").disabled = false;
+      $("hataOzet").textContent = `Yeniden deneme başarısız: ${e && e.message ? e.message : e}`;
+    });
   });
 
   $("veriSec").addEventListener("click", async () => {
@@ -151,6 +155,8 @@
   }
 
   api.durumDinle(durumGoster);
-  api.durum().then(durumGoster);
-  api.ayarlar().then((a) => { ayarGoster(a); kameralariListele(); });
+  const hataMetni = (e) => String(e && e.message ? e.message : e);
+  api.durum().then(durumGoster).catch((e) => { $("durumVeri").textContent = `Durum alınamadı: ${hataMetni(e)}`; });
+  api.ayarlar().then((a) => { ayarGoster(a); kameralariListele(); })
+    .catch((e) => { $("ayarMesaj").textContent = `Ayarlar alınamadı: ${hataMetni(e)}`; });
 })();
