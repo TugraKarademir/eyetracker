@@ -11,7 +11,8 @@ Bütün veriler sonradan incelenmek üzere YALNIZ öğretmen bilgisayarında top
   bilgisayarına **güvenilir olarak kurulur** (uyarı çıkmaz).
 - Kimlik: öğrenciler **gerçek adlarını** yazar; ad yalnız öğretmen bilgisayarındaki veride kalır.
 - Akış: öğrenci derse katılınca **tam bakış testi zorunlu** (yaklaşık 2–3 dk), sonra derse geçer. Isı testi yok.
-- Yerel veri: öğrenci dersten çıkınca ya da ders bitince tarayıcı deposundaki her şey **silinir**.
+- Yerel veri: ~~ders bitince otomatik silinir~~ → **değişti (24.11): otomatik silme YOK**; kullanıcı lab bilgisayarlarını elle temizler
+  (KOMUTLAR.md'de elle temizleme adımı). Madde 5 iptal.
 
 ## Önerilen yapı (benim önerim)
 1. **Öğretmen bilgisayarı kurulumu** (`sinif/` klasörü + KOMUTLAR.md "Sınıf testi" bölümü):
