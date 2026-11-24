@@ -120,8 +120,11 @@ Araştırma/ders kaydını incelemek için: `http://localhost:8000/admin.html`
 
 ### Etik ve onam notu
 
-İsimler, katılımcı kodları, bakış, duygu ve cihaz/kamera bilgileri **yalnızca yerel olarak**
-`data/dersler.db` içinde saklanır; sunucu dışına gönderilmez, kamera görüntüsü hiç kaydedilmez.
+İsimler, katılımcı kodları, bakış, duygu ve cihaz/kamera bilgileri **yalnızca yerel olarak** veri
+klasöründeki `dersler.db` içinde saklanır: tarayıcı sürümünde `data/dersler.db`, masaüstü uygulamasında
+uygulamada seçilen veri klasörü (varsayılan `Belgeler\DersNabzı\veri\dersler.db`). Sunucu dışına
+gönderilmez, kamera görüntüsü hiç kaydedilmez. Veri klasörünü OneDrive gibi bulutla eşitlenen bir yere
+koymayın (masaüstü uygulaması bu durumda başlangıç ekranında uyarır).
 Katılımcılardan açık rıza ve aydınlatma (amaç, saklanan veriler, silme hakkı) alınmalıdır; kurumun etik
 kurul/KVKK gereklilikleri uygulanmalıdır. Veriler öğrenci hakkında not/disiplin kararı için kullanılmamalıdır.
 
@@ -129,7 +132,12 @@ kurul/KVKK gereklilikleri uygulanmalıdır. Veriler öğrenci hakkında not/disi
 
 `masaustu/` klasörü DersNabzı'yı Windows'ta tek uygulama olarak açar (Electron). Ayrı bir sürüm değildir:
 aynı `server.py` sunucusunu arka planda başlatır, aynı sayfaları (öğretmen, öğrenci, bakış testi, yönetim)
-pencerelerde açar ve aynı veri biçimini kullanır. Uygulama kapanınca sunucu da kapanır.
+pencerelerde açar ve aynı veri biçimini kullanır. Uygulama kapanınca (ya da çökerse) sunucu da kapanır.
+
+- **Yalnız bu bilgisayar:** uygulamanın açtığı sunucu yalnız `127.0.0.1` üzerinde dinler. Uygulamada açılan
+  dersler yalnız **aynı bilgisayardan** (uygulamanın Öğrenci penceresinden) katılıma açıktır; ağdaki başka
+  cihazlar (öğrenci bilgisayarları, telefonlar) bu derslere katılamaz. Çok cihazlı sınıf için tarayıcı
+  sürümünü (`python server.py --host 0.0.0.0`, HTTPS ile) kullanın.
 
 - **Geliştirme:** `cd masaustu && npm install && npm start` (Python 3.9+ gerekir; sunucu `python server.py` ile başlar).
   Otomatik deneme: `npx electron . --smoke` (geçici veri ve profil klasörüyle çalışır, gerçek `data/`'ya dokunmaz).
@@ -143,16 +151,35 @@ pencerelerde açar ve aynı veri biçimini kullanır. Uygulama kapanınca sunucu
 - **Veri klasörü:** tek ve seçilebilir; ders kayıtları, yönetici anahtarı ve bakış testi kayıtları
   (`<veri>/test_kayitlari/`) hep oradadır. Varsayılan: geliştirmede depodaki `data/` (tarayıcı sürümüyle aynı),
   kurulu uygulamada `Belgeler/DersNabzı/veri`. Başlangıç ekranında görünür, **Ayarlar**'dan değiştirilir
-  (değişince sunucu yeniden başlar). Kurulum klasörüne hiçbir veri yazılmaz.
+  (değişince sunucu yeniden başlar; var olan veriler yeni klasöre **taşınmaz**, eski klasörde kalır).
+  Kurulum klasörüne hiçbir veri yazılmaz. Geliştirmede (`npm start`) varsayılan klasör tarayıcı sürümüyle
+  **aynı** `data/` olduğundan `python server.py` ile uygulamayı aynı anda çalıştırmayın (iki sunucu aynı
+  `dersler.db`'ye yazar). Veri klasörü OneDrive ile eşitlenen bir yerdeyse (Belgeler klasörü OneDrive'a
+  yedekleniyorsa olur) başlangıç ekranı belirgin bir uyarı gösterir: öğrenci verileri buluta yüklenebilir;
+  Ayarlar'dan yerel bir klasör seçin.
+- **Kamera seçimi:** Ayarlar'da kamera (Varsayılan ya da takılı kameralardan biri) ve çözünürlük (Otomatik /
+  1280×720 / 1920×1080) seçilir; bundan sonra açılan sayfa pencerelerinde geçerlidir. Uygulama, sayfa
+  betiklerinden önce çalışan küçük bir sarmalayıcıyla (`masaustu/kamera.js`) sayfanın kamera isteğine yalnız
+  seçili kamerayı ve çözünürlüğü ekler; sayfa kendisi bir kamera belirtiyorsa dokunmaz. Kamera adıyla bulunur;
+  seçili kamera takılı değilse sayfa varsayılan kamerayla açılır ve başlangıç ekranında uyarı görünür.
+  Kamera adlarının listelenmesi için başlangıç ekranına da kamera izni verilir (gerekirse kamera bir an açılıp
+  hemen kapatılır).
+- **Sayfa tercihleri ve port:** sayfaların tarayıcıda sakladığı tercihler (yüz profili, kamera yeri/zoom,
+  kalibrasyon) adres kökenine, yani porta bağlıdır ve veri klasöründe değil **uygulama profilinde**
+  (`%APPDATA%`) durur. Uygulama bu yüzden son başarılı portu hatırlar ve önce onu dener; port doluysa başka
+  porta geçer ve bu tercihler o açılışta görünmez.
 - **Kiosk:** öğrenci ve bakış testi pencereleri tam ekran kiosk olarak açılır (Ayarlar'dan kapatılabilir);
   öğretmen ve yönetim normal penceredir. Kiosk penceresinden çıkış **Ctrl+Shift+Q** (onay sorar).
   Esc sayfa tam ekranından çıkarsa pencere hemen tam ekrana döner; bu yüzden tam ekranda kalibrasyon Esc ile
   iptal edilemez, ekrandaki **Vazgeç** düğmesi kullanılır.
-- **Kamera izni:** yalnız uygulamanın kendi başlattığı sunucunun adresine otomatik verilir; başka adreslere verilmez.
+- **Kamera izni:** yalnız uygulamanın kendi başlattığı sunucunun adresine (ve kamera listesi için başlangıç
+  ekranına) otomatik verilir; başka adreslere verilmez. Aynı adrese tam ekran ve panoya yazma (ders bağlantısını
+  kopyala) izni de verilir; panodan okuma verilmez.
 - **Yönetim ekranı:** uygulamadan açılınca yönetici anahtarını uygulama verir (adrese ya da ekrana yazılmaz).
 - **Sınırlar:** yüz/bakış modelleri (MediaPipe, face-api, WebGazer) CDN'den yüklendiği için internet gerekir;
   yalnız Windows (x64) paketi var; kurulum dosyası imzasız olduğundan Windows SmartScreen uyarı verebilir.
-  Elle sınanmadı: gerçek kamerayla kullanım, Ctrl+Shift+Q onay penceresi, Alt+F4 davranışı, klasör seçme penceresi.
+  Elle sınanmadı: gerçek kamerayla kullanım (kamera seçimi dahil; sarmalayıcı yalnız birim testleri ve smoke'ta
+  sahte ayarla sınandı), Ctrl+Shift+Q onay penceresi, Alt+F4 davranışı, klasör seçme penceresi.
   Doğrulandı (2026-11-24, `win-unpacked\DersNabzı.exe --smoke`, geliştiricinin bilgisayarı): paketli sunucu
   (`dersnabzi-sunucu.exe`) başlıyor, başlangıç ekranı, yönetim anahtarı, kamera izni, menüsüz pencere, kiosk
   tam ekrana dönüş, sunucu çökmesi uyarısı ve yeniden başlatma. Doğrulanmadı: NSIS kurulum dosyası henüz
