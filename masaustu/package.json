@@ -1,0 +1,15 @@
+{
+  "name": "dersnabzi-masaustu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DersNabzı masaüstü uygulaması",
+  "main": "main.js",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.18.1"
+  }
+}
