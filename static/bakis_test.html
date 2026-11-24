@@ -1347,8 +1347,11 @@ async function guideFinish(neden) {
       console.table(Yt); console.table(At); console.table(Ot); }
     tlog("Tüm veri: konsolda copy(testLog) yazıp yapıştırabilirsiniz");
   }
+  // Önce ısı verisi: ana kayıttaki ısı testi özeti (ayriGonderildi, isiTestiDosya) gönderimin gerçek sonucunu göstersin. Biri başarısız olsa da diğeri gider.
+  const isiDosya = await isiTestiGonder(null);
   const dosya = await testKaydiGonder();
-  const isiDosya = await isiTestiGonder(dosya);   // ana kayıt başarısız olsa da ısı verisi gider
+  if (dosya) ISI.anaDosya = dosya;   // "tekrar gönder" ve "Bölgeleri kaydet" ana kaydın adını taşısın
+  if (isiDosya && dosya) await isiTestiGonder(dosya);   // aynı kimlikle bir kez daha: ısı dosyasının "ana" alanı dolsun (dosya üzerine yazılır)
   const glb = GLK.dog?.yontem?.biz;
   $("#resTxt").innerHTML = kayit ? `✓ Kalibrasyon tamam<br><span class="muted">Ders sayfasına aktarıldı: <b>${SON_AKTARIM?.ad ?? YONTEM.biz}</b> (${SON_AKTARIM?.gerekce ?? `bakış hatası ~${acc} px`})</span>${T.n ? `<br><span class="muted" style="font-size:13px">${yarisKisa(T)}</span>` : ""}`
                                  : `Kalibrasyon kaydedilmedi<br><span class="muted">Yeterli ölçüm yok, tekrar deneyin</span>`;
