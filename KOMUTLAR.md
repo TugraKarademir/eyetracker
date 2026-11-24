@@ -89,6 +89,8 @@ cd E:\eyetracker\masaustu; npx electron . --smoke
 
 ## 5. Sınıf testi (öğretmen bilgisayarı + lab)
 
+**Uyarı:** sınıf testi için sunucuyu `python server.py` ile başlat; paketlenmiş masaüstü `.exe` kullanma, içinde hâlâ eski kod var.
+
 **a. Öğretmen bilgisayarının IP adresini öğren** (öğrencilerle aynı ağdaki adresi seç):
 
 ```powershell
@@ -151,4 +153,21 @@ Compress-Archive -Path E:\eyetracker\data, E:\eyetracker\test_kayitlari -Destina
 
 ```powershell
 Test-NetConnection <IP> -Port 8443
+```
+
+**j. Ders sonunda lab bilgisayarlarını elle temizleme.** Hiçbir şey otomatik silinmez; her lab bilgisayarında elle yapılır.
+
+- Chrome/Edge: adres çubuğundaki kilit simgesi > Site ayarları > "Verileri sil" (adres `https://<IP>:8443`). Sitenin sakladığı her şeyi siler.
+- Alternatif: DevTools konsolunda (F12 > Console):
+
+```javascript
+Object.keys(localStorage).filter(k=>k.startsWith("dn_")).forEach(k=>localStorage.removeItem(k))
+```
+
+- Sitenin yazdığı anahtarlar: `dn_student`, `dn_bakis_tamam_<DERSKODU>`, `dn_gaze_v2_<…>`, `dn_yuz_profili`, `dn_kamera_yeri`, `dn_kamera_zoom`, `dn_ls_base`, `dn_auto_hand`, `dn_hse`.
+- Cache Storage'daki `dn-models-v1` yalnız model dosyalarını tutar, kişisel veri içermez.
+- İsteğe bağlı: sertifikayı kaldır (CA'nın CN'i `DersNabzi sinif testi CA`):
+
+```powershell
+certutil -user -delstore Root "DersNabzi sinif testi CA"
 ```
