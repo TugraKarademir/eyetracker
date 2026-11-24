@@ -542,6 +542,50 @@ class SaglikVeVeriKlasoru(unittest.TestCase):
                 self.assertEqual(f.read().strip(), anahtar)
 
 
+class IsiTestiKaydi(unittest.TestCase):
+    """/api/testlog-isi: ısı testi ham verisi ana test kaydından ayrı dosyaya yazılır."""
+    def setUp(self):
+        self.base, self.kapat = basla()
+        self.addCleanup(self.kapat)
+        self.td = tempfile.mkdtemp()
+        eski = server.TEST_DIR
+        server.TEST_DIR = self.td
+        self.addCleanup(lambda: (setattr(server, "TEST_DIR", eski), shutil.rmtree(self.td, ignore_errors=True)))
+
+    def test_gecerli_veri_yazilir(self):
+        govde = {"isiKimlik": "20261124_101500_ab12", "veri": {"gorseller": [{"ad": "a", "kareler": [{"t": 1}]}]}}
+        kod, r = post(self.base, "/api/testlog-isi", govde)
+        self.assertEqual((kod, r["ok"], r["dosya"]), (200, True, "20261124_101500_ab12_isi.json"))
+        with open(os.path.join(self.td, r["dosya"]), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), govde)
+
+    def test_gecersiz_json_reddedilir(self):
+        rq = urllib.request.Request(self.base + "/api/testlog-isi", b"{bozuk", {"Content-Type": "application/json"})
+        with self.assertRaises(urllib.error.HTTPError) as h:
+            urllib.request.urlopen(rq)
+        self.assertEqual(h.exception.code, 400)
+        kod, _ = post(self.base, "/api/testlog-isi", {"isiKimlik": "abcdefgh12", "veri": []})
+        self.assertEqual(kod, 400)
+        self.assertEqual(os.listdir(self.td), [])
+
+    def test_fazla_boyut_reddedilir_kirpilmaz(self):
+        with unittest.mock.patch.object(server, "ISI_MAX_BYTES", 200):
+            kod, r = post(self.base, "/api/testlog-isi", {"isiKimlik": "abcdefgh12", "veri": {"x": "y" * 500}})
+        self.assertEqual(kod, 413)
+        self.assertIn("çok büyük", r["error"])
+        self.assertEqual(os.listdir(self.td), [])
+        # ana kaydın 8 MB sınırından büyük ama 64 MB altındaki veri kabul edilir
+        kod, _ = post(self.base, "/api/testlog-isi", {"isiKimlik": "abcdefgh12", "veri": {"x": "y" * 9_000_000}})
+        self.assertEqual(kod, 200)
+
+    def test_dosya_adi_yol_kacisina_izin_vermez(self):
+        for kotu in ("../../evil", "..\evil", "a/b/cccccccc", "abc", "x" * 61, "ab cdefgh1", None, 12345678):
+            kod, _ = post(self.base, "/api/testlog-isi", {"isiKimlik": kotu, "veri": {}})
+            self.assertEqual(kod, 400, kotu)
+        self.assertEqual(os.listdir(self.td), [])
+        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(self.td), "evil_isi.json")))
+
+
 class VeriEnv(unittest.TestCase):
     def test_env_ile_varsayilan_klasor_olusmaz(self):
         kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

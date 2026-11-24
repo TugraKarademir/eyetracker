@@ -49,6 +49,7 @@ KAYIT = kayit.ac(os.path.join(DATA, "dersler.db"))   # kalıcı ders kaydı; yaz
 
 # ---- Bakış testi verileri GazeLab biçiminde (gazelab/server.py şeması + yöntem sütunu + yöntem özeti)
 GL_DB = os.path.join(TEST_DIR, "gazelab.db")
+ISI_MAX_BYTES = 64_000_000   # ısı testi ayrı dosyası (10 görsel × 60 sn ≈ 12 MB); aşılırsa hata, kırpma yok
 GL_LOCK = threading.Lock()
 GL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions(
@@ -796,6 +797,30 @@ class Handler(BaseHTTPRequestHandler):
                 print(f"[testlog] GazeLab kaydı yazılamadı: {e}")
         self.send_json({"ok": True, "dosya": ad, "oturum": oturum})
 
+    def test_log_isi(self):
+        """Isı testi ham verisini ana test kaydından AYRI dosyaya yazar: test_kayitlari/<isiKimlik>_isi.json.
+        Boyut sınırı ISI_MAX_BYTES (ana kayıttan bağımsız); aşılırsa kırpılmaz, açık hata döner."""
+        n = int(self.headers.get("Content-Length") or 0)
+        if n <= 0:
+            return self.err("geçersiz uzunluk")
+        if n > ISI_MAX_BYTES:
+            return self.err(f"ısı testi verisi çok büyük ({n} bayt, sınır {ISI_MAX_BYTES}); kırpılmadı, yazılmadı", 413)
+        try:
+            b = json.loads(self.rfile.read(n).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            return self.err("Geçersiz JSON")
+        if not isinstance(b, dict) or not isinstance(b.get("veri"), dict):
+            return self.err("veri nesnesi bekleniyor")
+        kimlik = b.get("isiKimlik")
+        if not isinstance(kimlik, str) or not re.fullmatch(r"[A-Za-z0-9_-]{8,60}", kimlik):
+            return self.err("geçersiz isiKimlik")
+        ad = f"{kimlik}_isi.json"
+        os.makedirs(TEST_DIR, exist_ok=True)
+        with open(os.path.join(TEST_DIR, ad), "w", encoding="utf-8") as f:
+            json.dump(b, f, ensure_ascii=False)
+        print(f"[testlog] ısı verisi {ad} ({n} bayt)")
+        self.send_json({"ok": True, "dosya": ad, "bayt": n})
+
     def teacher_ok(self, cls, key):
         return bool(key) and secrets.compare_digest(str(key).encode("utf-8"), cls["teacher_key"].encode("utf-8"))
 
@@ -1086,6 +1111,8 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path == "/api/testlog":
             return self.test_log()
+        if u.path == "/api/testlog-isi":
+            return self.test_log_isi()
         if u.path == "/api/material":
             return self.material_upload(parse_qs(u.query))
         try:

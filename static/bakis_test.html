@@ -1271,6 +1271,7 @@ async function guideFinish(neden) {
     tlog("Tüm veri: konsolda copy(testLog) yazıp yapıştırabilirsiniz");
   }
   const dosya = await testKaydiGonder();
+  await isiTestiGonder(dosya);   // ana kayıt başarısız olsa da ısı verisi gider
   const glb = GLK.dog?.yontem?.biz;
   $("#resTxt").innerHTML = kayit ? `✓ Kalibrasyon tamam<br><span class="muted">Bakış hatası ~${acc} px · ders sayfasına aktarıldı</span>${T.n ? `<br><span class="muted" style="font-size:13px">${yarisKisa(T)}</span>` : ""}`
                                  : `Kalibrasyon kaydedilmedi<br><span class="muted">Yeterli ölçüm yok, tekrar deneyin</span>`;
@@ -1375,15 +1376,20 @@ function ekranGeometrik() {
     basPayi: { yatay: X.basPay, dikey: Yk.basPay }, tiklama: C.length,
     metin: `yatay ${inc(X.k)} inç, dikey ${inc(Yk.k)} inç → ~${inc(ort)} inç (${C.length} tıklama; uyum R² yatay ${X.r2?.toFixed(2)}, dikey ${Yk.r2?.toFixed(2)}${uyum > 0.25 ? "; yatay ve dikey %25'ten çok farklı, güvenilmez" : ""}) — varsayım: iris 11,7 mm, göz dönme yarıçapı ${GEO.DONME_MM} mm` };
 }
-function kayitHataGoster(neden) {   // gönderim başarısızsa yalnız günlükte kalmasın: ekranda görünür (tıklayınca kapanır)
+const KAYIT_HATA = {};   // tür ("Kayıt" / "Isı testi verisi") → neden; her tür ayrı görünür, biri düzelince yalnız o kalkar
+function kayitHataGoster(neden, tur = "Kayıt") { KAYIT_HATA[tur] = neden; kayitHataCiz(); }   // gönderim başarısızsa yalnız günlükte kalmasın: ekranda görünür (tıklayınca kapanır)
+function kayitHataKaldir(tur = "Kayıt") { delete KAYIT_HATA[tur]; kayitHataCiz(); }
+function kayitHataCiz() {
   let el = $("#kayitHata");
+  const L = Object.entries(KAYIT_HATA);
+  if (!L.length) { el?.remove(); return; }
   if (!el) {
     el = document.createElement("div"); el.id = "kayitHata";
     Object.assign(el.style, { position: "fixed", left: "50%", bottom: "16px", transform: "translateX(-50%)", zIndex: "40", maxWidth: "min(640px,92vw)", padding: "10px 16px", borderRadius: "10px",
       border: "1px solid #f87171", background: "#3b1219", color: "#fecaca", font: "15px system-ui", textAlign: "center", cursor: "pointer" });
     el.onclick = (e) => { e.stopPropagation(); el.remove(); }; document.body.append(el);
   }
-  el.textContent = `⚠ Kayıt bilgisayara GÖNDERİLEMEDİ (${neden}). Veri sunucuya yazılmadı; kapatmak için tıklayın.`;
+  el.textContent = L.map(([t, n]) => `⚠ ${t} bilgisayara GÖNDERİLEMEDİ (${n}). Veri sunucuya yazılmadı.`).join(" ") + " Kapatmak için tıklayın.";
 }
 async function testKaydiGonder() {
   try {
@@ -1392,8 +1398,21 @@ async function testKaydiGonder() {
       body: JSON.stringify({ cihaz, ua: navigator.userAgent, ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, log: testLog, tiklamaOz: tiklamaOz, gazelab: glPaket() }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.status);
-    tlog(`kayıt bilgisayara gönderildi: test_kayitlari/${j.dosya}`); $("#kayitHata")?.remove(); return j.dosya;
+    tlog(`kayıt bilgisayara gönderildi: test_kayitlari/${j.dosya}`); kayitHataKaldir("Kayıt"); return j.dosya;
   } catch (e) { tlog(`kayıt gönderilemedi: ${e.message}`); kayitHataGoster(e.message); return null; }
+}
+// Isı testi ham verisi ana kayıttan AYRI gönderilir (10 görsel × 60 sn ≈ 12 MB; ana kayıt sınırı 8 MB). Ana kayıt başarısız olsa da gider;
+// başarısızlık ekranda görünür, veri kırpılmaz. Sonuç görünümleri bellekteki ISI.veri'den çalışır, gönderim onu değiştirmez.
+async function isiTestiGonder(anaDosya) {
+  const v = ISI.veri;
+  if (!v || !ISI.kimlik || v.atlandi) return null;
+  try {
+    const r = await fetch("/api/testlog-isi", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isiKimlik: ISI.kimlik, ana: anaDosya || null, ozet: isiTestiOzet(), veri: v, recordings: glKayitlar().filter((x) => x.stimulus_id === "isi_testi") }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || r.status);
+    tlog(`ısı testi verisi bilgisayara gönderildi: test_kayitlari/${j.dosya} (${j.bayt} bayt)`); kayitHataKaldir("Isı testi verisi"); return j.dosya;
+  } catch (e) { tlog(`ısı testi verisi gönderilemedi: ${e.message}`); kayitHataGoster(e.message, "Isı testi verisi"); return null; }
 }
 function guideStop() {
   guide = null; document.querySelectorAll(".tgt").forEach((n) => n.remove());
@@ -1559,7 +1578,7 @@ function glTahmin(b, o) {
   return out;
 }
 function glReset() {
-  glFazBitir(); GLK.recs = []; GLK.bazOrnek = []; GLK.headBase = null; GLK.dog = null; GLK.bitti = false; ISI.veri = null;
+  glFazBitir(); GLK.recs = []; GLK.bazOrnek = []; GLK.headBase = null; GLK.dog = null; GLK.bitti = false; ISI.veri = null; ISI.kimlik = null;
   GLK.sure = { basla: simdi() }; GLK.basEpoch = Date.now() / 1000;
   GLK.oturumId = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[b % 62]).join("").slice(0, 8);
 }
@@ -1669,7 +1688,7 @@ function wgKameraBilgi() {
 // tüm yöntemlerin tahmini (glTahmin, gazelab kaydıyla aynı saat) pencere pikseli + görsele göre u,v (0–1, dışarı taşabilir) olarak saklanır.
 // Görseller tarayıcıda yerel nesne adresiyle okunur, hiçbir yere gönderilmez; kayda yalnız adı, doğal boyutu ve gösterim dikdörtgeni girer.
 // Bu adımda hiçbir model öğrenmez (tıklama işlenmez; F/Y/FB/RE/WebGazer verisi değişirse kayda "ogrenmeIhlali" yazılır), tahmin gösterilmez.
-const ISI = { gorseller: [], sureMs: 15000, SURE: [5, 60], EN_COK: 10, yukleme: null, suruyor: false, aktif: null, rect: null, veri: null, nesil: 0 };
+const ISI = { gorseller: [], sureMs: 15000, SURE: [5, 60], EN_COK: 10, yukleme: null, suruyor: false, aktif: null, rect: null, veri: null, kimlik: null, nesil: 0 };
 const isiUV = (x, y) => { const r = ISI.rect; return r ? [+((x - r.x) / r.w).toFixed(3), +((y - r.y) / r.h).toFixed(3)] : [null, null]; };
 function isiDikdortgen(w, h) {   // en-boy korunarak pencereye sığdırılır ve ortalanır (CSS px)
   const s = Math.min(innerWidth / w, innerHeight / h), gw = w * s, gh = h * s;
@@ -1724,6 +1743,7 @@ async function isiTestiAdimi() {
   if (!ISI.gorseller.length) return;
   if (!gaze) { ISI.veri = { surum: 1, atlandi: "bakış modeli (gaze) yok" }; tlog("ısı testi atlandı: bakış modeli yok"); return; }   // adım listesinde "atlandı" görünür
   adimBasla("isi");
+  ISI.kimlik = `${new Date().toISOString().slice(0, 19).replace(/[-:T]/g, (m) => (m === "T" ? "_" : ""))}_${Math.random().toString(16).slice(2, 8)}`;   // ayrı dosyanın adı: <kimlik>_isi.json
   const n = ISI.gorseller.length, sn = ISI.sureMs / 1000;
   await hazirKarti("🔥 Isı testi", `${n} görsel tam ekranda sırayla gösterilecek (her biri ${sn} sn, toplam ~${Math.round(n * sn)} sn).<br>
     <b>Görsellere doğal şekilde bakın; tıklamayın.</b><br><span style="opacity:.75">Bu adımda hiçbir model öğrenmez ve bakış noktası gösterilmez.</span>`, "Başla");
@@ -1792,6 +1812,14 @@ async function isiTestiAdimi() {
 }
 // Görünümler (2. bölüm) için: ısı testi verisi ya da null. Oturum kaydına (glPaket → session.meta.isiTesti) da bu girer.
 function isiTestiVerisi() { return ISI.veri; }
+// Ana kayda (glPaket) girecek ÖZET: ham kareler yok, yerine kare sayıları ve ayrı dosyanın adı. Ham veri isiTestiGonder ile ayrı dosyaya gider.
+function isiTestiOzet() {
+  const v = ISI.veri;
+  if (!v) return null;
+  const { gorseller, ...d } = v;
+  const G = (gorseller || []).map((g) => { const { kareler, wg, duygu, _mesafe, ...r } = g; return { ...r, n: kareler?.length ?? 0, wgN: wg?.length ?? 0, duyguN: duygu?.length ?? 0 }; });
+  return { ...d, gorseller: G, n: G.reduce((a, g) => a + g.n, 0), ayri: true, isiTestiDosya: ISI.kimlik ? `${ISI.kimlik}_isi.json` : null };
+}
 
 // ---- 1) Kamera ayarı (gazelab "kamera ve yüz konumlandırma" adımı + yakınlaştırma)
 async function kameraAyari() {
@@ -2085,6 +2113,8 @@ function sonucGoster() {
   S.addEventListener("pointerdown", (e) => e.stopPropagation(), true);
   document.body.append(S); ciz();
 }
+const glKayitlar = () => [...GLK.recs, ...(GLK.cur ? [{ ...GLK.cur, head: [], acik: true }] : [])].map((r) => ({ stimulus_id: r.stimulus_id, order_idx: r.order_idx, started_at: r.started_at,
+  rect: r.rect, gaze: r.gaze, mouse: r.mouse, head: r.head }));
 function glPaket() {
   if (!GLK.recs.length && !GLK.dog && !GLK.cur) return null;
   const b = GLK.dog?.yontem?.biz, d = GL.deviceInfo();
@@ -2093,9 +2123,9 @@ function glPaket() {
       created_at: GLK.basEpoch, completed_at: GLK.bitti ? Date.now() / 1000 : null,
       meta: { desen: DESEN, camera: GLK.kamera, wgCamera: wgKameraBilgi(), kameraAyari: GLK.ayar, head: { base: GLK.headBase, limits: GL.LIMITS }, dogrulama: GLK.dog,
               sure: Object.fromEntries(Object.entries(GLK.sure).map(([k, v]) => [k, Math.round(v - (GLK.sure.basla || 0))])), diag: gaze?.diag || null,
-              isiTesti: isiTestiVerisi() } },
-    recordings: [...GLK.recs, ...(GLK.cur ? [{ ...GLK.cur, head: [], acik: true }] : [])].map((r) => ({ stimulus_id: r.stimulus_id, order_idx: r.order_idx, started_at: r.started_at,
-      rect: r.rect, gaze: r.gaze, mouse: r.mouse, head: r.head })),
+              isiTesti: isiTestiOzet() } },
+    // ısı testinin ham kareleri ana pakette yok (ayrı dosyada); yöntem anahtarları ve kare sayısı (n) kalır
+    recordings: glKayitlar().map((r) => r.stimulus_id !== "isi_testi" ? r : { ...r, gaze: Object.fromEntries(Object.entries(r.gaze || {}).map(([m]) => [m, []])), head: [], n: Math.max(0, ...Object.values(r.gaze || {}).map((a) => a?.length || 0)) }),
     tablolar: { yontem: glYontemTablosu(), asama: glFazTablosu(), oturum: glOturumTablosu() },
   };
 }
