@@ -215,9 +215,9 @@ test("uygulama ölürse (stdin kapanır) gerçek server.py kendini sonlandırır
 });
 
 test("anahtarMaskele: yönetici anahtarı gizlenir, diğer satırlar kalır", () => {
-  const m = anahtarMaskele("DersNabzı çalışıyor\nYönetici anahtarı (yönetim ekranı): Gizli_ab-12  (C:\veri\yonetici_anahtari.txt)\nson");
+  const m = anahtarMaskele("DersNabzı çalışıyor\nYönetici anahtarı (yönetim ekranı): Gizli_ab-12  (C:\\veri\\yonetici_anahtari.txt)\nson");
   assert.ok(!m.includes("Gizli_ab-12"));
-  assert.match(m, /Yönetici anahtarı \(yönetim ekranı\): \*\*\*  \(C:\veri\yonetici_anahtari\.txt\)/);
+  assert.match(m, /Yönetici anahtarı \(yönetim ekranı\): \*\*\*  \(C:\\veri\\yonetici_anahtari\.txt\)/);
   assert.match(m, /^DersNabzı çalışıyor\n/);
   assert.match(m, /\nson$/);
 });

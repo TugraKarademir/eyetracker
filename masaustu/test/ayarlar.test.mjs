@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-const { yukle, kaydet, varsayilan, varsayilanVeriKlasoru } = createRequire(import.meta.url)("../ayarlar.js");
+const { yukle, kaydet, varsayilan, varsayilanVeriKlasoru, oneDriveAltindaMi } = createRequire(import.meta.url)("../ayarlar.js");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dn-ayar-"));
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -77,4 +77,38 @@ test("varsayılana eşit veri klasörü dosyaya yazılmaz (geliştirme/paket ayr
   } finally {
     varsayilanVeriKlasoru(eski);
   }
+});
+
+test("kamera etiketi, çözünürlük ve son port doğrulanır", () => {
+  const d = path.join(tmp, "kamera.json");
+  kaydet(d, { ...varsayilan(), kameraId: "id1", kameraEtiket: "USB Kamera (046d:0825)", cozunurluk: { w: 1920, h: 1080 }, sonPort: 8034 });
+  const a = yukle(d);
+  assert.equal(a.kameraEtiket, "USB Kamera (046d:0825)");
+  assert.deepEqual(a.cozunurluk, { w: 1920, h: 1080 });
+  assert.equal(a.sonPort, 8034);
+  fs.writeFileSync(d, JSON.stringify({ cozunurluk: { w: 9999, h: 1 }, sonPort: 80, kameraEtiket: 5 }));
+  const b = yukle(d);
+  assert.equal(b.cozunurluk, null);
+  assert.equal(b.sonPort, null);
+  assert.equal(b.kameraEtiket, null);
+  fs.writeFileSync(d, JSON.stringify({ sonPort: "8030" }));
+  assert.equal(yukle(d).sonPort, null);
+});
+
+test("OneDrive altındaki veri klasörü algılanır", () => {
+  const ortam = { OneDrive: String.raw`C:\Users\ali\OneDrive`, OneDriveCommercial: String.raw`C:\Users\ali\OneDrive - Okul` };
+  assert.equal(oneDriveAltindaMi(String.raw`C:\Users\ali\OneDrive\Belgeler\DersNabzı\veri`, ortam), true);
+  assert.equal(oneDriveAltindaMi(String.raw`c:\users\ALI\onedrive`, ortam), true);
+  assert.equal(oneDriveAltindaMi(String.raw`C:\Users\ali\OneDrive - Okul\veri`, ortam), true);
+  // ortam değişkeni olmasa da yolda OneDrive klasörü varsa
+  assert.equal(oneDriveAltindaMi(String.raw`D:\Yedek\OneDrive\veri`, {}), true);
+  assert.equal(oneDriveAltindaMi(String.raw`E:\OneDrive - Kurum A.Ş\veri`, {}), true);
+  // ortam değişkeni kökü ile önek benzerliği yetmez (OneDriveYedek)
+  assert.equal(oneDriveAltindaMi(String.raw`C:\Users\ali\OneDriveYedek\veri`, ortam), false);
+  // yerel klasörler
+  assert.equal(oneDriveAltindaMi(String.raw`C:\Users\ali\Documents\DersNabzı\veri`, ortam), false);
+  assert.equal(oneDriveAltindaMi(String.raw`C:\Users\ali\OneDrive2\veri`, {}), false);
+  assert.equal(oneDriveAltindaMi("", ortam), false);
+  assert.equal(oneDriveAltindaMi(null, ortam), false);
+  assert.equal(oneDriveAltindaMi(String.raw`D:\veri`, { OneDrive: "" }), false);
 });
