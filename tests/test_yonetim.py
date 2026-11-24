@@ -52,7 +52,7 @@ class YonetimTest(unittest.TestCase):
         ders_ekle(con, "D1", "D", "K", 1)
         ogrenci_ekle(con, "D1", "s1", "A", None, 1, False)
         m = materyal_ekle(con, "D1", "I", "insan")
-        materyal_sec(con, "D1", m, 2)
+        materyal_sec(con, "D1", m, 0)
         ornek_ekle(con, "D1", "s1", 3, satir(share={"materyal": 1.0}))
         ornek_ekle(con, "D1", "s1", 5, satir(share={"materyal": 0.5}))
         r = yonetim.ders(con, "D1")["materyaller"][0]
@@ -64,7 +64,7 @@ class YonetimTest(unittest.TestCase):
         ders_ekle(con, "D1", "D", "K", 1)
         ogrenci_ekle(con, "D1", "s1", "A", None, 1, False)
         m = materyal_ekle(con, "D1", "I", "insan")
-        materyal_sec(con, "D1", m, 2)
+        materyal_sec(con, "D1", m, 0)
         ornek_ekle(con, "D1", "s1", 3, satir(share=None))
         ornek_ekle(con, "D1", "s1", 5, satir(share={}))
         r = yonetim.ders(con, "D1")["materyaller"][0]
@@ -80,7 +80,7 @@ class YonetimTest(unittest.TestCase):
         ogrenci_ekle(con, "D1", "s1", "A", None, 1, False)
         ogrenci_ekle(con, "D1", "s2", "B", None, 1, False)
         m = materyal_ekle(con, "D1", "I", "insan")
-        materyal_sec(con, "D1", m, 2)
+        materyal_sec(con, "D1", m, 0)
         ornek_ekle(con, "D1", "s1", 3, satir(share={"materyal": 1.0}))
         ornek_ekle(con, "D1", "s2", 3, satir(share=None))   # kalibreli ama share yok
         r = yonetim.ders(con, "D1")["materyaller"][0]
@@ -93,7 +93,7 @@ class YonetimTest(unittest.TestCase):
         ders_ekle(con, "D1", "D", "K", 1)
         ogrenci_ekle(con, "D1", "s1", "=CMD()", None, 1, False)
         m = materyal_ekle(con, "D1", "@x", "insan")
-        materyal_sec(con, "D1", m, 2)
+        materyal_sec(con, "D1", m, 0)
         ornek_ekle(con, "D1", "s1", 3, satir(mat_pts=[[float("nan"), 0.5]]))
         s = yonetim.csv_uzun(con).splitlines()[1]
         self.assertIn(",'=CMD(),'@x,", s)
@@ -152,7 +152,7 @@ class YonetimTest(unittest.TestCase):
         for sid in ("s1", "s2", "s3"):
             ogrenci_ekle(con, "D1", sid, sid, None, 1, False)
         m = materyal_ekle(con, "D1", "I", "insan")
-        materyal_sec(con, "D1", m, 2)
+        materyal_sec(con, "D1", m, 0)
         for t in (3, 5, 7, 9):
             ornek_ekle(con, "D1", "s1", t, satir(share={"materyal": 1.0}, attention=80, energy=50))
         ornek_ekle(con, "D1", "s2", 5, satir(share={"materyal": 0.0}, attention=20, energy=10, emotion="mutlu"))
@@ -188,6 +188,21 @@ class YonetimTest(unittest.TestCase):
         self.assertEqual([k["t"] for k in z], [110, 120])
         self.assertEqual(z[0]["n"], 3)
         self.assertEqual(z[0]["duygular"], {"notr": 2, "mutlu": 1})
+
+    def test_gecis_ornegi_materyale_girmez_ders_toplamina_girer(self):
+        con, m1, m2 = kur()
+        ornek_ekle(con, "D1", "s2", 121, satir(attention=20))   # paket [119, 121]: m1 -> m2
+        self.assertEqual(tuple(con.execute(
+            "SELECT material_id, gecis FROM samples WHERE t=121").fetchone()), (None, 1))
+        d = yonetim.ders(con, "D1")
+        mats = {m["id"]: m["n_ornek"] for m in d["materyaller"]}
+        self.assertEqual(mats, {m1: 3, m2: 1})
+        self.assertEqual(sum(k["n"] for k in d["zaman"]), 5)
+        s2 = next(o for o in d["ogrenciler"] if o["sid"] == "s2")
+        self.assertEqual(s2["n_ornek"], 2)
+        self.assertEqual(yonetim.dersler(con)[0]["ort_dikkat"], 68.0)   # (80*4 + 20) / 5
+        self.assertEqual(yonetim.karsilastirma(con)["tur"]["yz"]["n_ornek"], 1)
+        self.assertIn("gecis", yonetim.csv_ham(con, "D1").splitlines()[0])
 
     def test_kalite_esikleri(self):
         self.assertEqual(yonetim.kalite(95, 85, 9, 150), "iyi")

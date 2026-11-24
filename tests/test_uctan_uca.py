@@ -28,6 +28,15 @@ class UctanUca(unittest.TestCase):
         eski = server._ADMIN_KEY
         server._ADMIN_KEY = None
         self.addCleanup(setattr, server, "_ADMIN_KEY", eski)
+        # Denetlenen saat: örnek paketi [t - 2 sn, t] aralığını kapsar; materyal seçiminden hemen
+        # sonra gelen paket geçiş sayılır. Akış gerçek öğrenci gibi 2 sn aralıklarla ilerler.
+        self.saat = [server.now()]
+        p = unittest.mock.patch.object(server, "now", lambda: self.saat[0])
+        p.start()
+        self.addCleanup(p.stop)
+
+    def ilerle(self, sn):
+        self.saat[0] += sn
 
     def jget(self, yol):
         return json.loads(admin_get(self.base, yol)[1])
@@ -52,8 +61,9 @@ class UctanUca(unittest.TestCase):
         self.assertNotIn("kodBilinmiyor", r)
         sid = r["sid"]
 
-        def metrik(n, **ek):
+        def metrik(n, adim=2, **ek):
             for _ in range(n):
+                self.ilerle(adim)
                 g = {"code": kod, "sid": sid, "attention": 80, "energy": 70, "emotion": "notr",
                      "face": True,
                      "gaze": {"cal": True, "share": {"materyal": 0.7, "disari": 0.3},
@@ -66,6 +76,7 @@ class UctanUca(unittest.TestCase):
         post(b, "/api/event", {"code": kod, "key": key, "type": "material", "id": m1})
         metrik(3, kurulum=kur, kal={"at": 123.5, "hit3": 90})
         post(b, "/api/event", {"code": kod, "key": key, "type": "material", "id": m2})
+        metrik(1, adim=1)   # paket [t - 2, t] m1 -> m2 geçişini kapsar: materyale atanmaz
         metrik(2)
 
         post(b, "/api/event", {"code": kod, "key": key, "type": "demo", "count": 2})
@@ -99,8 +110,9 @@ class UctanUca(unittest.TestCase):
 
         o = self.jget("/api/admin/ogrenci?code=%s&sid=%s" % (kod, sid))
         self.assertEqual(o["bilgi"]["participant_code"], "P01")
-        self.assertEqual(sorted({x[4] for x in o["ornekler"]}), sorted([m1, m2]))
-        self.assertEqual(len(o["ornekler"]), 5)
+        self.assertEqual(sorted({x[4] for x in o["ornekler"] if x[4] is not None}), sorted([m1, m2]))
+        self.assertEqual(len(o["ornekler"]), 6)
+        self.assertEqual(sum(1 for x in o["ornekler"] if x[4] is None), 1)   # geçiş paketi
         self.assertEqual(len(o["kurulumlar"]), 1)
         self.assertEqual(len(o["kalibrasyonlar"]), 1)
 

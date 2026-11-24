@@ -1,4 +1,8 @@
 """kayit.py testleri."""
+import os
+import shutil
+import sqlite3
+import tempfile
 import unittest
 
 from kayit import (ac, ders_ekle, ogrenci_ekle, materyal_ekle, materyal_sec,
@@ -35,13 +39,48 @@ class KayitTest(unittest.TestCase):
         con = kur()
         m1 = materyal_ekle(con, "D1", "Slayt", "insan")
         materyal_sec(con, "D1", m1, 10)
-        ornek_ekle(con, "D1", "s1", 11, ROW)
+        ornek_ekle(con, "D1", "s1", 13, ROW)    # paket [11, 13]: tamamı m1
         materyal_sec(con, "D1", None, 20)
-        ornek_ekle(con, "D1", "s1", 21, ROW)
-        r = [x[0] for x in con.execute(
-            "SELECT material_id FROM samples ORDER BY t")]
-        self.assertEqual(r, [m1, None])
+        ornek_ekle(con, "D1", "s1", 23, ROW)    # paket [21, 23]: materyal yok
+        r = [tuple(x) for x in con.execute(
+            "SELECT material_id, gecis FROM samples ORDER BY t")]
+        self.assertEqual(r, [(m1, 0), (None, 0)])
         self.assertIsNone(aktif_materyal(con, "D1"))
+
+    def test_gecisi_kapsayan_paket_materyale_atanmaz(self):
+        con = kur()
+        m1 = materyal_ekle(con, "D1", "A", "insan")
+        m2 = materyal_ekle(con, "D1", "B", "yz")
+        materyal_sec(con, "D1", m1, 10)
+        ornek_ekle(con, "D1", "s1", 11, ROW)    # paket [9, 11]: önce materyal yok, sonra m1
+        ornek_ekle(con, "D1", "s1", 12, ROW)    # [10, 12]: tamamı m1
+        materyal_sec(con, "D1", m2, 20)
+        ornek_ekle(con, "D1", "s1", 21.5, ROW)  # [19.5, 21.5]: m1 -> m2
+        ornek_ekle(con, "D1", "s1", 22, ROW)    # [20, 22]: tamamı m2
+        r = [tuple(x) for x in con.execute(
+            "SELECT material_id, gecis FROM samples ORDER BY t")]
+        self.assertEqual(r, [(None, 1), (m1, 0), (None, 1), (m2, 0)])
+
+    def test_eski_veritabanina_gecis_sutunu_eklenir(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        yol = os.path.join(d, "eski.db")
+        eski = sqlite3.connect(yol)
+        eski.execute("CREATE TABLE samples(lesson_code TEXT, sid TEXT, t REAL, material_id INTEGER,"
+                     " attention REAL, energy REAL, emotion TEXT, face INTEGER, away INTEGER,"
+                     " eyes_closed INTEGER, tab_hidden INTEGER, gaze_cal INTEGER, coarse INTEGER,"
+                     " share TEXT, mat_pts TEXT, gaze TEXT, wg_share TEXT, head TEXT)")
+        eski.execute("INSERT INTO samples(lesson_code, sid, t) VALUES('D0','s0',1)")
+        eski.commit()
+        eski.close()
+        con = ac(yol)
+        self.addCleanup(con.close)
+        self.assertEqual(con.execute("SELECT gecis FROM samples").fetchone()[0], 0)
+        ders_ekle(con, "D1", "Ders", "Konu", 1)
+        ogrenci_ekle(con, "D1", "s1", "Ali", None, 2, False)
+        ornek_ekle(con, "D1", "s1", 5, ROW)
+        self.assertEqual(say(con, "samples"), 2)
+        ac(yol).close()   # ikinci açılış göçü tekrarlamaz
 
     def test_materyal_sec_onceki_spani_kapatir(self):
         con = kur()

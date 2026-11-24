@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS events(lesson_code TEXT, sid TEXT, t REAL,
 _KOD = re.compile(r"^[A-Z0-9_-]{1,20}$")
 _TUR = ("insan", "yz", "diger")
 _OZEL = ("share", "mat_pts", "gaze", "wg_share", "head")  # JSON alanlar
+_ALAN = ("attention", "energy", "emotion", "face", "away", "eyes_closed", "tab_hidden",
+         "gaze_cal", "coarse")
+GONDERIM_SN = 2.0   # öğrenci 2 sn'de bir paket gönderir: paket [t - 2, t] aralığını kapsar
 
 
 def _js(v):
@@ -38,6 +41,10 @@ def ac(yol):
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
     con.executescript(_SEMA)
+    # Göç: eski veritabanlarında gecis sütunu yok (1 = paket materyal geçişini kapsıyor)
+    if "gecis" not in {r[1] for r in con.execute("PRAGMA table_info(samples)")}:
+        with con:
+            con.execute("ALTER TABLE samples ADD COLUMN gecis INTEGER DEFAULT 0")
     return con
 
 
@@ -109,15 +116,26 @@ def aktif_materyal(con, lesson):
     return r[0] if r else None
 
 
+def materyal_anda(con, lesson, t):
+    """t anında gösterilen materyal (yoksa None)."""
+    r = con.execute("SELECT material_id FROM material_spans WHERE lesson_code=? AND t_start<=?"
+                    " AND (t_end IS NULL OR t_end>?) ORDER BY t_start DESC LIMIT 1",
+                    (lesson, t, t)).fetchone()
+    return r[0] if r else None
+
+
 def ornek_ekle(con, lesson, sid, t, row):
+    """Paket [t - GONDERIM_SN, t] aralığını kapsar. Başında ve sonunda aynı materyal gösteriliyorsa
+    o materyale yazılır; arada geçiş olduysa materyale atanmaz (material_id NULL, gecis=1)."""
     if not _kayitli(con, lesson, sid):
         return
-    v = [row.get(k) for k in ("attention", "energy", "emotion", "face", "away",
-                              "eyes_closed", "tab_hidden", "gaze_cal", "coarse")]
-    v += [_js(row.get(k)) for k in _OZEL]
+    bas, son = materyal_anda(con, lesson, t - GONDERIM_SN), materyal_anda(con, lesson, t)
+    mid, gecis = (son, 0) if bas == son else (None, 1)
+    v = [row.get(k) for k in _ALAN] + [_js(row.get(k)) for k in _OZEL]
+    sut = ("lesson_code", "sid", "t", "material_id") + _ALAN + _OZEL + ("gecis",)
     with con:
-        con.execute("INSERT INTO samples VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (lesson, sid, t, aktif_materyal(con, lesson), *v))
+        con.execute("INSERT INTO samples(%s) VALUES(%s)" % (",".join(sut), ",".join("?" * len(sut))),
+                    (lesson, sid, t, mid, *v, gecis))
 
 
 def kurulum_ekle(con, lesson, sid, t, setup):

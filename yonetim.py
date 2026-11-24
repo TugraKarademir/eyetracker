@@ -371,11 +371,12 @@ def csv_uzun(con, dersler=None):
 def csv_ham(con, code):
     out = [["ders", "ogrenci", "t", "material_id", "attention", "energy", "emotion",
             "face", "away", "eyes_closed", "tab_hidden", "gaze_cal", "coarse",
-            "share", "mat_pts", "gaze", "wg_share", "head"]]
+            "share", "mat_pts", "gaze", "wg_share", "head", "gecis"]]
     for r in _sorgu(con, "SELECT * FROM samples WHERE lesson_code=? ORDER BY sid, t",
                     code):
         out.append([code, r["sid"], r["t"], r["material_id"], r["attention"],
                     r["energy"], r["emotion"], r["face"], r["away"],
                     r["eyes_closed"], r["tab_hidden"], r["gaze_cal"], r["coarse"],
-                    r["share"], r["mat_pts"], r["gaze"], r["wg_share"], r["head"]])
+                    r["share"], r["mat_pts"], r["gaze"], r["wg_share"], r["head"],
+                    r["gecis"]])
     return _csv(out)
