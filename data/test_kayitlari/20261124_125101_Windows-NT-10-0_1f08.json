@@ -1,0 +1,102 @@
+{
+ "cihaz": "Windows NT 10.0",
+ "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) dersnabzi-masaustu/0.1.0 Chrome/152.0.7977.130 Electron/44.5.1 Safari/537.36",
+ "ekran": "2560x1440",
+ "pencere": "2560x1440",
+ "log": [
+  {
+   "t": "12:50:29",
+   "msg": "ses: running"
+  },
+  {
+   "t": "12:50:29",
+   "msg": "tam ekrana geçildi (2560x1440)"
+  },
+  {
+   "t": "12:50:53",
+   "msg": "tam ekrandan çıkıldı"
+  },
+  {
+   "t": "12:50:54",
+   "msg": "tam ekrana geçildi (2560x1440)"
+  },
+  {
+   "t": "12:50:54",
+   "msg": "tam ekrandan çıkıldı"
+  },
+  {
+   "t": "12:50:54",
+   "msg": "tam ekrana geçildi (2560x1440)"
+  },
+  {
+   "t": "12:50:54",
+   "msg": "tam ekrandan çıkıldı"
+  },
+  {
+   "t": "12:50:54",
+   "msg": "tam ekrana geçildi (2560x1440)"
+  },
+  {
+   "t": "12:50:55",
+   "msg": "tam ekrandan çıkıldı"
+  },
+  {
+   "t": "12:50:55",
+   "msg": "tam ekrana geçildi (2560x1440)"
+  },
+  {
+   "t": "12:50:55",
+   "msg": "tam ekrandan çıkıldı"
+  },
+  {
+   "t": "12:50:55",
+   "msg": "tam ekrana geçildi (2560x1440)"
+  },
+  {
+   "t": "12:50:56",
+   "msg": "tam ekrandan çıkıldı"
+  },
+  {
+   "t": "12:50:56",
+   "msg": "tam ekrana geçildi (2560x1440)"
+  },
+  {
+   "t": "12:50:56",
+   "msg": "tam ekrandan çıkıldı"
+  },
+  {
+   "t": "12:50:56",
+   "msg": "tam ekrana geçildi (2560x1440)"
+  },
+  {
+   "t": "12:50:59",
+   "msg": "ses: running"
+  },
+  {
+   "t": "12:50:59",
+   "msg": "═══ kalibrasyon başladı: 1) yüz profili 2) bakarak 9 nokta + baş turu (3 nokta) 3) 5 noktaya birer tıklama (düzeltme) 4) 5 kontrol noktası (yalnız test) ═══"
+  },
+  {
+   "t": "12:50:59",
+   "msg": "kalibrasyon durdu: yüz profili alınamadı"
+  },
+  {
+   "t": "12:50:59",
+   "msg": "kayıt bilgisayara gönderildi: test_kayitlari/20261124_125059_Windows-NT-10-0_584d.json"
+  },
+  {
+   "t": "12:51:01",
+   "msg": "ses: running"
+  },
+  {
+   "t": "12:51:01",
+   "msg": "═══ kalibrasyon başladı: 1) yüz profili 2) bakarak 9 nokta + baş turu (3 nokta) 3) 5 noktaya birer tıklama (düzeltme) 4) 5 kontrol noktası (yalnız test) ═══"
+  },
+  {
+   "t": "12:51:01",
+   "msg": "kalibrasyon durdu: yüz profili alınamadı"
+  }
+ ],
+ "tiklamaOz": [],
+ "gazelab": null
+}
