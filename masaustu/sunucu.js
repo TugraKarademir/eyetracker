@@ -77,6 +77,11 @@ async function agaciOldur(surec) {
   }
 }
 
+// server.py ilk çalıştırmada "Yönetici anahtarı (yönetim ekranı): <anahtar>  (<yol>)" yazar.
+function anahtarMaskele(metin) {
+  return String(metin).replace(/(Yönetici anahtarı[^:\n]*:[ \t]*)\S+/g, "$1***");
+}
+
 const BIND_HATASI = /Address already in use|10048|Errno 98|Errno 10048/i;
 const SAGLIK_SONRASI_BEKLEME_MS = 1000;
 
@@ -86,7 +91,9 @@ async function baslatTek({ komut, argumanlar, port, veri, zamanAsimiMs, ortam })
   const oturum = crypto.randomBytes(16).toString("hex");
   const surec = childProcess.spawn(komut, args, {
     env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8", ...ortam, DERSNABZI_DATA: veri, DERSNABZI_OTURUM: oturum },
-    stdio: ["ignore", "pipe", "pipe"],
+    // stdin boru: uygulama (Electron ana süreci) ölürse boru kapanır, server.py bunu görüp kendini sonlandırır
+    // (yalnız DERSNABZI_OTURUM verildiğinde). Böylece sunucu yetim kalmaz.
+    stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
     detached: process.platform !== "win32",
   });
@@ -99,6 +106,7 @@ async function baslatTek({ komut, argumanlar, port, veri, zamanAsimiMs, ortam })
     for (const s of parca) satirlar.push(s);
     while (satirlar.length > 40) satirlar.shift();
   };
+  surec.stdin.on("error", () => {});   // çocuk kapanmışsa EPIPE yutulur
   surec.stdout.on("data", topla);
   surec.stderr.on("data", topla);
 
@@ -107,7 +115,8 @@ async function baslatTek({ komut, argumanlar, port, veri, zamanAsimiMs, ortam })
     surec.once("exit", (kod, sinyal) => { bitti = { kod, sinyal }; coz(); });
     surec.once("error", (e) => { bitti = { kod: null, sinyal: null }; satirlar.push(String(e.message)); coz(); });
   });
-  const sonCikti = () => (kalan ? [...satirlar, kalan] : satirlar).slice(-40).join("\n");
+  // Başlangıç ekranında gösterilir: yönetici anahtarı maskelenir.
+  const sonCikti = () => anahtarMaskele((kalan ? [...satirlar, kalan] : satirlar).slice(-40).join("\n"));
   const durdur = async () => {
     await agaciOldur(surec);
     if (bitti === null) await Promise.race([cikis, bekle(5000)]);
@@ -150,4 +159,4 @@ async function baslat(secenek) {
   }
 }
 
-module.exports = { bosPortBul, baslat, varsayilanKomut, saglikVar };
+module.exports = { bosPortBul, baslat, varsayilanKomut, saglikVar, anahtarMaskele };

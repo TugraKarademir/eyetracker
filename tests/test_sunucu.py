@@ -560,5 +560,52 @@ class VeriEnv(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(yeni, "dersler.db")))
 
 
+class UstSurecIzleme(unittest.TestCase):
+    """DERSNABZI_OTURUM varsa stdin kapanınca (Electron öldü) sunucu sonlanır; yoksa etkilenmez."""
+
+    def baslat(self, oturum):
+        import socket
+        import time
+        kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        veri = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, veri, True)
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        env = dict(os.environ, DERSNABZI_DATA=veri, PYTHONIOENCODING="utf-8")
+        env.pop("DERSNABZI_OTURUM", None)
+        if oturum:
+            env["DERSNABZI_OTURUM"] = "test-oturum"
+        p = subprocess.Popen([sys.executable, os.path.join(kok, "server.py"), "--port", str(port), "--data", veri],
+                             cwd=kok, env=env, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        def temizle():
+            if p.poll() is None:
+                p.kill()
+                p.wait(10)
+        self.addCleanup(temizle)
+        son = time.time() + 20
+        while time.time() < son:
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:%d/api/saglik" % port, timeout=1) as f:
+                    if f.status == 200:
+                        return p
+            except Exception:
+                time.sleep(0.2)
+        self.fail("sunucu başlamadı")
+
+    def test_oturumla_stdin_kapaninca_cikar(self):
+        p = self.baslat(oturum=True)
+        p.stdin.close()
+        self.assertIsNotNone(p.wait(timeout=5))
+
+    def test_oturumsuz_stdin_kapanmasi_etkilemez(self):
+        import time
+        p = self.baslat(oturum=False)
+        p.stdin.close()
+        time.sleep(3)
+        self.assertIsNone(p.poll())
+
+
 if __name__ == "__main__":
     unittest.main()

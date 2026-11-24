@@ -7,7 +7,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const http = require("http");
-const { bosPortBul, baslat, varsayilanKomut, saglikVar } = require("../sunucu.js");
+const { bosPortBul, baslat, varsayilanKomut, saglikVar, anahtarMaskele } = require("../sunucu.js");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dn-sunucu-"));
 const calisanlar = [];
@@ -197,4 +197,37 @@ test("gerçek server.py oturum kimliğini yankılar", async () => {
   assert.equal(await saglikVar(port, s.oturum), true);
   assert.equal(await saglikVar(port, "yanlis"), false);
   await s.durdur();
+});
+
+test("uygulama ölürse (stdin kapanır) gerçek server.py kendini sonlandırır", async () => {
+  const veri = fs.mkdtempSync(path.join(tmp, "veri-"));
+  const port = await bosPortBul(19000);
+  const { komut, argumanlar } = varsayilanKomut(veri);
+  const s = await baslat({ komut, argumanlar, port, veri, zamanAsimiMs: 30000 });
+  calisanlar.push(s);
+  const pid = s.surec.pid;
+  const cikti = new Promise((r) => s.surec.once("exit", r));
+  s.surec.stdin.end();   // Electron ana sürecinin ölmesiyle aynı: borunun ucu kapanır
+  const sonuc = await Promise.race([cikti.then(() => "cikti"), new Promise((r) => setTimeout(() => r("zaman"), 6000))]);
+  assert.equal(sonuc, "cikti");
+  assert.equal(yasiyorMu(pid), false);
+  assert.equal(await saglikVar(port), false);
+});
+
+test("anahtarMaskele: yönetici anahtarı gizlenir, diğer satırlar kalır", () => {
+  const m = anahtarMaskele("DersNabzı çalışıyor\nYönetici anahtarı (yönetim ekranı): Gizli_ab-12  (C:\veri\yonetici_anahtari.txt)\nson");
+  assert.ok(!m.includes("Gizli_ab-12"));
+  assert.match(m, /Yönetici anahtarı \(yönetim ekranı\): \*\*\*  \(C:\veri\yonetici_anahtari\.txt\)/);
+  assert.match(m, /^DersNabzı çalışıyor\n/);
+  assert.match(m, /\nson$/);
+});
+
+test("başlatma hatasında son çıktıdaki anahtar maskelenir", async () => {
+  const veri = fs.mkdtempSync(path.join(tmp, "veri-"));
+  const port = await bosPortBul(19020);
+  const kod = "import sys; print('Yönetici anahtarı (yönetim ekranı): COKGIZLI123  (x)'); sys.exit(2)";
+  const e = await baslat({ komut: "python", argumanlar: ["-c", kod], port, veri, zamanAsimiMs: 5000 }).then(
+    () => assert.fail("hata bekleniyordu"), (err) => err);
+  assert.ok(!e.message.includes("COKGIZLI123"), e.message);
+  assert.match(e.message, /\*\*\*/);
 });

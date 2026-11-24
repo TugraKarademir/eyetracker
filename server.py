@@ -1299,6 +1299,40 @@ def veri_klasoru_ayarla(yol):
             pass
 
 
+def _ust_surec_izle(kapat=None, bekleme=2.0):
+    """Masaüstü uygulaması (DERSNABZI_OTURUM verilir) sunucuyu stdin borusuyla başlatır.
+    Electron ana süreci ölürse boru kapanır (EOF): sunucu yetim kalmasın diye süreç sonlanır.
+    Önce kısa bir düzenli kapanış denenir (kapat), en geç `bekleme` saniye sonra os._exit.
+    Tarayıcı kullanımında (ortam değişkeni yok) hiçbir şey yapmaz."""
+    if not os.environ.get("DERSNABZI_OTURUM") or sys.stdin is None:
+        return None
+
+    def izle():
+        try:
+            kaynak = getattr(sys.stdin, "buffer", sys.stdin)
+            while kaynak.read(4096):
+                pass
+        except Exception:
+            pass
+        print("Uygulama kapandı (stdin kapandı); sunucu sonlanıyor.")
+        if kapat is not None:
+            t = threading.Thread(target=kapat, daemon=True)
+            t.start()
+            t.join(bekleme)
+        os._exit(0)
+
+    t = threading.Thread(target=izle, name="ust-surec-izle", daemon=True)
+    t.start()
+    return t
+
+
+def _aktif_dersleri_kaydet():
+    with LOCK:
+        for cls in CLASSES.values():
+            if not cls["ended"]:
+                persist(cls)
+
+
 def main():
     ap = argparse.ArgumentParser(description="DersNabzı sunucusu")
     ap.add_argument("--host", default="127.0.0.1")
@@ -1322,6 +1356,7 @@ def main():
     threading.Thread(target=ticker, daemon=True).start()
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     srv.daemon_threads = True
+    _ust_surec_izle(_aktif_dersleri_kaydet)
     print(f"DersNabzı çalışıyor: http://{'localhost' if a.host in ('127.0.0.1', '0.0.0.0') else a.host}:{a.port}")
     if a.https_port:
         import ssl
@@ -1337,10 +1372,7 @@ def main():
         srv.serve_forever()
     except KeyboardInterrupt:
         print("\nKapatılıyor…")
-        with LOCK:
-            for cls in CLASSES.values():
-                if not cls["ended"]:
-                    persist(cls)
+        _aktif_dersleri_kaydet()
 
 
 if __name__ == "__main__":
