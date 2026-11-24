@@ -97,6 +97,32 @@ Teknik: her öğretmen–öğrenci bağlantısında ayrı bir çift yönlü "sö
 yeniden pazarlık (renegotiation) gerekmeden `replaceTrack` ile mikrofon bağlanır ve aktarılır.
 Söz yalnızca öğretmen yayındayken ve öğrenci yayına bağlıyken verilebilir.
 
+## Yönetim ekranı
+
+Araştırma/ders kaydını incelemek için: `http://localhost:8000/admin.html`
+
+- **Yönetici anahtarı:** `DERSNABZI_ADMIN_KEY` ortam değişkeni, yoksa `data/yonetici_anahtari.txt`.
+  Dosya yoksa ilk çalıştırmada rastgele üretilir ve sunucu başlarken konsola yazılır. Sayfa anahtarı ister.
+- **Yalnız yerel erişim:** Yönetim API'leri (`/api/admin/*`) sadece sunucu makinesinden (`127.0.0.1`/`::1`)
+  ve doğru anahtarla çalışır; `--host 0.0.0.0` ile açılsa bile ağdaki başka cihazlar erişemez.
+- **Katılımcı kodları:** Yönetim ekranından `P01` gibi kodlar tanımlanır; öğrenci katılırken kodunu girer.
+  Aynı kişinin farklı derslerdeki kayıtları bu kodla eşleşir (insan/YZ karşılaştırması bunu kullanır).
+- **Materyal:** Öğretmen panelinde ders içinde görsel (PNG/JPEG) ya da görselsiz materyal yüklenir, türü
+  `insan` / `yz` / `diger` seçilir; ders sırasında hangi materyalin gösterildiği panelden seçilir.
+  Örnekler, o an seçili materyalle ilişkilendirilir.
+- **CSV:** `uzun` (ders × öğrenci × materyal özeti, tüm dersler ya da tek ders) ve `ham` (tek dersin tüm
+  örnekleri). Dosyalar Excel için BOM'lu UTF-8'dir.
+- **"Yalan veri yok" kuralları:** Her ölçünün yanında n (kaç öğrenci/ders) gösterilir; veri yoksa uydurma değer
+  yerine "veri yok" yazılır; demo öğrenciler hiçbir kayda ve istatistiğe girmez; örnekleme sıklığı düşükse
+  sakkad "ölçülemez" olarak işaretlenir. Düşük n'li sonuçlar istatistiksel kanıt değil, betimleyici özettir.
+
+### Etik ve onam notu
+
+İsimler, katılımcı kodları, bakış, duygu ve cihaz/kamera bilgileri **yalnızca yerel olarak**
+`data/dersler.db` içinde saklanır; sunucu dışına gönderilmez, kamera görüntüsü hiç kaydedilmez.
+Katılımcılardan açık rıza ve aydınlatma (amaç, saklanan veriler, silme hakkı) alınmalıdır; kurumun etik
+kurul/KVKK gereklilikleri uygulanmalıdır. Veriler öğrenci hakkında not/disiplin kararı için kullanılmamalıdır.
+
 ## Sınırlar / sonraki adımlar
 
 - Söz alan öğrenci yalnızca sesle katılır; öğrenci kamerasının yayınlanması yok (gizlilik tercihi).
