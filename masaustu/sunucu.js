@@ -23,11 +23,12 @@ async function bosPortBul(baslangic = 8030) {
 }
 
 // Geliştirmede python server.py; pakette resources/sunucu/dersnabzi-sunucu.exe (yol dışarıdan verilir).
-function varsayilanKomut(port, veri, paketYolu) {
-  if (paketYolu) return { komut: paketYolu, argumanlar: ["--port", String(port), "--data", veri] };
+// argumanlar bir işlev (port) => dizi olduğundan port yarışında yeniden denemede yeni port kullanılır.
+function varsayilanKomut(veri, paketYolu) {
+  if (paketYolu) return { komut: paketYolu, argumanlar: (p) => ["--port", String(p), "--data", veri] };
   return {
     komut: process.platform === "win32" ? "python" : "python3",
-    argumanlar: [path.join(DEPO_KOKU, "server.py"), "--port", String(port), "--data", veri],
+    argumanlar: (p) => [path.join(DEPO_KOKU, "server.py"), "--port", String(p), "--data", veri],
   };
 }
 
@@ -45,22 +46,42 @@ function saglikVar(port) {
   });
 }
 
-function agaciOldur(surec) {
-  if (surec.exitCode !== null || surec.signalCode !== null) return;
+const bekle = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function yasiyor(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
+}
+
+// Süreç ağacını öldürür ve gerçekten bittiğini doğrular; bitmezse hata fırlatır.
+async function agaciOldur(surec) {
+  const pid = surec.pid;
+  if (pid === undefined) return;
   if (process.platform === "win32") {
-    childProcess.spawnSync("taskkill", ["/PID", String(surec.pid), "/T", "/F"], { windowsHide: true });
+    const r = childProcess.spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true, encoding: "utf8" });
+    // 128: süreç zaten yok
+    if (r.status !== 0 && r.status !== 128 && yasiyor(pid)) {
+      throw new Error(`taskkill başarısız (kod ${r.status}): ${(r.stderr || r.stdout || "").trim()}`);
+    }
   } else {
-    try { surec.kill("SIGKILL"); } catch (_) { /* zaten bitmiş */ }
+    try { process.kill(-pid, "SIGKILL"); } catch (_) { try { surec.kill("SIGKILL"); } catch (_e) { /* bitmiş */ } }
+  }
+  const son = Date.now() + 5000;
+  while (yasiyor(pid)) {
+    if (Date.now() > son) throw new Error(`Sunucu süreci (pid ${pid}) 5 sn içinde sonlanmadı`);
+    await bekle(50);
   }
 }
 
-const bekle = (ms) => new Promise((r) => setTimeout(r, ms));
+const BIND_HATASI = /Address already in use|10048|Errno 98|Errno 10048/i;
+const SAGLIK_SONRASI_BEKLEME_MS = 1000;
 
-async function baslat({ komut, argumanlar = [], port, veri, zamanAsimiMs = 15000, ortam = {} }) {
-  const surec = childProcess.spawn(komut, argumanlar, {
+async function baslatTek({ komut, argumanlar, port, veri, zamanAsimiMs, ortam }) {
+  const args = typeof argumanlar === "function" ? argumanlar(port) : argumanlar;
+  const surec = childProcess.spawn(komut, args, {
     env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8", ...ortam, DERSNABZI_DATA: veri },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
+    detached: process.platform !== "win32",
   });
   const satirlar = [];
   let kalan = "";
@@ -79,23 +100,47 @@ async function baslat({ komut, argumanlar = [], port, veri, zamanAsimiMs = 15000
     surec.once("exit", (kod, sinyal) => { bitti = { kod, sinyal }; coz(); });
     surec.once("error", (e) => { bitti = { kod: null, sinyal: null }; satirlar.push(String(e.message)); coz(); });
   });
-
+  const sonCikti = () => (kalan ? [...satirlar, kalan] : satirlar).slice(-40).join("\n");
   const durdur = async () => {
-    agaciOldur(surec);
+    await agaciOldur(surec);
     if (bitti === null) await Promise.race([cikis, bekle(5000)]);
   };
-  const sonCikti = () => (kalan ? [...satirlar, kalan] : satirlar).slice(-40).join("\n");
+  const hata = async (mesaj, ekstra = {}) => {
+    let not = "";
+    try { await durdur(); } catch (e) { not = `
+(durdurma: ${e.message})`; }
+    return Object.assign(new Error(`${mesaj}\nSon çıktı:\n${sonCikti()}${not}`), { pid: surec.pid, port }, ekstra);
+  };
 
   const son = Date.now() + zamanAsimiMs;
   while (Date.now() < son) {
     if (bitti) {
-      throw new Error(`Sunucu başlamadan kapandı (kod ${bitti.kod}).\nSon çıktı:\n${sonCikti()}`);
+      throw await hata(`Sunucu başlamadan kapandı (kod ${bitti.kod}).`, { bindHatasi: BIND_HATASI.test(sonCikti()) });
     }
-    if (await saglikVar(port)) return { port, surec, durdur };
+    if (await saglikVar(port)) {
+      // Yanıt başka bir sunucudan gelmiş olabilir (port yarışı): çocuk hâlâ yaşıyor mu?
+      await Promise.race([cikis, bekle(SAGLIK_SONRASI_BEKLEME_MS)]);
+      if (bitti) {
+        throw await hata(`Sunucu sağlık yanıtından sonra kapandı (kod ${bitti.kod}).`, { bindHatasi: true });
+      }
+      return { port, surec, durdur };
+    }
     await bekle(200);
   }
-  await durdur();
-  throw new Error(`Sunucu ${zamanAsimiMs} ms içinde hazır olmadı.\nSon çıktı:\n${sonCikti()}`);
+  throw await hata(`Sunucu ${zamanAsimiMs} ms içinde hazır olmadı.`);
+}
+
+// Port yarışında (bind hatası) sıradaki boş portta en çok 3 kez dener; sonuçtaki port gerçek olandır.
+async function baslat(secenek) {
+  let port = secenek.port;
+  for (let deneme = 1; ; deneme++) {
+    try {
+      return await baslatTek({ argumanlar: [], zamanAsimiMs: 15000, ortam: {}, ...secenek, port });
+    } catch (e) {
+      if (!e.bindHatasi || deneme >= 3) throw e;
+      port = await bosPortBul(port + 1);
+    }
+  }
 }
 
 module.exports = { bosPortBul, baslat, varsayilanKomut, saglikVar };

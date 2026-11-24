@@ -40,7 +40,11 @@ function yukle(dosya) {
   try {
     return birlestir(JSON.parse(metin));
   } catch (_) {
-    try { fs.renameSync(dosya, `${dosya}.bozuk-${Date.now()}`); } catch (_e) { /* yedek alınamadı */ }
+    try {
+      fs.renameSync(dosya, `${dosya}.bozuk-${Date.now()}`);
+    } catch (e) {
+      console.error(`Bozuk ayar dosyası yedeklenemedi (${dosya}): ${e.message}`);
+    }
     return varsayilan();
   }
 }
