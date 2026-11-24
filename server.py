@@ -891,10 +891,14 @@ class Handler(BaseHTTPRequestHandler):
             m = next((x for x in kayit.materyaller(KAYIT, code) if x["id"] == mid), None)
             full = os.path.normpath(os.path.join(DATA, m["image_path"])) if m and m["image_path"] else None
             base = os.path.normpath(os.path.join(DATA, "materyaller"))
+        # Dosya LOCK dışında okunur (büyük görsel canlı dersi bekletmesin)
+        try:
             if not full or os.path.commonpath([full, base]) != base or not os.path.isfile(full):
                 return self.err("Görsel yok", 404)
             with open(full, "rb") as f:
                 data = f.read()
+        except (OSError, ValueError):
+            return self.err("Görsel yok", 404)
         self.send_response(200)
         self.send_header("Content-Type", "image/png" if full.endswith(".png") else "image/jpeg")
         self.send_header("Content-Length", str(len(data)))
@@ -1250,6 +1254,7 @@ class Handler(BaseHTTPRequestHandler):
             cls["ended"] = t
             push(cls, {"type": "ended"})
             persist(cls)
+            kayit.materyal_sec(KAYIT, cls["code"], None, t)   # açık materyal aralığı ders bitişinde kapanır
             kayit.ders_bitir(KAYIT, cls["code"], t)
             kayit.olay_ekle(KAYIT, cls["code"], None, t, "end", None)
         else:

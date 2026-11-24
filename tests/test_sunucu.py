@@ -180,6 +180,20 @@ class SunucuMateryal(unittest.TestCase):
         self.assertEqual(r["materials"][0]["hasImage"], True)
         self.assertIsNone(r["active"])
 
+    def test_materyal_gorseli_lock_disinda_okunur(self):
+        kod, key = self.ders()
+        _, b, _ = ham(self.base, "/api/material?code=%s&key=%s&name=S&kind=insan" % (kod, key), PNG1)
+        mid = json.loads(b)["id"]
+        gercek, kilitli = open, []
+
+        def izle(yol, *a, **k):
+            if str(yol).endswith("%d.png" % mid):
+                kilitli.append(server.LOCK._is_owned())
+            return gercek(yol, *a, **k)
+        with unittest.mock.patch("builtins.open", izle):
+            st, veri, _ = ham(self.base, "/api/material/image?code=%s&id=%d&key=%s" % (kod, mid, key), None, "GET")
+        self.assertEqual((st, veri, kilitli), (200, PNG1, [False]))
+
     def test_materyal_gorselsiz(self):
         kod, key = self.ders()
         st, b, _ = ham(self.base, "/api/material?code=%s&key=%s&name=X&kind=diger" % (kod, key), b"")

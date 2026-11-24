@@ -3,6 +3,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+import time
 import unittest
 
 from kayit import (ac, ders_ekle, ogrenci_ekle, materyal_ekle, materyal_sec,
@@ -129,6 +130,9 @@ class KayitTest(unittest.TestCase):
         self.assertEqual(katilimci_ekle(con, "p01"), "P01")
         self.assertTrue(katilimci_var(con, "p01"))
         self.assertEqual(len(katilimcilar(con)), 1)
+        cr = katilimcilar(con)[0]["created"]
+        self.assertIsInstance(cr, float)   # gerçek epoch (REAL), metin değil
+        self.assertLess(abs(cr - time.time()), 60)
         with self.assertRaises(ValueError):
             katilimci_ekle(con, "a b")
 

@@ -87,6 +87,7 @@ class UctanUca(unittest.TestCase):
             for _ in range(3):
                 server.simulate_demo(cls, server.now())
 
+        self.ilerle(1)
         self.assertEqual(post(b, "/api/event", {"code": kod, "key": key, "type": "end"})[0], 200)
 
         # --- yönetim API'leri ---
@@ -99,7 +100,8 @@ class UctanUca(unittest.TestCase):
 
         d = self.jget("/api/admin/ders?code=" + kod)
         self.assertEqual(len(d["spans"]), 2)
-        self.assertIsNotNone(d["spans"][0]["t_end"])   # son span ders bitişiyle (ended) kapanır
+        self.assertEqual(d["spans"][0]["t_end"], d["spans"][1]["t_start"])   # m1 aralığı m2 seçilince kapanır
+        self.assertEqual(d["spans"][1]["t_end"], d["ders"]["ended"])   # son aralık "end" olayında kapanır
         mats = {m["id"]: m for m in d["materyaller"]}
         self.assertEqual((mats[m1]["kind"], mats[m1]["n_ornek"]), ("insan", 3))
         self.assertEqual((mats[m2]["kind"], mats[m2]["n_ornek"]), ("yz", 2))

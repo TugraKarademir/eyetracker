@@ -132,3 +132,8 @@ kurul/KVKK gereklilikleri uygulanmalıdır. Veriler öğrenci hakkında not/disi
 - Durum bellekte tutulur, tek süreç içindir; ölçek için Redis + veritabanı gerekir.
 - Duygu tahmini ifade tabanlıdır ve kültüre, ışığa, kameraya göre hata yapar. Öğrenci hakkında
   not/disiplin kararı için kullanılmamalıdır; KVKK kapsamında açık rıza ve aydınlatma metni gereklidir.
+- Yönetim ekranının arayüzü (admin.html) otomatik testlerle sınanmaz: testler yalnız sunucu ve
+  sorgu katmanını kapsar; arayüzün elle kontrolü yapılmadı.
+- Yönetim ekranı materyal görsellerini `<img>` ile yüklerken yönetici anahtarı URL'de (`?admin=`)
+  taşınır; tarayıcı geçmişinde görünebilir. Yönetim API'leri yalnız yerelden çalışır ve anahtar
+  sunucu loglarında `***` ile gizlenir.

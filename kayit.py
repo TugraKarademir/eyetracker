@@ -2,6 +2,7 @@
 import json
 import re
 import sqlite3
+import time
 
 _SEMA = """
 CREATE TABLE IF NOT EXISTS lessons(code TEXT PRIMARY KEY, name TEXT, topic TEXT,
@@ -178,7 +179,7 @@ def katilimci_ekle(con, code):
     if not _KOD.match(c):
         raise ValueError("katılımcı kodu: A-Z 0-9 _ - (1-20)")
     with con:
-        con.execute("INSERT OR IGNORE INTO participants VALUES(?, strftime('%s','now'))", (c,))
+        con.execute("INSERT OR IGNORE INTO participants VALUES(?, ?)", (c, time.time()))
     return c
 
 
