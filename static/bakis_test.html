@@ -888,7 +888,8 @@ const AKIS = { TUR: 2, DOGRULAMA: 5 };
 // (20.11 14:55: bakarak modeller 40 sn'lik tıklama turlarından sonra ölçülünce kayma yüzünden adil değildi).
 const DOGRULAMA_NOKTA = [[0.3, 0.3], [0.7, 0.3], [0.5, 0.55], [0.3, 0.8], [0.7, 0.8]];
 // Kontrol noktaları: bakarak ızgarasından ve düzeltme noktalarından uzak (model bunlardan hiç öğrenmez). ?kontrol=0 ile atlanır.
-const KONTROL = new URLSearchParams(location.search).get("kontrol") !== "0";
+// kapatıldı (kullanıcı kararı 24.11.2026): adres parametresi artık yok sayılır, sabit varsayılan.
+const KONTROL = true;
 const KONTROL_NOKTA = [[0.5, 0.15], [0.12, 0.4], [0.88, 0.4], [0.5, 0.85], [0.88, 0.85]];
 const kontrolNoktalari = () => KONTROL_NOKTA.map(([a, b]) => ({ x: Math.round(a * innerWidth), y: Math.round(b * innerHeight) }));
 const dogrulamaNoktalari = () => DOGRULAMA_NOKTA.map(([a, b]) => ({ x: Math.round(a * innerWidth), y: Math.round(b * innerHeight) }));
@@ -897,11 +898,12 @@ const dogrulamaNoktalari = () => DOGRULAMA_NOKTA.map(([a, b]) => ({ x: Math.roun
 // kalibrasyonla adil karşılaştırma: bakarak modeller YALNIZ bakarak turlarından öğrenir; ardından gelen tıklamalı turların
 // ve doğrulamanın tüm tıklamaları onlar için hiç görülmemiş noktalardır (tıklama, gözün o anda hedefte olduğunu kanıtlar).
 // ?bakarak=0 ile atlanır.
-const BAKIS = { TUR: 1, BEKLE: 1.0, TOPLA: 1.2, ACIK: new URLSearchParams(location.search).get("bakarak") !== "0" };
+const BAKIS = { TUR: 1, BEKLE: 1.0, TOPLA: 1.2, ACIK: true /* ?bakarak=0 kapatıldı (kullanıcı kararı 24.11.2026) */ };
 let bakarakSuruyor = false, modelBk = null, modelBBk = null, bakisNokta = [];
 // ?nokta=19 (eski adı ?nokta=17, hâlâ kabul edilir ve 19'a eşlenir): bakarak kalibrasyon RealEye Light deseniyle (0.05/0.25/0.5/0.75/0.95 ızgarası). README metni "17 nokta" diyor ama
 // diyagramında 19 nokta etiketli; hangi ikisinin düştüğü yazılmadığı için diyagramdaki 19 noktanın hepsi kullanılır (uydurma yok).
-const NOKTA_QS = new URLSearchParams(location.search).get("nokta"), RE19 = NOKTA_QS === "19" || NOKTA_QS === "17";
+// kapatıldı (kullanıcı kararı 24.11.2026): adres parametresi artık yok sayılır, sabit varsayılan.
+const NOKTA_QS = null, RE19 = false;   // ?nokta=19 / ?nokta=17: her zaman 3×3 deseni
 const DESEN = RE19 ? "realeye-19" : "3x3-9";   // kayda girer (glPaket oturum meta, testLog)
 const RE_DESEN = [[.05, .05], [.5, .05], [.95, .05], [.05, .25], [.25, .25], [.5, .25], [.75, .25], [.95, .25], [.05, .5], [.5, .5], [.95, .5],
   [.05, .75], [.25, .75], [.5, .75], [.75, .75], [.95, .75], [.05, .95], [.5, .95], [.95, .95]];
@@ -1149,7 +1151,8 @@ async function bizimAkis() {
 // ---- ?kalibre=depo: projenin GitHub deposundaki (TugraKarademir/eyetracker) kalibrasyon, gaze.js calibrate() aynen:
 // 13 nokta bakarak (0,7 sn yerleşme + 1 sn toplama) + 3x3 hücrede rastgele 9 doğrulama noktası. Tıklamayla öğrenmesi kapalı
 // tutulur (yalnız ölçülür). Ardından aynı 5 kontrol noktası, sonra bizim akış ve yine aynı 5 kontrol -> aynı oturumda karşılaştırma.
-const DEPO = new URLSearchParams(location.search).get("kalibre") === "depo";
+// kapatıldı (kullanıcı kararı 24.11.2026): adres parametresi artık yok sayılır, sabit varsayılan.
+const DEPO = false;   // ?kalibre=depo
 let depoModel = null;
 async function depoKalibrasyon() {
   adimBasla("depo");
@@ -1527,7 +1530,8 @@ async function camLook() {
 // 4) yöntem / oturum / aşama tabloları (süre, çözünürlük, fps, örnekleme hızı, fiksasyon…), CSV ve sunucuda SQLite.
 // ════════════════════════════════════════════════════════════════════════════════════════════════════════════
 const QS = new URLSearchParams(location.search);
-const GLAB = QS.get("gazelab") !== "0";
+// kapatıldı (kullanıcı kararı 24.11.2026): adres parametresi artık yok sayılır, sabit varsayılan.
+const GLAB = true;   // ?gazelab=0: GazeLab doğrulaması her zaman yapılır
 const AYAR = { ACIK: QS.get("ayar") !== "0", MIN_YUZ: 0.25, IYI_GOZ_PX: 100, HEDEF_YUZ: 0.42, KUTU: [0.5, 0.7] };
 for (const k of ["biz", "wg", "bizB", "bizW", "wgMP", "bizK", "kureM", "bizBk", "bizBBk", "depo", "reL"]) YONTEM[k + "GL"] = `${YONTEM[k]} + GazeLab düzeltmesi`;
 const GLK = { recs: [], cur: null, baz: false, bazOrnek: [], headBase: null, sure: {}, kamera: null, ayar: null, dog: null, bitti: false, basEpoch: null };

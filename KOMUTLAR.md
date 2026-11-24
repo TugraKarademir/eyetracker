@@ -18,8 +18,6 @@ Sunucu yalnız bu bilgisayardan erişilebilir (`127.0.0.1`). Veriler `E:\eyetrac
 | Öğretmen paneli | http://localhost:8030/teacher.html |
 | Öğrenci — derse katıl | http://localhost:8030/student.html |
 | Bakış testi | http://localhost:8030/bakis_test.html |
-| Bakış testi (RealEye 19 nokta deseni) | http://localhost:8030/bakis_test.html?nokta=19 |
-| Bakış testi (eski yol, Web Worker kapalı — hız karşılaştırması) | http://localhost:8030/bakis_test.html?isci=0 |
 | Yönetim ekranı | http://localhost:8030/admin.html |
 | Ders raporu | ders bitince öğretmen paneli kendiliğinden açar; ya da öğretmen panelindeki "Son dersleriniz" listesinde "rapor" (`/report.html?code=<DERS KODU>`) |
 

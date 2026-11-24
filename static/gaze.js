@@ -245,7 +245,7 @@ class GazeTracker {
     // isciZamanAsimi: 2 sn'de yanıt gelmeyen kare (3 olunca ana yola geçilir)
     this.diag = { kare: 0, yuz: 0, hata: 0, sonHata: null, delegate: null, video: null, isci: false, atlanan: 0, gecikmeMs: 0, gecikmeN: 0, isciZamanAsimi: 0 };
     // Worker yolu (ana iş parçacığı serbest kalır). ?isci=0 ya da gereken özellik yoksa / kurulum başarısızsa eski yol.
-    const kapali = new URLSearchParams(location.search).get("isci") === "0";
+    const kapali = false;   // ?isci=0 kapatıldı (kullanıcı kararı 24.11.2026): işçi her zaman denenir
     if (!kapali && typeof Worker === "function" && typeof OffscreenCanvas !== "undefined" && typeof createImageBitmap === "function") {
       try { await this._isciKur(); this.diag.isci = true; }
       catch (e) { this._isciKapat(); this.diag.isciHata = String(e?.message || e).slice(0, 160); this.diag.sonHata = this.diag.isciHata; }
