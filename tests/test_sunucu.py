@@ -486,6 +486,27 @@ class SaglikVeVeriKlasoru(unittest.TestCase):
             self.assertEqual(f.status, 200)
             self.assertEqual(json.loads(f.read()), {"ok": True, "surum": 1})
 
+    def test_paketli_sunucu_yollari(self):
+        """PyInstaller (frozen): static/ paketin içinden (sys._MEIPASS), veri yalnız DERSNABZI_DATA'dan."""
+        kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        paket = tempfile.mkdtemp()
+        veri = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, paket, True)
+        self.addCleanup(shutil.rmtree, veri, True)
+        kod = ("import sys; sys.frozen = True; sys._MEIPASS = %r; import server; "
+               "print(server.STATIC); print(server.DATA); server.KAYIT.close()") % paket
+        ortam = dict(os.environ, DERSNABZI_DATA=veri, DERSNABZI_ADMIN_KEY="")
+        r = subprocess.run([sys.executable, "-c", kod], cwd=kok, env=ortam, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        satir = r.stdout.strip().splitlines()[-2:]
+        self.assertEqual(satir, [os.path.join(paket, "static"), os.path.abspath(veri)])
+        self.assertFalse(os.path.exists(os.path.join(paket, "data")))
+        ortam.pop("DERSNABZI_DATA")
+        r = subprocess.run([sys.executable, "-c", kod], cwd=kok, env=ortam, capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("DERSNABZI_DATA", r.stderr)
+        self.assertEqual(os.listdir(paket), [])
+
     def test_saglik_oturum_yankisi(self):
         base, kapat = basla()
         self.addCleanup(kapat)

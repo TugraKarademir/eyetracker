@@ -4,10 +4,16 @@ const fs = require("fs");
 const path = require("path");
 
 const DEPO_KOKU = path.resolve(__dirname, "..");
+// Geliştirmede tarayıcı sürümüyle aynı <depo>/data; paketli uygulama kurulum klasörü dışında bir yol verir.
+let varsayilanVeri = path.join(DEPO_KOKU, "data");
+function varsayilanVeriKlasoru(yol) {
+  if (yol) varsayilanVeri = path.resolve(yol);
+  return varsayilanVeri;
+}
 
 function varsayilan() {
   return {
-    veriKlasoru: path.join(DEPO_KOKU, "data"),
+    veriKlasoru: varsayilanVeri,
     kameraId: null,
     cozunurluk: null,
     kiosk: { ogrenci: true, test: true },
@@ -56,4 +62,4 @@ function kaydet(dosya, ayar) {
   fs.renameSync(gecici, dosya);
 }
 
-module.exports = { yukle, kaydet, varsayilan };
+module.exports = { yukle, kaydet, varsayilan, varsayilanVeriKlasoru };

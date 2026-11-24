@@ -103,7 +103,9 @@ function sunucuKapandi(c, kod, sinyal) {
   calisan = null;
   sunucuKoken = null;
   const neden = kod !== null && kod !== undefined ? `kod ${kod}` : `sinyal ${sinyal}`;
-  sayfaPencereleriniKapat();   // eski porttaki sayfalar artık çalışmaz; uyarı başlangıç ekranında
+  // Uyarı başlangıç ekranında gösterilir: ekran yoksa (kapanmış) önce yeniden açılır, sonra sayfalar kapatılır.
+  if ((!baslangicPenceresi || baslangicPenceresi.isDestroyed()) && !cikiliyor) baslangicPenceresiAc();
+  sayfaPencereleriniKapat();   // eski porttaki sayfalar artık çalışmaz
   durumYayinla({ asama: "hata", port: null, hata: `Sunucu beklenmedik şekilde kapandı (${neden}). Açık sayfa pencereleri kapatıldı.` });
   const w = baslangicPenceresi;
   if (w && !w.isDestroyed() && !SMOKE) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }
@@ -217,6 +219,8 @@ function kioskKlavyesiKur(win) {
   // Yalnız sunucu kökeninde; başarısızlıkta sonsuz deneme yok: art arda 3 hatadan sonra bırakılır, bir kez loglanır.
   let tamEkranHata = 0;
   let tamEkranLoglandi = false;
+  // Yeni sayfaya geçişte sayaç sıfırlanır (önceki sayfadaki başarısızlıklar sonrakini kilitlemesin).
+  wc.on("did-navigate", () => { tamEkranHata = 0; tamEkranLoglandi = false; });
   win.on("leave-html-full-screen", () => {
     if (win.isDestroyed() || cikiliyor || tamEkranHata >= 3) return;
     if (sunucuKoken === null || koken(wc.getURL()) !== sunucuKoken) return;
@@ -525,9 +529,14 @@ if (!app.requestSingleInstanceLock()) {
     e.preventDefault();
     cikisYap(cikisKodu);
   });
-  app.on("window-all-closed", () => app.quit());
+  // Yalnız başlangıç ekranı da kapandıysa çıkılır (çökme işleyicisi sayfaları kapatınca uygulama kapanmaz).
+  app.on("window-all-closed", () => {
+    if (!baslangicPenceresi || baslangicPenceresi.isDestroyed()) app.quit();
+  });
 
   app.whenReady().then(() => {
+    // Paketli uygulamada varsayılan veri klasörü kurulum klasörü dışında: Belgeler/DersNabzı/veri.
+    if (app.isPackaged) ayarlar.varsayilanVeriKlasoru(path.join(app.getPath("documents"), "DersNabzı", "veri"));
     ayar = ayarlar.yukle(AYAR_DOSYASI());
     Menu.setApplicationMenu(null);   // varsayılan menü kısayolları (yenile, yakınlaştır, DevTools) kapalı
     oturumKur();

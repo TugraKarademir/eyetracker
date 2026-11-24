@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
-const { yukle, kaydet, varsayilan } = createRequire(import.meta.url)("../ayarlar.js");
+const { yukle, kaydet, varsayilan, varsayilanVeriKlasoru } = createRequire(import.meta.url)("../ayarlar.js");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dn-ayar-"));
 test.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
@@ -45,4 +45,15 @@ test("eksik alanlar varsayılanla tamamlanır", () => {
   const a = yukle(d);
   assert.equal(a.kameraId, "x");
   assert.deepEqual(a.kiosk, { ogrenci: true, test: true });
+});
+
+test("varsayılan veri klasörü dışarıdan değiştirilebilir (paketli uygulama)", () => {
+  const eski = varsayilanVeriKlasoru();
+  try {
+    const hedef = path.join(tmp, "Belgeler", "DersNabzı", "veri");
+    assert.equal(varsayilanVeriKlasoru(hedef), path.resolve(hedef));
+    assert.equal(yukle(path.join(tmp, "yok2.json")).veriKlasoru, path.resolve(hedef));
+  } finally {
+    varsayilanVeriKlasoru(eski);
+  }
 });

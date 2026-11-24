@@ -1,0 +1,35 @@
+# DersNabzı masaüstü paketi (yalnız Windows x64, NSIS kurulum dosyası).
+# Önce PyInstaller çıktısı hazır olmalı: build/paketle.ps1 ikisini sırayla çalıştırır.
+appId: tr.dersnabzi.masaustu
+productName: DersNabzı
+copyright: DersNabzı
+directories:
+  output: dist
+  buildResources: build
+files:
+  - main.js
+  - sunucu.js
+  - ayarlar.js
+  - izin.js
+  - preload.js
+  - baslangic.html
+  - baslangic.js
+  - package.json
+extraResources:
+  # PyInstaller tek klasör çıktısı -> <kurulum>/resources/sunucu/dersnabzi-sunucu.exe
+  - from: build-py/dist/dersnabzi-sunucu
+    to: sunucu
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  signAndEditExecutable: true
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: DersNabzı
+  artifactName: DersNabzi-Kurulum-${version}.${ext}
