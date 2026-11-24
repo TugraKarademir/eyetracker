@@ -173,10 +173,31 @@ class YonetimTest(unittest.TestCase):
         s = yonetim.csv_uzun(con)
         self.assertEqual(
             s.splitlines()[0],
-            "ders,katilimci,ogrenci,materyal,tur,sure_sn,bakma_pct,ort_dikkat,"
-            "ort_enerji,baskin_duygu,n_ornek")
+            "ders,katilimci,ogrenci,materyal,tur,sure_sn,bakma_pct,n_bakma_ornek,"
+            "n_kalibreli_ornek,ort_dikkat,ort_enerji,baskin_duygu,n_ornek")
         self.assertEqual(len(s.splitlines()), 4)  # s1/insan, s2/insan, s1/yz
         self.assertFalse(s.startswith("﻿"))
+
+    def test_csv_uzun_n_ve_bilinmeyen_sure(self):
+        con = ac(":memory:")
+        ders_ekle(con, "D1", "D", "K", 1)
+        ogrenci_ekle(con, "D1", "s1", "A", None, 1, False)
+        m = materyal_ekle(con, "D1", "I", "insan")
+        materyal_sec(con, "D1", m, 0)
+        ornek_ekle(con, "D1", "s1", 3, satir(share={"materyal": 1.0}))
+        ornek_ekle(con, "D1", "s1", 5, satir(share=None))             # kalibreli, share yok
+        ornek_ekle(con, "D1", "s1", 7, satir(gaze_cal=0, share=None))  # kalibresiz
+        # span'ı silinmiş (süresi bilinmeyen) materyal: 0 değil boş
+        con.execute("DELETE FROM material_spans")
+        import csv as _csv
+        import io as _io
+        rows = list(_csv.DictReader(_io.StringIO(yonetim.csv_uzun(con))))
+        self.assertEqual(len(rows), 1)
+        r = rows[0]
+        self.assertEqual((r["bakma_pct"], r["n_bakma_ornek"], r["n_kalibreli_ornek"], r["n_ornek"]),
+                         ("100", "1", "2", "3"))
+        self.assertEqual(r["sure_sn"], "")
+        self.assertIsNone(yonetim.ders(con, "D1")["materyaller"][0]["sure_sn"])
 
     def test_csv_ham(self):
         con, _, _ = kur()

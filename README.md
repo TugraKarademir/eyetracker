@@ -112,7 +112,8 @@ Araştırma/ders kaydını incelemek için: `http://localhost:8000/admin.html`
   Her 2 sn'lik örnek paketi, paketin başında ve sonunda aynı materyal gösteriliyorsa o materyale yazılır;
   paket bir materyal geçişini kapsıyorsa hiçbir materyale atanmaz (`gecis=1`), yalnız ders geneli özetlere girer.
 - **CSV:** `uzun` (ders × öğrenci × materyal özeti, tüm dersler ya da tek ders) ve `ham` (tek dersin tüm
-  örnekleri). Dosyalar Excel için BOM'lu UTF-8'dir.
+  örnekleri). Dosyalar Excel için BOM'lu UTF-8'dir. Uzun CSV'de `bakma_pct` kendi n'iyle gelir
+  (`n_bakma_ornek`: katkı veren örnek, `n_kalibreli_ornek`); süresi bilinmeyen materyalde `sure_sn` boştur.
 - **"Yalan veri yok" kuralları:** Her ölçünün yanında n (kaç öğrenci/ders) gösterilir; veri yoksa uydurma değer
   yerine "veri yok" yazılır; demo öğrenciler hiçbir kayda ve istatistiğe girmez; örnekleme sıklığı düşükse
   sakkad "ölçülemez" olarak işaretlenir. Düşük n'li sonuçlar istatistiksel kanıt değil, betimleyici özettir.

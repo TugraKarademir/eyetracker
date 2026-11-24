@@ -26,6 +26,10 @@ def _yuv(v, n=1):
     return None if v is None else round(v, n)
 
 
+def _sn(v):
+    return None if v is None else round(v)
+
+
 def _pct(sayi, toplam):
     return round(100 * sayi / toplam) if toplam else None
 
@@ -72,6 +76,8 @@ def _ozet(rows):
         "n_ornek": len(rows),
         "n_kalibreli": len({r["sid"] for r in kal}),
         "n_bakma": len(bak_sid),   # bakma_pct ortalamasına en az bir örnekle katılan öğrenci
+        "n_bakma_ornek": len(bak),   # bakma_pct'ye katkı veren örnek (kalibreli + dolu share)
+        "n_kalibreli_ornek": len(kal),
     }
 
 
@@ -199,7 +205,8 @@ def ders(con, code):
         o = _ozet(rs)
         mats.append({"id": m["id"], "name": m["name"], "kind": m["kind"],
                      "hasImage": bool(m["image_path"]),
-                     "sure_sn": round(sureler.get(m["id"], 0)),
+                     # hiç gösterilmediyse (span yok) süre bilinmez: None, 0 değil
+                     "sure_sn": _sn(sureler.get(m["id"])),
                      "n_kalibreli": o["n_kalibreli"], "bakma_pct": o["bakma_pct"],
                      "n_bakma": o["n_bakma"],
                      "ort_dikkat": o["ort_dikkat"], "ort_enerji": o["ort_enerji"],
@@ -351,7 +358,8 @@ def _csv(satirlar):
 def csv_uzun(con, dersler=None):
     codes = _secili(con, dersler)
     out = [["ders", "katilimci", "ogrenci", "materyal", "tur", "sure_sn", "bakma_pct",
-            "ort_dikkat", "ort_enerji", "baskin_duygu", "n_ornek"]]
+            "n_bakma_ornek", "n_kalibreli_ornek", "ort_dikkat", "ort_enerji", "baskin_duygu",
+            "n_ornek"]]
     sure = {}
     for c in codes:
         e = _sorgu(con, "SELECT ended FROM lessons WHERE code=?", c)
@@ -363,8 +371,9 @@ def csv_uzun(con, dersler=None):
     for (c, sid, mid), rs in grup.items():
         r0, o = rs[0], _ozet(rs)
         out.append([c, r0["pc"], r0["sname"] or sid, r0["mname"], r0["kind"],
-                    round(sure.get(mid, 0)), o["bakma_pct"], o["ort_dikkat"],
-                    o["ort_enerji"], o["baskin_duygu"], o["n_ornek"]])
+                    _sn(sure.get(mid)), o["bakma_pct"], o["n_bakma_ornek"],
+                    o["n_kalibreli_ornek"], o["ort_dikkat"], o["ort_enerji"],
+                    o["baskin_duygu"], o["n_ornek"]])
     return _csv(out)
 
 
