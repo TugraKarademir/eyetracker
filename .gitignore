@@ -19,3 +19,8 @@ test_kayitlari/
 # graphify kod grafiği (otomatik üretilir)
 graphify-out/
 .superpowers/
+
+# Sınıf testi sertifika/anahtarları (depoya girmez)
+sinif/*.pem
+sinif/*.crt
+sinif/*.srl
