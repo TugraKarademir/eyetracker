@@ -1233,7 +1233,7 @@ async function guideStart() {
     const x = gaze?.diag; if (x) tlog(`[tanı] toplam: ${x.kare} kare, yüz ${x.yuz}, hata ${x.hata}${x.sonHata ? ` (son: ${x.sonHata})` : ""} | ${x.delegate}, video ${x.video}`, x);
     KAYIT_SONUC = { durum: "bitti", glAcc: null, model: null };   // test bitti ama kalibrasyon yok: öğretmen panelinde "bitmedi"
     taniOzetYaz();
-    const dosya = await testKaydiGonder();
+    const dosya = await testKaydiGonder(KAYIT_SURE.son);
     if (dosya) $("#resTxt").innerHTML += `<br><span class="muted" style="font-size:12px">Kayıt bilgisayara gönderildi: ${dosya}</span>`;
     if (GOMULU) $("#resTxt").insertAdjacentHTML("beforeend", `<div style="margin-top:12px"><button id="derseDonBtn" style="font-size:17px;padding:10px 22px">✓ Derse dön</button></div>`);
     $("#startBtn").textContent = "↻ Tekrar dene"; $("#startCard").style.display = "block"; return;
@@ -1390,7 +1390,7 @@ async function guideFinish(neden) {
   const isiDosya = await isiTestiGonder(null);
   KAYIT_SONUC = { durum: "bitti", glAcc: GLK.dog?.yontem?.biz?.acc ?? null, model: kayit ? SON_AKTARIM?.ad ?? YONTEM.biz : null };
   taniOzetYaz();
-  const dosya = await testKaydiGonder();
+  const dosya = await testKaydiGonder(KAYIT_SURE.son);   // en çok KAYIT_SURE.son bekler; başarısızsa sonuç ekranı yine çizilir
   if (dosya) ISI.anaDosya = dosya;   // "tekrar gönder" ve "Bölgeleri kaydet" ana kaydın adını taşısın
   if (isiDosya && dosya) await isiTestiGonder(dosya);   // aynı kimlikle bir kez daha: ısı dosyasının "ana" alanı dolsun (dosya üzerine yazılır)
   const glb = GLK.dog?.yontem?.biz;
@@ -1539,20 +1539,37 @@ function kayitHataCiz() {
     b.onclick = async (e) => { e.stopPropagation(); b.disabled = true; b.textContent = "Gönderiliyor…"; const d = await isiTestiGonder(ISI.anaDosya); if (d) ekranaIsiSatiri(d); };
     el.append(b);
   }
+  if (KAYIT_HATA["Kayıt"]) {   // ana kayıt: gövde tıklama anında yeniden kurulur (o anki günlük ve durum); aynı kimlik → aynı dosya
+    const b = document.createElement("button"); b.textContent = "Kaydı tekrar gönder";
+    Object.assign(b.style, { display: "block", margin: "8px auto 0", padding: "6px 14px", borderRadius: "8px", border: "1px solid #f87171", background: "#7f1d1d", color: "#fff", font: "inherit", cursor: "pointer" });
+    b.onclick = async (e) => {
+      e.stopPropagation(); b.disabled = true; b.textContent = "Gönderiliyor…";
+      const d = await testKaydiGonder(KAYIT_SURE.son);
+      if (d && GLK.bitti) $("#resTxt").insertAdjacentHTML("beforeend", `<br><span class="muted" style="font-size:12px">Kayıt bilgisayara gönderildi: ${d}</span>`);
+    };
+    el.append(b);
+  }
 }
 // Gönderimler sıraya girer: yavaş bir ara kayıt, ardından gelen son kaydı geçip onun üzerine yazamaz. Gövde sırası gelince
 // hazırlanır (o anki günlük ve durum). Dönüş: dosya adı ya da null (eskisi gibi).
+// Her gönderimin süre sınırı var (yanıtsız kalan bağlantı zinciri ve son kaydı kilitlemesin): ara 60 sn, son 120 sn
+// (LAN, 8 MB'a kadar gövde, 7 bilgisayar sunucuda sırada). Süre dolarsa ya da hata olursa zincir ilerler, hata ekranda görünür.
+const KAYIT_SURE = { ara: 60000, son: 120000 };
 let kayitZinciri = Promise.resolve();
-function testKaydiGonder() { const p = kayitZinciri.then(testKaydiGonderNow); kayitZinciri = p.catch(() => {}); return p; }
-async function testKaydiGonderNow() {
+function testKaydiGonder(sureMs = KAYIT_SURE.ara) { const p = kayitZinciri.then(() => testKaydiGonderNow(sureMs)); kayitZinciri = p.catch(() => {}); return p; }
+async function testKaydiGonderNow(sureMs) {
+  const ac = new AbortController(), zaman = setTimeout(() => ac.abort(), sureMs);
   try {
     const cihaz = navigator.userAgent.match(/Android[^;)]*|iPhone|Windows NT [\d.]+|Mac OS X/)?.[0] || "bilinmiyor";
-    const r = await fetch("/api/testlog", { method: "POST", headers: { "Content-Type": "application/json" },
+    const r = await fetch("/api/testlog", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
       body: JSON.stringify({ kimlik: KAYIT_KIMLIK, ...BAGLAM, ...KAYIT_SONUC, cihaz, ua: navigator.userAgent, cihaz2: cihaz2(), ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, log: testLog, tiklamaOz: tiklamaOz, gazelab: glPaket() }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.status);
     tlog(`kayıt bilgisayara gönderildi: test_kayitlari/${j.dosya}`); kayitHataKaldir("Kayıt"); return j.dosya;
-  } catch (e) { tlog(`kayıt gönderilemedi: ${e.message}`); kayitHataGoster(e.message); return null; }
+  } catch (e) {
+    const neden = e.name === "AbortError" ? `${Math.round(sureMs / 1000)} sn içinde yanıt gelmedi` : e.message;
+    tlog(`kayıt gönderilemedi: ${neden}`); kayitHataGoster(neden); return null;
+  } finally { clearTimeout(zaman); }
 }
 // Isı testi ham verisi ana kayıttan AYRI gönderilir (10 görsel × 60 sn ≈ 12 MB; ana kayıt sınırı 8 MB). Ana kayıt başarısız olsa da gider;
 // başarısızlık ekranda görünür, veri kırpılmaz. Sonuç görünümleri bellekteki ISI.veri'den çalışır, gönderim onu değiştirmez.
