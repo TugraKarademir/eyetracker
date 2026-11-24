@@ -33,8 +33,10 @@ import yonetim
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
-DATA = os.path.join(ROOT, "data")
-TEST_DIR = os.path.join(ROOT, "test_kayitlari")   # bakış testi kayıtları (telefondan da gelir)
+# Veri klasörü: DERSNABZI_DATA (masaüstü uygulaması verir) -> yoksa ROOT/data. Her şey (ders kaydı, bakış testi kayıtları) orada durur.
+_VERI_ENV = os.environ.get("DERSNABZI_DATA", "").strip()
+DATA = os.path.abspath(_VERI_ENV) if _VERI_ENV else os.path.join(ROOT, "data")
+TEST_DIR = os.path.join(DATA, "test_kayitlari") if _VERI_ENV else os.path.join(ROOT, "test_kayitlari")   # bakış testi kayıtları (telefondan da gelir)
 os.makedirs(DATA, exist_ok=True)
 KAYIT = kayit.ac(os.path.join(DATA, "dersler.db"))   # kalıcı ders kaydı; yazmalar LOCK altında
 
@@ -217,7 +219,7 @@ def yonetici_anahtari():
                 fd = os.open(yol, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     f.write(anahtar)
-                print(f"Yönetici anahtarı (yönetim ekranı): {anahtar}  (data/yonetici_anahtari.txt)")
+                print(f"Yönetici anahtarı (yönetim ekranı): {anahtar}  ({yol})")
         _ADMIN_KEY = anahtar
         return anahtar
 CLASSES = {}
@@ -1231,14 +1233,21 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def veri_klasoru_ayarla(yol):
-    """--data: veri klasörünü değiştirir; KAYIT yeni klasördeki dersler.db ile açılır, yönetici anahtarı oradan okunur."""
-    global DATA, KAYIT, _ADMIN_KEY
+    """--data: veri klasörünü değiştirir (yalnız başlangıçta çağrılır); KAYIT yeni klasördeki dersler.db ile açılır, yönetici anahtarı oradan okunur."""
+    global DATA, KAYIT, TEST_DIR, GL_DB, _ADMIN_KEY
     yol = os.path.abspath(yol)
     os.makedirs(yol, exist_ok=True)
     with _ADMIN_LOCK:
         DATA = yol
+        eski = KAYIT
         KAYIT = kayit.ac(os.path.join(yol, "dersler.db"))
+        TEST_DIR = os.path.join(yol, "test_kayitlari")
+        GL_DB = os.path.join(TEST_DIR, "gazelab.db")
         _ADMIN_KEY = None
+        try:
+            eski.close()
+        except Exception:
+            pass
 
 
 def main():
@@ -1251,7 +1260,7 @@ def main():
     ap.add_argument("--https-host", default="0.0.0.0")
     ap.add_argument("--cert", default="")
     ap.add_argument("--key", default="")
-    ap.add_argument("--data", default="", help="veri klasörü (varsayılan: ./data)")
+    ap.add_argument("--data", default="", help="veri klasörü (varsayılan: uygulama klasörü/data)")
     a = ap.parse_args()
     if a.data:
         veri_klasoru_ayarla(a.data)

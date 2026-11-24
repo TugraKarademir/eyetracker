@@ -1,4 +1,8 @@
+import contextlib
+import io
 import json
+import subprocess
+import sys
 import os
 import struct
 import shutil
@@ -376,10 +380,6 @@ class SunucuYonetim(unittest.TestCase):
         self.assertEqual((st, b), (200, PNG1))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SaglikVeVeriKlasoru(unittest.TestCase):
     def test_saglik_200(self):
         base, kapat = basla()
@@ -399,12 +399,40 @@ class SaglikVeVeriKlasoru(unittest.TestCase):
         self.addCleanup(geri)
         with unittest.mock.patch.dict(os.environ, {"DERSNABZI_ADMIN_KEY": ""}):
             server._ADMIN_KEY = "eski-anahtar"
+            eski_td, eski_gl = server.TEST_DIR, server.GL_DB
+            self.addCleanup(lambda: (setattr(server, "TEST_DIR", eski_td), setattr(server, "GL_DB", eski_gl)))
             server.veri_klasoru_ayarla(yeni)
             self.assertEqual(server.DATA, os.path.abspath(yeni))
             self.assertTrue(os.path.isdir(yeni))
             kayit.ders_ekle(server.KAYIT, "ABC123", "T", None, 1.0)
             self.assertTrue(os.path.exists(os.path.join(yeni, "dersler.db")))
-            anahtar = server.yonetici_anahtari()
+            with contextlib.redirect_stdout(io.StringIO()) as cikti:
+                anahtar = server.yonetici_anahtari()
+            self.assertIn(os.path.join(os.path.abspath(yeni), "yonetici_anahtari.txt"), cikti.getvalue())
             self.assertNotEqual(anahtar, "eski-anahtar")
+            self.assertEqual(server.TEST_DIR, os.path.join(os.path.abspath(yeni), "test_kayitlari"))
+            self.assertEqual(server.GL_DB, os.path.join(server.TEST_DIR, "gazelab.db"))
             with open(os.path.join(yeni, "yonetici_anahtari.txt"), encoding="utf-8") as f:
                 self.assertEqual(f.read().strip(), anahtar)
+
+
+class VeriEnv(unittest.TestCase):
+    def test_env_ile_varsayilan_klasor_olusmaz(self):
+        kok = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        veri = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, veri, True)
+        yeni = os.path.join(veri, "x")
+        env = dict(os.environ, DERSNABZI_DATA=yeni)
+        kod = ("import os,server;print(server.DATA);print(server.KAYIT.execute('PRAGMA database_list').fetchone()[2]);"
+               "print(server.TEST_DIR);print(server.GL_DB)")
+        o = subprocess.run([sys.executable, "-c", kod], cwd=kok, env=env, capture_output=True, text=True, check=True)
+        d, db, td, gl = o.stdout.splitlines()[:4]
+        self.assertEqual(os.path.normcase(d), os.path.normcase(os.path.abspath(yeni)))
+        self.assertEqual(os.path.normcase(db), os.path.normcase(os.path.join(os.path.abspath(yeni), "dersler.db")))
+        self.assertEqual(os.path.normcase(td), os.path.normcase(os.path.join(os.path.abspath(yeni), "test_kayitlari")))
+        self.assertEqual(os.path.normcase(gl), os.path.normcase(os.path.join(td, "gazelab.db")))
+        self.assertTrue(os.path.exists(os.path.join(yeni, "dersler.db")))
+
+
+if __name__ == "__main__":
+    unittest.main()
