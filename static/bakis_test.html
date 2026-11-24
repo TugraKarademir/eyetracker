@@ -106,6 +106,7 @@
 <div id="startCard"><div id="resTxt" style="font-size:17px;margin-bottom:14px"></div><button id="startBtn">↻ Yeniden kalibre et</button>
   <div style="margin-top:10px;display:flex;gap:8px;justify-content:center"><button id="raporBtn" style="background:#1c2633;border:1px solid #3a4756;font-size:14px">📊 İstatistikler</button>
   <button id="noktaBtn" style="background:#1c2633;border:1px solid #3a4756;font-size:14px;display:none">🎯 Noktaları göster</button>
+  <button id="isiBtn" style="background:#1c2633;border:1px solid #3a4756;font-size:14px;display:none">🔥 Isı testi</button>
   <button id="ayarBtn" style="background:#1c2633;border:1px solid #3a4756;font-size:14px">📷 Kamera ayarı</button></div></div>
 <video id="cam" autoplay playsinline muted></video>
 
@@ -116,6 +117,7 @@
 <script src="/common.js"></script>
 <script src="/gaze.js"></script>
 <script src="/gazelab_stats.js"></script>
+<script src="/isi_testi.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
 <script src="/hsemotion.js"></script>
 <script>
@@ -517,7 +519,7 @@ async function kareBekle(t, enCok) {
   while (!(buf.length && buf[buf.length - 1].t >= t) && performance.now() - t0 < enCok * 1000) await sleep(15);
 }
 document.addEventListener("pointerdown", async (e) => {
-  if (!gaze || e.target.closest("#gomuluKapat") || e.target.closest("#derseDonBtn") || e.target.closest("#panel") || e.target.closest("#guide") || e.target.closest("#startCard") || e.target.closest("#tamDon") || e.target.closest("#baslaKart") || e.target.closest("#hazirKart") || e.target.closest("#glRapor") || e.target.closest("#sonucKat") || e.target.closest(".gaze-ov") || e.target.closest("#isiKat") || e.target.closest("#kayitHata") || camBusy || bakarakSuruyor || ISI.suruyor || tiklamaBekliyor) return;   // ısı testi: tıklama öğretmez
+  if (!gaze || e.target.closest("#gomuluKapat") || e.target.closest("#derseDonBtn") || e.target.closest("#panel") || e.target.closest("#guide") || e.target.closest("#startCard") || e.target.closest("#tamDon") || e.target.closest("#baslaKart") || e.target.closest("#hazirKart") || e.target.closest("#glRapor") || e.target.closest("#sonucKat") || e.target.closest(".gaze-ov") || e.target.closest("#isiKat") || e.target.closest("#isiGorunum") || e.target.closest("#kayitHata") || camBusy || bakarakSuruyor || ISI.suruyor || tiklamaBekliyor) return;   // ısı testi: tıklama öğretmez
   // Rehberli mod: yalnız sarı hedeflere tıklanır; etiket tıklanan piksel değil hedefin merkezi (göz oraya bakıyor)
   const tgt = guide ? guide.targets.find((t) => t.el && Math.hypot(t.x - e.clientX, t.y - e.clientY) < GUIDE.HIT) : null;   // yalnız görünen nokta
   if (guide && !tgt) { toast("Sarı noktaya bakıp üstüne tıklayın.", 1500); return; }
@@ -1360,6 +1362,7 @@ async function guideFinish(neden) {
   $("#startBtn").textContent = "↻ Yeniden kalibre et"; $("#startCard").style.display = "block";
   glRaporGoster();
   $("#noktaBtn").style.display = ""; sonucGoster();   // ölçüm bitti: tahminler artık gösterilebilir
+  $("#isiBtn").style.display = isiGorunumVar() ? "" : "none";   // yalnız ısı testi verisi varsa (atlanmadıysa)
 }
 // Konsol kaydını sunucuya gönder (test_kayitlari/ altına yazılır). Telefondan konsol kopyalamak zor olduğu için.
 let tanıOnce = null;
@@ -1551,6 +1554,7 @@ $("#guideBtn").onclick = () => { sesAc(); $("#startCard").style.display = "none"
 $("#startBtn").onclick = () => { sesAc(); $("#startCard").style.display = "none"; guideStart(); };
 $("#raporBtn").onclick = (e) => { e.stopPropagation(); glRaporGoster(); };
 $("#noktaBtn").onclick = (e) => { e.stopPropagation(); sonucGoster(); };
+$("#isiBtn").onclick = (e) => { e.stopPropagation(); isiGorunumGoster(); };
 $("#ayarBtn").onclick = async (e) => { e.stopPropagation(); $("#startCard").style.display = "none"; await kameraAyari(); guideStart(); };
 $("#detBtn").onclick = () => { const pn = $("#panel"); pn.style.display = pn.style.display === "none" ? "" : "none"; };
 showYuz();
@@ -1664,6 +1668,7 @@ function glTahmin(b, o) {
 }
 function glReset() {
   glFazBitir(); GLK.recs = []; GLK.bazOrnek = []; GLK.headBase = null; GLK.dog = null; GLK.bitti = false; ISI.veri = null; ISI.kimlik = null; ISI.gonderilen = null; ISI.anaDosya = null;
+  $("#isiGorunum")?.remove(); $("#isiBtn").style.display = "none";
   GLK.sure = { basla: simdi() }; GLK.basEpoch = Date.now() / 1000;
   GLK.oturumId = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[b % 62]).join("").slice(0, 8);
 }
@@ -1836,7 +1841,8 @@ const isiMid = (m) => (m ? (_isiMid.get(m) ?? (_isiMid.set(m, ++_isiMidN), _isiM
 const isiOgrenmeSayaci = () => ({ F: F.length, Y: Y.length, FW: FW.length, YW: YW.length, FM: FM.length, FK: FK.length, YK: YK.length, FKM: FKM.length,
   RE: RE.kareler.length, wg: wgN, fuzF: fuzF.length, tiklama: clicks.length,
   karisimGecmis: karisimGecmis.length, model: isiMid(model), modelW: isiMid(modelW), modelM: isiMid(modelM), modelK: isiMid(modelK), modelKM: isiMid(modelKM), reModel: isiMid(RE.model),
-  karmaKare: KARMA.ana.kareler.length, karmaBasKare: KARMA.bas.kareler.length, karmaAtlanan: KARMA.ana.atlanan + KARMA.bas.atlanan, karmaModel: isiMid(KARMA.model), karmaHModel: isiMid(KARMA.modelH) });
+  karmaKare: KARMA.ana.kareler.length, karmaBasKare: KARMA.bas.kareler.length, karmaAtlanan: KARMA.ana.atlanan + KARMA.bas.atlanan, karmaModel: isiMid(KARMA.model), karmaHModel: isiMid(KARMA.modelH),
+  FA: FA.length, YA: YA.length, modelA: isiMid(modelA), basEtkisi: isiMid(BA.biz) });   // bizA: başı çıkarılmış eğitim dizileri, modeli ve baş etkisi
 function isiKosul(c) {   // toplama koşulları anlık görüntüsü (adım başı ve sonu)
   const d = gaze?.diag || {}, st = video.srcObject?.getVideoTracks()[0]?.getSettings?.() || {}, l = gaze?.latest;
   return { t: c ? Math.round(simdi() - c.t0) : 0, pencere: { w: innerWidth, h: innerHeight },
@@ -1922,7 +1928,7 @@ async function isiTestiAdimi() {
     const son = isiOgrenmeSayaci(), degisen = Object.keys(once).filter((k) => once[k] !== son[k]);
     console.assert(!degisen.length, "ısı testi sırasında model verisi değişti", degisen);
     if (degisen.length) { veri.ogrenmeIhlali = degisen.map((k) => `${k}: ${once[k]}→${son[k]}`); tlog(`HATA: ısı testi sırasında model verisi değişti (${veri.ogrenmeIhlali.join(", ")})`); }
-    else veri.ogrenme = "yok (eğitim dizileri F/Y/FW/YW/FM/FK/YK/FKM, RealEye kareleri, karma/karmaH kareleri ve modelleri, karışım geçmişi, WebGazer öğretilen nokta, tıklama sayısı ve model nesneleri adım başı ve sonunda aynı; pencere ofseti ölçümü (_learnOffset) kontrol edilmez, model değildir)";
+    else veri.ogrenme = "yok (eğitim dizileri F/Y/FW/YW/FM/FK/YK/FKM, bizA dizileri FA/YA, modeli ve baş etkisi (BA.biz), RealEye kareleri, karma/karmaH kareleri ve modelleri, karışım geçmişi, WebGazer öğretilen nokta, tıklama sayısı ve model nesneleri adım başı ve sonunda aynı; pencere ofseti ölçümü (_learnOffset) kontrol edilmez, model değildir)";
     glFazBitir();
     const o = veri.kosullar.ozet;
     tlog(`ISI TESTİ bitti: ${veri.gorseller.length} görsel, ${o.sureMs} ms · işlenen ${o.islenenFps ?? "-"} kare/sn · ${o.isci === "gecis" ? "işçi→ana" : o.isci == null ? "işleme yeri bilinmiyor" : o.isci ? `işçi (gecikme ${o.isciGecikmeMs ?? "-"} ms)` : "ana iş parçacığı"} · uzaklık ~${o.mesafeMedyanCm ?? "-"} cm · duygu örneği ${veri.gorseller.reduce((a, g) => a + g.duygu.length, 0)}`);
@@ -2246,6 +2252,263 @@ function sonucGoster() {
   S.querySelector("#snKapat").onclick = (e) => { e.stopPropagation(); S.remove(); };
   S.addEventListener("pointerdown", (e) => e.stopPropagation(), true);
   document.body.append(S); ciz();
+}
+// ---- Isı testi görünümleri ("🔥 Isı testi"): yalnız ölçüm ve ısı testi adımı bittikten sonra (GLK.bitti), bellekteki ISI.veri'den.
+// Hesaplar static/isi_testi.js'de (ISIT, saf). Görsel, toplama sırasında kullanılan aynı yerel nesne adresinden gösterilir; gönderilmez.
+// Her ölçünün yanında n; hesaplanamayan "veri yok"; derece/hız GL.DEG_PER_PX varsayımıyla "tahmin"; düşük örneklemede sakkad "ölçülemez".
+const ISIG = { gi: 0, yontem: "biz", a: 0, b: null, sekme: "isi", mod: "isi", kaynak: "tum", boyut: 4, saydam: 0.7, degisti: false, durum: "" };
+const isiGorunumVar = () => !!(ISI.veri && !ISI.veri.atlandi && ISI.veri.gorseller?.length);
+const vy = (x, f = (z) => z) => (x == null || (typeof x === "number" && !Number.isFinite(x)) ? "veri yok" : f(x));
+function isiYontemListesi(g) {
+  const Y = ISIT.yontemler(g), sira = Object.keys(YONTEM);
+  return Y.sort((p, q) => (sira.indexOf(p) < 0 ? 99 : sira.indexOf(p)) - (sira.indexOf(q) < 0 ? 99 : sira.indexOf(q)));
+}
+function isiRenk(t) {   // 0 → mavi, 1 → kırmızı (HSL 240° → 0°)
+  const h = (1 - t) * 240 / 60, x = 1 - Math.abs((h % 2) - 1), c = [[1, x, 0], [x, 1, 0], [0, 1, x], [0, x, 1], [x, 0, 1], [1, 0, x]][Math.min(5, Math.floor(h))];
+  return c.map((z) => Math.round(255 * z));
+}
+function isiCiz(cv, P, mod, boyutYuzde, saydam) {   // P: [{u, v, w}] görsel içi
+  const W = cv.width, H = cv.height, ctx = cv.getContext("2d"); ctx.clearRect(0, 0, W, H);
+  const gw = Math.max(1, Math.round(W / 4)), gh = Math.max(1, Math.round(H / 4));
+  const { G, max } = ISIT.yogunluk(P, gw, gh, Math.max(0.5, (boyutYuzde / 100) * gw));
+  const k = document.createElement("canvas"); k.width = gw; k.height = gh;
+  const kc = k.getContext("2d"), im = kc.createImageData(gw, gh);
+  for (let i = 0; i < G.length; i++) {
+    const t = max > 0 ? G[i] / max : 0, o = i * 4;
+    if (mod === "sis") { im.data[o + 3] = Math.round(255 * saydam * (1 - t)); continue; }
+    if (t < 0.03) continue;
+    const [r, g, b] = isiRenk(t); im.data[o] = r; im.data[o + 1] = g; im.data[o + 2] = b; im.data[o + 3] = Math.round(255 * saydam * Math.min(1, 0.25 + t));
+  }
+  kc.putImageData(im, 0, 0); ctx.imageSmoothingEnabled = true; ctx.drawImage(k, 0, 0, W, H);
+}
+// Zaman serisi çizgi grafiği (SVG). seriler: [{ad, renk, P: [[t ms, y]]}]; a..b ms; y aralığı [y0, y1] (dışı kenara kırpılır)
+function isiCizgi(seriler, a, b, y0, y1, w, h, baslik, ekler = "") {
+  const L = 44, Rr = 8, T = 18, B = 18, X = (t) => L + ((t - a) / Math.max(1, b - a)) * (w - L - Rr), Yy = (y) => T + (1 - (Math.min(y1, Math.max(y0, y)) - y0) / (y1 - y0)) * (h - T - B);
+  const yol = (P) => P.map(([t, y], i) => `${i ? "L" : "M"}${X(t).toFixed(1)},${Yy(y).toFixed(1)}`).join("");
+  const izgara = [y0, (y0 + y1) / 2, y1].map((y) => `<line x1="${L}" x2="${w - Rr}" y1="${Yy(y)}" y2="${Yy(y)}" stroke="#2a3542"/><text x="${L - 4}" y="${Yy(y) + 4}" fill="#8a94a3" font-size="10" text-anchor="end">${+y.toFixed(2)}</text>`).join("");
+  const lej = seriler.map((s, i) => `<tspan fill="${s.renk}" dx="${i ? 10 : 0}">■ ${esc2(s.ad)} (n = ${s.P.length})</tspan>`).join("");
+  return `<svg width="${w}" height="${h}" style="display:block;background:#111821;border-radius:8px;margin-bottom:6px">
+    <text x="${L}" y="12" fill="#e6edf3" font-size="11">${esc2(baslik)} &nbsp;${lej}</text>${izgara}${ekler}
+    ${seriler.map((s) => (s.P.length ? `<path d="${yol(s.P)}" fill="none" stroke="${s.renk}" stroke-width="1.4"/>` : "")).join("")}
+    <text x="${L}" y="${h - 4}" fill="#8a94a3" font-size="10">${(a / 1000).toFixed(1)} sn</text><text x="${w - Rr}" y="${h - 4}" fill="#8a94a3" font-size="10" text-anchor="end">${(b / 1000).toFixed(1)} sn</text></svg>`;
+}
+function isiGorselKutu(g, url, mw, mh, ic) {   // en-boy korunarak mw×mh'ye sığdırılmış görsel + üst katman (ic: svg/canvas html)
+  const s = Math.min(mw / g.boyut.w, mh / g.boyut.h), w = Math.max(1, Math.round(g.boyut.w * s)), h = Math.max(1, Math.round(g.boyut.h * s));
+  return { w, h, html: `<div class="igKutu" style="position:relative;width:${w}px;height:${h}px;background:#222c38;flex:none">
+    ${url ? `<img src="${esc2(url)}" alt="" draggable="false" style="position:absolute;inset:0;width:100%;height:100%;user-select:none">` : `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#8a94a3">görsel bellekte yok</div>`}
+    ${ic(w, h)}</div>` };
+}
+function isiAoiSatirlari() {   // CSV: tüm görseller × bölgeler × yöntemler, görselin tüm süresi
+  const rows = [];
+  for (const g of ISI.veri.gorseller) for (const r of g.aoi || []) for (const m of isiYontemListesi(g)) {
+    const S = ISIT.ornekler(g, m), F = ISIT.fiksasyonlar(g, S), M = ISIT.aoiMetrik(S, F.fix, r, 0), yv = (x) => x ?? "veri yok";
+    rows.push({ "Görsel": ISIT.csvGuvenli(g.ad), "Bölge": ISIT.csvGuvenli(r.ad), u0: r.u0, v0: r.v0, u1: r.u1, v1: r.v1, "Yöntem": m, "Aralık sn": `0–${((g.sureMs ?? 0) / 1000).toFixed(1)}`,
+      "Örnek n": M.n, "TTFF ms": M.ttffDurum === "tamam" ? M.ttffMs : M.ttffDurum === "bakılmadı" ? "bakılmadı" : "veri yok", "Kalma ms": yv(M.kalmaMs),
+      "Bakış payı %": M.pay == null ? "veri yok" : +M.pay.toFixed(1), "Bölgedeki örnek": M.ic, "Fiksasyon (bölgede)": M.fixToplam ? M.fixN : "veri yok", "Fiksasyon toplam": M.fixToplam, "Ziyaret": yv(M.ziyaret) });
+  }
+  return rows;
+}
+function isiGorunumGoster() {
+  if (!GLK.bitti || guide || !isiGorunumVar()) return;   // ölçüm sürerken hiçbir şey gösterilmez
+  $("#isiGorunum")?.remove();
+  const V = ISI.veri;
+  if (ISIG.gi >= V.gorseller.length) ISIG.gi = 0;
+  const K = document.createElement("div"); K.id = "isiGorunum";
+  Object.assign(K.style, { position: "fixed", inset: "0", zIndex: "23", background: "rgba(15,20,27,.98)", color: "#e6edf3", font: "13px system-ui", display: "flex", flexDirection: "column", cursor: "default" });
+  const sel = "font:inherit;background:#1c2633;color:inherit;border:1px solid #3a4756;border-radius:8px;padding:3px 6px;max-width:30vw";
+  const dug = "font:inherit;padding:4px 10px;border-radius:8px;border:1px solid #3a4756;background:#1c2633;color:inherit;cursor:pointer";
+  const SEK = [["isi", "Isı haritası / sis"], ["grafik", "Veri grafiği"], ["duygu", "Dikkat ve duygular"], ["aoi", "AOI raporu"], ["kosul", "Toplama koşulları"]];
+  K.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:rgba(20,27,36,.95);border-bottom:1px solid #2a3542">
+      <b style="font-size:15px">🔥 Isı testi</b>
+      <select id="igG" style="${sel}"></select><select id="igY" style="${sel}"></select>
+      <span>Aralık <input id="igA" type="range" step="0.1" style="width:110px;vertical-align:middle"> – <input id="igB" type="range" step="0.1" style="width:110px;vertical-align:middle"> <span id="igAB"></span></span>
+      <span style="flex:1"></span>
+      <button data-c="csvHam" style="${dug}">CSV: ham bakışlar</button><button data-c="csvAoi" style="${dug}" title="tüm görseller, bölgeler ve yöntemler; görselin tüm süresi">CSV: AOI sonuçları</button>
+      <button data-c="kapat" style="${dug}">✕ Kapat</button></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;padding:6px 12px">${SEK.map(([k, ad]) => `<button data-s="${k}" style="${dug}">${ad}</button>`).join("")}<span id="igDurum" style="opacity:.8;align-self:center"></span></div>
+    <div id="igIc" style="flex:1;overflow:auto;padding:6px 12px 16px"></div>`;
+  const ust = () => {
+    const g = V.gorseller[ISIG.gi], Y = isiYontemListesi(g), sure = g.sureMs ?? 0;
+    if (!Y.includes(ISIG.yontem)) ISIG.yontem = Y.includes("biz") ? "biz" : Y[0] || "biz";
+    K.querySelector("#igG").innerHTML = V.gorseller.map((x, i) => `<option value="${i}"${i === ISIG.gi ? " selected" : ""}>${i + 1}. ${esc2(x.ad)}</option>`).join("");
+    K.querySelector("#igY").innerHTML = Y.length ? Y.map((k) => `<option value="${k}"${k === ISIG.yontem ? " selected" : ""}>${esc2(YONTEM[k] || k)}</option>`).join("") : `<option>veri yok (tahmin yok)</option>`;
+    for (const id of ["#igA", "#igB"]) { const el = K.querySelector(id); el.min = 0; el.max = (sure / 1000).toFixed(1); }
+    if (ISIG.b == null || ISIG.b > sure) ISIG.b = sure;
+    K.querySelector("#igA").value = (ISIG.a / 1000).toFixed(1); K.querySelector("#igB").value = (ISIG.b / 1000).toFixed(1);
+    K.querySelector("#igAB").textContent = `${(ISIG.a / 1000).toFixed(1)}–${(ISIG.b / 1000).toFixed(1)} sn`;
+    K.querySelectorAll("[data-s]").forEach((b) => (b.style.borderColor = b.dataset.s === ISIG.sekme ? "#facc15" : "#3a4756"));
+    K.querySelector("#igDurum").textContent = ISIG.durum;
+  };
+  const ciz = () => { ust(); isiSekmeCiz(K.querySelector("#igIc"), ciz); };
+  K.querySelector("#igG").onchange = (e) => { ISIG.gi = +e.target.value; ISIG.a = 0; ISIG.b = null; ciz(); };
+  K.querySelector("#igY").onchange = (e) => { ISIG.yontem = e.target.value; ciz(); };
+  const aralik = (son) => { let a = +K.querySelector("#igA").value * 1000, b = +K.querySelector("#igB").value * 1000;
+    if (a > b - 100) { if (son === "a") a = Math.max(0, b - 100); else b = a + 100; }
+    ISIG.a = Math.round(a); ISIG.b = Math.round(b); K.querySelector("#igAB").textContent = `${(a / 1000).toFixed(1)}–${(b / 1000).toFixed(1)} sn`; };
+  K.querySelector("#igA").oninput = () => aralik("a"); K.querySelector("#igB").oninput = () => aralik("b");
+  K.querySelector("#igA").onchange = K.querySelector("#igB").onchange = () => ciz();
+  K.onclick = (e) => {
+    const s = e.target.dataset?.s, c = e.target.dataset?.c;
+    if (s) { ISIG.sekme = s; ciz(); }
+    else if (c === "kapat") K.remove();
+    else if (c === "csvHam") { const R = ISIT.hamSatirlar(V.gorseller); if (R.length) csvIndir(R, "isi_ham_bakislar"); ISIG.durum = R.length ? `ham bakış CSV: ${R.length} satır` : "ham bakış yok: CSV boş"; ust(); }
+    else if (c === "csvAoi") { const R = isiAoiSatirlari(); if (R.length) csvIndir(R, "isi_aoi"); ISIG.durum = R.length ? `AOI CSV: ${R.length} satır` : "bölge yok: AOI raporu sekmesinde görsel üstüne sürükleyerek bölge çizin"; ust(); }
+  };
+  K.addEventListener("pointerdown", (e) => e.stopPropagation());   // kabarcıkta durdur: içerideki bölge çizimi çalışır, kalibrasyon tıklaması sayılmaz
+  document.body.append(K); ciz();
+}
+function isiSekmeCiz(ic, yenile) {
+  const V = ISI.veri, g = V.gorseller[ISIG.gi], Gm = ISI.gorseller[ISIG.gi], url = Gm && Gm.ad === g.ad ? Gm.url : null;
+  const a = ISIG.a, b = ISIG.b ?? g.sureMs ?? 0, k = ISIG.yontem, kAd = esc2(YONTEM[k] || k);
+  const Sall = ISIT.ornekler(g, k), S = ISIT.aralik(Sall, a, b), F = ISIT.fiksasyonlar(g, S), dis = ISIT.gorselDisi(S);
+  const fDis = F.fix.filter((f) => f.u == null || !ISIT.icinde(f.u, f.v)).length;
+  const mw = Math.max(200, innerWidth - 40), mh = Math.max(200, innerHeight - 190);
+  const pct = (x) => `%${x.toFixed(1)}`, sn = (ms) => `${(ms / 1000).toFixed(2)} sn`;
+  const disMetin = `görsel dışı ${vy(dis.pct, pct)} (${dis.disari} / n = ${dis.n} örnek; ısıya girmez)`;
+  if (ISIG.sekme === "isi") {
+    const P = ISIG.kaynak === "fix" ? F.fix.filter((f) => f.u != null && ISIT.icinde(f.u, f.v)).map((f) => ({ u: f.u, v: f.v, w: f.dur }))
+      : S.filter((s) => ISIT.icinde(s.u, s.v)).map((s) => ({ u: s.u, v: s.v, w: 1 }));
+    const kutu = isiGorselKutu(g, url, mw, mh - 30, (w, h) => `<canvas width="${w}" height="${h}" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>`);
+    ic.innerHTML = `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+        <select data-k="mod" style="font:inherit;background:#1c2633;color:inherit;border:1px solid #3a4756;border-radius:8px;padding:3px 6px"><option value="isi"${ISIG.mod === "isi" ? " selected" : ""}>Isı haritası</option><option value="sis"${ISIG.mod === "sis" ? " selected" : ""}>Sis</option></select>
+        <select data-k="kaynak" style="font:inherit;background:#1c2633;color:inherit;border:1px solid #3a4756;border-radius:8px;padding:3px 6px"><option value="tum"${ISIG.kaynak === "tum" ? " selected" : ""}>Tüm bakışlar</option><option value="fix"${ISIG.kaynak === "fix" ? " selected" : ""}>Fiksasyonlar (I-VT ${F.opts.velThr}°/s, süreyle ağırlıklı)</option></select>
+        <label>Nokta boyutu <input data-k="boyut" type="range" min="1" max="15" step="0.5" value="${ISIG.boyut}" style="vertical-align:middle"></label>
+        <label>Saydamlık <input data-k="saydam" type="range" min="0.1" max="1" step="0.05" value="${ISIG.saydam}" style="vertical-align:middle"></label>
+        <span style="opacity:.85">${kAd}: ${ISIG.kaynak === "fix" ? `${P.length} fiksasyon görselde (toplam n = ${F.fix.length}; ${fDis} görsel dışı)` : `${P.length} örnek görselde`} · ${disMetin}</span></div>${kutu.html}
+      ${P.length ? "" : `<div style="margin-top:6px;opacity:.8">veri yok: bu aralıkta görsel içinde ${ISIG.kaynak === "fix" ? "fiksasyon" : "bakış"} yok</div>`}`;
+    const cv = ic.querySelector("canvas"), yeniden = () => isiCiz(cv, P, ISIG.mod, ISIG.boyut, ISIG.saydam);
+    ic.querySelectorAll("[data-k]").forEach((el) => {
+      el.oninput = el.onchange = () => { const k2 = el.dataset.k; ISIG[k2] = el.type === "range" ? +el.value : el.value; if (k2 === "kaynak") yenile(); else yeniden(); }; });
+    yeniden();
+    return;
+  }
+  if (ISIG.sekme === "grafik") {
+    const gw = Math.max(320, Math.min(900, innerWidth - 460)), sakMetin = F.sakkadOlculebilir ? `sakkad n = ${F.sakkad.length}` : `sakkad: ölçülemez (örnekleme ${vy(F.hz, (z) => z.toFixed(1) + " Hz")} < ${ISIT.HZ_SAKKAD} Hz)`;
+    const X = S.map((s) => [s.t, s.u * 100]), Yv = S.map((s) => [s.t, s.v * 100]);
+    const H = F.hiz.map((v, i) => [S[i].t, v]), hs = F.hiz.filter(Number.isFinite).sort((p, q) => p - q);
+    const hMax = Math.max(60, hs.length ? hs[Math.floor(0.95 * (hs.length - 1))] : 0);   // üst sınır: 95. yüzdelik (en az 60°/s); üstü kenara kırpılır
+    const L = 44, Rr = 8, xs = (t) => L + ((t - a) / Math.max(1, b - a)) * (gw - L - Rr);
+    const esik = `<line x1="${L}" x2="${gw - Rr}" y1="${18 + (1 - F.opts.velThr / hMax) * (130 - 36)}" y2="${18 + (1 - F.opts.velThr / hMax) * (130 - 36)}" stroke="#f59e0b" stroke-dasharray="4 3"/>`;
+    const serit = `<svg width="${gw}" height="46" style="display:block;background:#111821;border-radius:8px;margin-bottom:6px">
+        <text x="4" y="16" fill="#8a94a3" font-size="10">fiks.</text><text x="4" y="38" fill="#8a94a3" font-size="10">sakkad</text>
+        ${F.fix.map((f) => `<rect x="${xs(f.start)}" y="6" width="${Math.max(1, xs(f.end) - xs(f.start))}" height="14" fill="#22c55e" opacity=".8"/>`).join("")}
+        ${F.sakkadOlculebilir ? F.sakkad.map((q) => `<rect x="${xs(q.start)}" y="28" width="${Math.max(1, xs(q.end) - xs(q.start))}" height="14" fill="#f97316"/>`).join("")
+          : `<text x="${L}" y="39" fill="#f59e0b" font-size="11">ölçülemez: örnekleme ${vy(F.hz, (z) => z.toFixed(1) + " Hz")} (< ${ISIT.HZ_SAKKAD} Hz)</text>`}</svg>`;
+    const fOrt = F.fix.length ? Math.round(F.fix.reduce((s, f) => s + f.dur, 0) / F.fix.length) : null;
+    const yolKutu = isiGorselKutu(g, url, 380, Math.max(200, mh - 120), (w, h) => {
+      const I = F.fix.filter((f) => f.u != null && ISIT.icinde(f.u, f.v));
+      return `<svg width="${w}" height="${h}" style="position:absolute;inset:0"><polyline points="${I.map((f) => `${(f.u * w).toFixed(1)},${(f.v * h).toFixed(1)}`).join(" ")}" fill="none" stroke="#facc15" stroke-width="1.5" opacity=".8"/>
+        ${I.map((f) => { const r = Math.min(16, 6 + f.dur / 60), x = f.u * w, y = f.v * h, no = F.fix.indexOf(f) + 1;
+          return `<circle cx="${x}" cy="${y}" r="${r}" fill="rgba(250,204,21,.55)" stroke="#111" stroke-width="1"/><text x="${x}" y="${y + 4}" fill="#111" font-size="11" font-weight="700" text-anchor="middle">${no}</text>`; }).join("")}</svg>`; });
+    ic.innerHTML = `<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+      <div>${isiCizgi([{ ad: "X", renk: "#60a5fa", P: X }], a, b, -10, 110, gw, 130, `X (görselin %'si) · ${YONTEM[k] || k}`)}
+        ${isiCizgi([{ ad: "Y", renk: "#a78bfa", P: Yv }], a, b, -10, 110, gw, 130, "Y (görselin %'si; 0 üst kenar)")}
+        ${isiCizgi([{ ad: "hız", renk: "#e5e7eb", P: H }], a, b, 0, hMax, gw, 130, `hız °/s (tahmin: 1 px ≈ ${String(GL.DEG_PER_PX).replace(".", ",")}°, ${F.opts.noiseWin} ms medyan süzgeç); kesikli çizgi I-VT eşiği ${F.opts.velThr}°/s`, esik)}
+        ${serit}
+        <div style="opacity:.85;max-width:${gw}px">Değerler -%10…%110 aralığına kırpılarak çizilir (görsel dışı bakış kenarda görünür). Fiksasyon: GazeLab I-VT (en az ${F.opts.minFix} ms, ${F.opts.maxFix} ms üstü parçalanır); sakkad: iki fiksasyon arası en çok ${F.opts.maxSacc} ms.</div></div>
+      <div><div style="margin-bottom:6px"><b>Bakış yolu</b> (fiksasyon sırası; daire boyutu süreyle)</div>${yolKutu.html}
+        <div style="margin-top:8px;line-height:1.7">Seçili aralıkta (${(a / 1000).toFixed(1)}–${(b / 1000).toFixed(1)} sn, ${kAd}):<br>
+          fiksasyon sayısı <b>${F.fix.length}</b>${fDis ? ` (${fDis} görsel dışında, yolda yok)` : ""} · ortalama süre <b>${vy(fOrt, (z) => z + " ms")}</b> (n = ${F.fix.length})<br>
+          ${sakMetin}${F.sakkadOlculebilir && F.sakkad.length ? ` · ort. ${Math.round(F.sakkad.reduce((s, q) => s + q.dur, 0) / F.sakkad.length)} ms` : ""}<br>
+          örnekleme ${vy(F.hz, (z) => z.toFixed(1) + " Hz")} (n = ${S.length} örnek) · ${disMetin}</div></div></div>`;
+    return;
+  }
+  if (ISIG.sekme === "duygu") {
+    const E = ISIT.duygular(g, a, b), gw = Math.max(320, Math.min(1000, innerWidth - 60)), O = V.kosullar?.ozet;
+    const RENK = ["#60a5fa", "#f97316", "#22c55e", "#ef4444", "#a78bfa", "#facc15", "#14b8a6", "#e5e7eb"];
+    const sinif = (key) => { const A = E.filter((r) => r[key]); if (!A.length) return null;
+      return Object.keys(A[0][key]).map((c, i) => ({ ad: c, renk: RENK[i % RENK.length], P: A.map((r) => [r.t, r[key][c]]) })); };
+    const va = E.filter((r) => r.va), fa = sinif("fa"), hse = sinif("hse");
+    const yok = (ad) => `<div style="margin:6px 0 12px"><b>${ad}</b>: veri yok</div>`;
+    ic.innerHTML = `<div style="margin-bottom:8px">Dikkat / enerji: <b>veri yok (${esc2(V.analiz?.dikkatEnerjiNeden || "bu sayfada hesaplanmıyor")})</b></div>
+      <div style="margin-bottom:8px;opacity:.85">Duygu örnekleyici: ${O?.duyguOrnekleyici == null ? "veri yok" : O.duyguOrnekleyici ? `açık (${esc2((V.analiz?.duygu || []).join(", ") || "-")}; ölçülen ${vy(O.duyguOrnekMs, (z) => z + " ms")}/örnek, hedef ${vy(O.duyguHedefMs, (z) => z + " ms")})` : "kapalı (face-api/HSEmotion yüklenmedi)"}
+        · bu aralıkta n = ${E.length} örnek; zaman = örneğin başlangıcı (bir örnek yüzlerce ms sürer)</div>
+      ${!E.length ? yok("Duygular") : `
+      ${va.length ? isiCizgi([{ ad: "valans", renk: "#22c55e", P: va.map((r) => [r.t, r.va[0]]) }, { ad: "uyarılma", renk: "#f97316", P: va.map((r) => [r.t, r.va[1]]) }], a, b, -1, 1, gw, 150, "HSEmotion valans / uyarılma") : yok("Valans / uyarılma")}
+      ${hse ? isiCizgi(hse, a, b, 0, 1, gw, 170, "HSEmotion sınıf olasılıkları") : yok("HSEmotion")}
+      ${fa ? isiCizgi(fa, a, b, 0, 1, gw, 170, "face-api ifade olasılıkları") : yok("face-api")}`}`;
+    return;
+  }
+  if (ISIG.sekme === "aoi") {
+    const A = (g.aoi ||= []);
+    const kutu = isiGorselKutu(g, url, Math.min(mw, Math.max(300, innerWidth * 0.55)), mh - 40, (w, h) => `<svg class="igAoi" width="${w}" height="${h}" style="position:absolute;inset:0;cursor:crosshair">
+        ${A.map((r, i) => `<rect x="${r.u0 * w}" y="${r.v0 * h}" width="${(r.u1 - r.u0) * w}" height="${(r.v1 - r.v0) * h}" fill="rgba(250,204,21,.15)" stroke="#facc15" stroke-width="2"/>
+          <text x="${r.u0 * w + 4}" y="${r.v0 * h + 14}" fill="#facc15" font-size="12" font-weight="700" style="paint-order:stroke" stroke="#000" stroke-width="3">${i + 1}. ${esc2(r.ad)}</text>`).join("")}
+        <rect class="igYeni" fill="rgba(96,165,250,.2)" stroke="#60a5fa" stroke-dasharray="4 3" width="0" height="0"/></svg>`);
+    const M = A.map((r) => ISIT.aoiMetrik(S, F.fix, r, a));
+    const nn = (x) => `<span style="opacity:.6"> (${x})</span>`, td = "padding:4px 8px;border-bottom:1px solid #222c38;white-space:nowrap";
+    const satir = A.map((r, i) => { const m = M[i];
+      const ttff = m.ttffDurum === "tamam" ? sn(m.ttffMs) : m.ttffDurum === "bakılmadı" ? "bakılmadı" : "veri yok";
+      return `<tr><td style="${td}">${i + 1}. <input data-ad="${i}" value="${esc2(r.ad)}" style="font:inherit;width:120px;background:#1c2633;color:inherit;border:1px solid #3a4756;border-radius:6px;padding:2px 4px"></td>
+        <td style="${td}">${ttff}${nn(`n = ${m.fixToplam} fiks.`)}</td>
+        <td style="${td}">${vy(m.kalmaMs, sn)}${nn(`${m.ic} / n = ${m.n} örnek`)}</td>
+        <td style="${td}">${vy(m.pay, pct)}${nn(`${m.ic} / n = ${m.n}`)}</td>
+        <td style="${td}">${m.fixToplam ? m.fixN : "veri yok"}${nn(`n = ${m.fixToplam} fiks.`)}</td>
+        <td style="${td}">${vy(m.ziyaret)}${nn(`n = ${m.fixToplam} fiks.`)}</td>
+        <td style="${td}"><button data-sil="${i}" style="font:inherit;padding:2px 8px;border-radius:6px;border:1px solid #3a4756;background:#1c2633;color:#ef4444;cursor:pointer">Sil</button></td></tr>`; }).join("");
+    const th = (x) => `<th style="text-align:left;padding:5px 8px;border-bottom:1px solid #3a4756;color:#8a94a3">${x}</th>`;
+    ic.innerHTML = `<div style="margin-bottom:6px;opacity:.85">Görselin üstünde fareyle sürükleyerek bölge ekleyin. ${kAd}, ${(a / 1000).toFixed(1)}–${(b / 1000).toFixed(1)} sn · ${disMetin}</div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">${kutu.html}
+      <div><table style="border-collapse:collapse;font-size:12px"><tr>${["Bölge", "TTFF", "Kalma süresi", "Bakış payı", "Fiksasyon", "Ziyaret", ""].map(th).join("")}</tr>
+        ${satir || `<tr><td colspan="7" style="${td};opacity:.7">bölge yok</td></tr>`}</table>
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center"><button data-kaydet="1" style="font:inherit;padding:5px 12px;border-radius:8px;border:1px solid #facc15;background:#1c2633;color:#facc15;cursor:pointer"${ISI.kimlik ? "" : " disabled"}>Bölgeleri kaydet</button>
+          <span id="igKayit" style="opacity:.85">${ISI.kimlik ? (ISIG.degisti ? "kaydedilmemiş değişiklik var" : "") : "ısı testi kimliği yok: gönderilemez"}</span></div>
+        <div style="margin-top:10px;opacity:.7;max-width:520px;line-height:1.5">TTFF: aralık başından bölgedeki ilk fiksasyonun başına kadar. Kalma süresi: bölgedeki örneklerin süreleri toplamı
+          (örnek süresi sonraki örneğe kadar, en çok ${ISIT.KESIM_KAT} × medyan aralık). Bakış payı: bölgedeki örnek / tüm örnek. Ziyaret: bölgedeki ardışık fiksasyon dizisi.
+          Bölgeler kayda (ısı testi ayrı dosyası) "Bölgeleri kaydet" ile yazılır; otomatik gönderilmez.</div></div></div>`;
+    const svg = ic.querySelector(".igAoi"), yeni = svg.querySelector(".igYeni"), w = kutu.w, h = kutu.h;
+    let bas = null;
+    const nokta = (e) => { const r = svg.getBoundingClientRect(); return [Math.min(1, Math.max(0, (e.clientX - r.left) / w)), Math.min(1, Math.max(0, (e.clientY - r.top) / h))]; };
+    svg.addEventListener("pointerdown", (e) => { bas = nokta(e); svg.setPointerCapture(e.pointerId); });
+    svg.addEventListener("pointermove", (e) => { if (!bas) return; const [u, v] = nokta(e);
+      yeni.setAttribute("x", Math.min(u, bas[0]) * w); yeni.setAttribute("y", Math.min(v, bas[1]) * h);
+      yeni.setAttribute("width", Math.abs(u - bas[0]) * w); yeni.setAttribute("height", Math.abs(v - bas[1]) * h); });
+    svg.addEventListener("pointerup", (e) => { if (!bas) return; const [u, v] = nokta(e), p = bas; bas = null;
+      if (Math.abs(u - p[0]) < 0.01 || Math.abs(v - p[1]) < 0.01) { yeni.setAttribute("width", 0); return; }   // tık/çok küçük: bölge değil
+      const r4 = (z) => +z.toFixed(4);
+      A.push({ ad: `Bölge ${A.length + 1}`, u0: r4(Math.min(u, p[0])), v0: r4(Math.min(v, p[1])), u1: r4(Math.max(u, p[0])), v1: r4(Math.max(v, p[1])) });
+      ISIG.degisti = true; yenile(); });
+    ic.querySelectorAll("[data-ad]").forEach((el) => (el.onchange = () => { A[+el.dataset.ad].ad = el.value.slice(0, 60); ISIG.degisti = true; yenile(); }));
+    ic.querySelectorAll("[data-sil]").forEach((el) => (el.onclick = () => { A.splice(+el.dataset.sil, 1); ISIG.degisti = true; yenile(); }));
+    const kb = ic.querySelector("[data-kaydet]");
+    kb.onclick = async () => { kb.disabled = true; ic.querySelector("#igKayit").textContent = "gönderiliyor…";
+      const d = await isiTestiGonder(ISI.anaDosya);
+      if (d) { ISIG.degisti = false; tlog(`ısı testi bölgeleri kaydedildi: ${V.gorseller.map((x) => `${x.ad} ${(x.aoi || []).length}`).join(", ")}`); }
+      const s = ic.querySelector("#igKayit"); if (s) s.textContent = d ? `kaydedildi: ${d}` : "gönderilemedi (alttaki uyarıya bakın); bölgeler bellekte duruyor";
+      kb.disabled = false; };
+    return;
+  }
+  // Toplama koşulları
+  const B = V.kosullar?.bas, E = V.kosullar?.bit, O = V.kosullar?.ozet, kare = g.kareler || [];
+  const wh = (o) => (o && o.w != null ? `${o.w}×${o.h}` : null), evet = (x) => (x ? "evet" : "hayır");
+  const hzSall = ISIT.hz(Sall);
+  const T = [
+    ["Pencere (CSS px), adım başı → sonu", B && E ? `${wh(B.pencere)} → ${wh(E.pencere)}${O?.pencereDegisti ? " (değişti)" : ""}` : null],
+    ["Pencere, bu görsel başında", wh(g.pencere)],
+    ["Gösterim dikdörtgeni (bu görsel)", g.dikdortgen ? `${Math.round(g.dikdortgen.w)}×${Math.round(g.dikdortgen.h)} px, (${Math.round(g.dikdortgen.x)}, ${Math.round(g.dikdortgen.y)})${g.dikdortgenDegisim?.length ? ` · ${g.dikdortgenDegisim.length} kez değişti` : ""}` : null],
+    ["Ekran (CSS px)", B?.ekran ? `${wh(B.ekran)} (kullanılabilir ${B.ekran.kullanilabilirW}×${B.ekran.kullanilabilirH})` : null],
+    ["DPR", B?.dpr],
+    ["Tam ekran kaldı mı", O?.tamEkranKaldi == null ? null : `${evet(O.tamEkranKaldi)} (başta ${evet(B?.tamEkran)}, sonda ${evet(E?.tamEkran)})`],
+    ["Görüntülenme süresi (bu görsel)", g.sureMs == null ? null : `${g.sureMs} ms (plan ${V.planSureMs} ms)`],
+    ["Isı testi toplam süresi", O?.sureMs == null ? null : `${O.sureMs} ms`],
+    [`Örnekleme Hz (bu görsel, ${YONTEM[k] || k})`, hzSall == null ? null : `${hzSall.toFixed(1)} Hz (n = ${Sall.length} örnek)`],
+    ["Kare (bu görsel)", `${kare.length} MediaPipe karesi, ${kare.filter((x) => x.k).length} kırpma · WebGazer ${g.wg?.length ?? 0}`],
+    ["İşlenen kare/sn", O?.islenenFps],
+    ["Yüz bulunan kare/sn", O?.yuzFps],
+    ["İşleme ms/kare", O?.islemeMsKare],
+    ["İşleme yeri", O?.isci == null ? null : O.isci === "gecis" ? "işçi ↔ ana geçiş oldu" : O.isci ? "işçi (Web Worker)" : "ana iş parçacığı"],
+    ["Hızlandırıcı (delegate)", B?.delegate],
+    ["İşçi gecikmesi (ms, yakalama → sonuç)", O?.isciGecikmeMs],
+    ["Kamera çözünürlüğü / fps (ayar)", B?.kamera?.w ? `${B.kamera.w}×${B.kamera.h}, ${B.kamera.fps ?? "fps veri yok"}` : null],
+    ["Kamera fps (ölçülen)", O?.kameraFps],
+    ["WebGazer kamerası", B?.wgKamera ? `${B.wgKamera.width}×${B.wgKamera.height}, ${B.wgKamera.frameRate ?? "fps veri yok"}` : null],
+    ["Yakınlaştırma", B?.zoom == null ? null : `${B.zoom}×${B.zoomMod ? ` (${B.zoomMod})` : ""}`],
+    ["Uzaklık (medyan, MediaPipe kestirimi)", O?.mesafeMedyanCm == null ? null : `${O.mesafeMedyanCm} cm (n = ${O.mesafeN} kare)`],
+    ["Duygu örnekleyici", O?.duyguOrnekleyici == null ? null : O.duyguOrnekleyici ? `açık (${(V.analiz?.duygu || []).join(", ")})` : "kapalı"],
+    ["Duygu ms/örnek (ölçülen medyan)", O?.duyguOrnekMs == null ? null : `${O.duyguOrnekMs} ms (hedef ${O.duyguHedefMs} ms; bu görselde n = ${g.duygu?.length ?? 0})`],
+    ["Model öğrenmesi (ısı testi sırasında)", V.ogrenmeIhlali ? `DEĞİŞTİ: ${V.ogrenmeIhlali.join(", ")}` : V.ogrenme ? "yok (denetlendi)" : null],
+  ].map(([o, d]) => ({ "Ölçü": o, "Değer": vy(d) }));
+  ic.innerHTML = tabloHtml(T, `Toplama koşulları · ${esc2(g.ad)}`) + `<div style="opacity:.7;margin-top:8px">Kaynak: ısı testi adımının başı/sonu anlık görüntüleri (kosullar.bas/bit) ve özeti (kosullar.ozet); kayıtta olmayan "veri yok".</div>`;
 }
 const glKayitlar = () => [...GLK.recs, ...(GLK.cur ? [{ ...GLK.cur, head: [], acik: true }] : [])].map((r) => ({ stimulus_id: r.stimulus_id, order_idx: r.order_idx, started_at: r.started_at,
   rect: r.rect, gaze: r.gaze, mouse: r.mouse, head: r.head }));

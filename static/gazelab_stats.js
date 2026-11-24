@@ -74,7 +74,7 @@ const GL = (() => {
   // ---- I-VT fiksasyon filtresi (analysis.js ivt; koordinatlar doğrudan pencere pikseli)
   function ivt(raw, opts) {
     const o = Object.assign({}, IVT_DEFAULTS, opts || {}), n = raw.length;
-    if (n < 3) return { fixations: [], saccades: [], opts: o };
+    if (n < 3) return { fixations: [], saccades: [], opts: o, hiz: [] };
     const t = raw.map((p) => p[0]), sx = raw.map((p) => p[1]), sy = raw.map((p) => p[2]);
     const half = o.noiseWin / 2, fx = new Array(n), fy = new Array(n);
     const med = (arr) => { arr.sort((p, q) => p - q); const m = arr.length >> 1; return arr.length % 2 ? arr[m] : (arr[m - 1] + arr[m]) / 2; };
@@ -110,7 +110,7 @@ const GL = (() => {
       const p = fixations[k - 1], q = fixations[k], dur = q.start - p.end;
       if (dur > 0 && dur <= o.maxSacc) saccades.push({ dur, amp: Math.hypot(q.x - p.x, q.y - p.y) * DEG_PER_PX });
     }
-    return { fixations, saccades, opts: o };
+    return { fixations, saccades, opts: o, hiz: v };   // hiz: örnek başına süzülmüş hız °/s (DEG_PER_PX tahminiyle; ısı testi grafiği için)
   }
   // Bir kaydın gazelab "veri grafiği" özeti
   function recordingSummary(r) {
