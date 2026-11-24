@@ -137,8 +137,8 @@ pencerelerde açar ve aynı veri biçimini kullanır. Uygulama kapanınca sunucu
   sunucu tek klasör `dersnabzi-sunucu` olarak derlenir (`masaustu/build-py/`, PyInstaller 6 veya üstü gerekir),
   sonra electron-builder'ın NSIS kurulum dosyasını `masaustu/dist/` altına üretmesi amaçlanır (ilk çalıştırmada
   NSIS araçlarını indirir). Hedef: kurulumda sunucu `resources/sunucu/dersnabzi-sunucu.exe` olarak durur ve
-  Python kurulu olması gerekmez. **Bu henüz doğrulanmadı** (aşağıdaki Sınırlar'a bakın); doğrulama için
-  `paketle.ps1` yerel olarak çalıştırılıp ardından `masaustu\dist\win-unpacked\DersNabzı.exe --smoke` denenmeli.
+  Python kurulu olması gerekmez. Paketli uygulama (`win-unpacked`) 2026-11-24'te geliştiricinin bilgisayarında
+  `--smoke` ile doğrulandı; NSIS kurulum dosyasının üretimi henüz doğrulanmadı (aşağıdaki Sınırlar'a bakın).
   Üretilen dosyalar (`build-py/`, `dist/`) depoya girmez.
 - **Veri klasörü:** tek ve seçilebilir; ders kayıtları, yönetici anahtarı ve bakış testi kayıtları
   (`<veri>/test_kayitlari/`) hep oradadır. Varsayılan: geliştirmede depodaki `data/` (tarayıcı sürümüyle aynı),
@@ -153,9 +153,10 @@ pencerelerde açar ve aynı veri biçimini kullanır. Uygulama kapanınca sunucu
 - **Sınırlar:** yüz/bakış modelleri (MediaPipe, face-api, WebGazer) CDN'den yüklendiği için internet gerekir;
   yalnız Windows (x64) paketi var; kurulum dosyası imzasız olduğundan Windows SmartScreen uyarı verebilir.
   Elle sınanmadı: gerçek kamerayla kullanım, Ctrl+Shift+Q onay penceresi, Alt+F4 davranışı, klasör seçme penceresi.
-  Doğrulanmadı: kurulum dosyası henüz başarıyla üretilmedi (geliştirme ortamında NSIS adımı yeni derlenen
-  imzasız dosyaları çalıştıramadığı için durdu); paketli sunucu (`dersnabzi-sunucu.exe`) ve paketli uygulama
-  hiç çalıştırılmadı. Yalnız PyInstaller klasörü ve `win-unpacked` üretildi.
+  Doğrulandı (2026-11-24, `win-unpacked\DersNabzı.exe --smoke`, geliştiricinin bilgisayarı): paketli sunucu
+  (`dersnabzi-sunucu.exe`) başlıyor, başlangıç ekranı, yönetim anahtarı, kamera izni, menüsüz pencere, kiosk
+  tam ekrana dönüş, sunucu çökmesi uyarısı ve yeniden başlatma. Doğrulanmadı: NSIS kurulum dosyası henüz
+  başarıyla üretilmedi (geliştirme ortamında NSIS adımı durdu; `paketle.ps1` yerel olarak yeniden çalıştırılmalı).
 
 ## Sınırlar / sonraki adımlar
 
