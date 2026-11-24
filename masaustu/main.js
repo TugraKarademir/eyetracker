@@ -1,0 +1,433 @@
+"use strict";
+// DersNabzı masaüstü: Python sunucusunu başlatır, başlangıç ekranını ve sayfa pencerelerini açar.
+const { app, BrowserWindow, dialog, ipcMain, session, shell } = require("electron");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const { fileURLToPath } = require("url");
+const sunucu = require("./sunucu");
+const ayarlar = require("./ayarlar");
+const { izinVerilsinMi, koken } = require("./izin");
+
+// ---------------------------------------------------------------- argümanlar, yollar
+const SMOKE = process.argv.includes("--smoke");
+function argDegeri(ad) {
+  const on = `--${ad}=`;
+  const a = process.argv.find((x) => x.startsWith(on));
+  return a ? a.slice(on.length) : "";
+}
+// Veri klasörü geçersiz kılma (deneme/smoke için; ayar dosyasına yazılmaz).
+let VERI_ZORLA = argDegeri("veri") || (process.env.DERSNABZI_MASAUSTU_VERI || "").trim();
+let SMOKE_GECICI = null;
+if (SMOKE) {
+  // Smoke koşusu gerçek data/ klasörüne ve gerçek kullanıcı profiline asla dokunmaz.
+  const gecici = fs.mkdtempSync(path.join(os.tmpdir(), "dn-smoke-"));
+  if (!VERI_ZORLA) VERI_ZORLA = path.join(gecici, "veri");
+  app.setPath("userData", path.join(gecici, "profil"));
+  SMOKE_GECICI = gecici;
+}
+if (VERI_ZORLA) VERI_ZORLA = path.resolve(VERI_ZORLA);
+
+const AYAR_DOSYASI = () => path.join(app.getPath("userData"), "ayarlar.json");
+const BASLANGIC_HTML = path.join(__dirname, "baslangic.html");
+const SAYFALAR = {
+  ogretmen: "/teacher.html",
+  ogrenci: "/student.html",
+  test: "/bakis_test.html",
+  yonetim: "/admin.html",
+};
+
+function paketSunucuYolu() {
+  if (!app.isPackaged) return null;
+  const ad = process.platform === "win32" ? "dersnabzi-sunucu.exe" : "dersnabzi-sunucu";
+  return path.join(process.resourcesPath, "sunucu", ad);
+}
+
+// ---------------------------------------------------------------- durum
+let ayar = null;
+let calisan = null;        // { port, surec, durdur }
+let sunucuKoken = null;    // "http://127.0.0.1:PORT" (yalnız sunucu hazırken)
+let durum = { asama: "basliyor", port: null, veriKlasoru: null, hata: null, zorla: !!VERI_ZORLA };
+let baslangicPenceresi = null;
+const sayfaPencereleri = new Set();
+let cikiliyor = false;
+
+function veriKlasoru() {
+  return VERI_ZORLA || ayar.veriKlasoru;
+}
+
+function durumYayinla(yeni) {
+  durum = { ...durum, ...yeni, zorla: !!VERI_ZORLA };
+  if (baslangicPenceresi && !baslangicPenceresi.isDestroyed()) {
+    baslangicPenceresi.webContents.send("dn:durum", durum);
+  }
+}
+
+// Sunucu işlemleri sıraya alınır (başlat/durdur/yeniden başlat çakışmasın).
+let sira = Promise.resolve();
+function sirala(is) {
+  const p = sira.then(is, is);
+  sira = p.catch(() => {});
+  return p;
+}
+
+async function sunucuDurdur() {
+  const c = calisan;
+  calisan = null;
+  sunucuKoken = null;
+  if (c) await c.durdur();
+}
+
+async function sunucuBaslat() {
+  const veri = veriKlasoru();
+  durumYayinla({ asama: "basliyor", port: null, veriKlasoru: veri, hata: null });
+  try {
+    fs.mkdirSync(veri, { recursive: true });
+    const port = await sunucu.bosPortBul(8030);
+    const { komut, argumanlar } = sunucu.varsayilanKomut(veri, paketSunucuYolu());
+    calisan = await sunucu.baslat({ komut, argumanlar, port, veri, zamanAsimiMs: 30000 });
+    sunucuKoken = `http://127.0.0.1:${calisan.port}`;
+    durumYayinla({ asama: "hazir", port: calisan.port, veriKlasoru: veri, hata: null });
+  } catch (e) {
+    calisan = null;
+    sunucuKoken = null;
+    durumYayinla({ asama: "hata", port: null, veriKlasoru: veri, hata: String(e && e.message ? e.message : e) });
+  }
+}
+
+function sayfaPencereleriniKapat() {
+  for (const w of [...sayfaPencereleri]) {
+    w.__dnKapatIzni = true;
+    if (!w.isDestroyed()) w.destroy();
+  }
+  sayfaPencereleri.clear();
+}
+
+function sunucuyuYenidenBaslat() {
+  return sirala(async () => {
+    sayfaPencereleriniKapat();   // eski porttaki sayfalar artık çalışmaz
+    try { await sunucuDurdur(); } catch (e) { console.error(`Sunucu durdurulamadı: ${e.message}`); }
+    await sunucuBaslat();
+  });
+}
+
+// ---------------------------------------------------------------- yönetici anahtarı
+function yoneticiAnahtariOku() {
+  const env = (process.env.DERSNABZI_ADMIN_KEY || "").trim();
+  if (env) return env;   // sunucu da önce ortam değişkenine bakar
+  try {
+    return fs.readFileSync(path.join(veriKlasoru(), "yonetici_anahtari.txt"), "utf8").trim() || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function yonetimSayfasiMi(url) {
+  try {
+    const u = new URL(url);
+    return sunucuKoken !== null && u.origin === sunucuKoken && u.pathname === "/admin.html";
+  } catch (_) {
+    return false;
+  }
+}
+
+// Anahtar URL'ye konmaz. İlk yüklemeden sonra sessionStorage'a yazılır, sayfa bir kez yenilenir;
+// admin.js anahtarı açılışta sessionStorage'dan okuduğu için ikinci yüklemede doğrudan kullanır.
+// Pencere bu süre boyunca gizli kalır (anahtar formu kısa süre görünmesin).
+function anahtarEnjeksiyonuKur(win) {
+  let enjekteEdildi = false;
+  const goster = () => { if (!win.isDestroyed() && !win.isVisible()) win.show(); };
+  const yedek = setTimeout(goster, 8000);
+  win.once("closed", () => clearTimeout(yedek));
+  win.webContents.on("did-finish-load", async () => {
+    const wc = win.webContents;
+    if (enjekteEdildi || !yonetimSayfasiMi(wc.getURL())) { goster(); return; }
+    enjekteEdildi = true;
+    const anahtar = yoneticiAnahtariOku();
+    if (!anahtar) { goster(); return; }   // dosya yoksa sayfa anahtarı kendisi sorar
+    try {
+      await wc.executeJavaScript(
+        `try { sessionStorage.setItem("dn_admin_key", ${JSON.stringify(anahtar)}); true } catch (e) { false }`,
+        true,
+      );
+      // Yazdıktan sonra da hâlâ aynı köken + yönetim sayfası mı? (araya gezinme girmediyse)
+      if (yonetimSayfasiMi(wc.getURL())) wc.reload(); else goster();
+    } catch (e) {
+      console.error(`Yönetici anahtarı yazılamadı: ${e.message}`);
+      goster();
+    }
+  });
+}
+
+// ---------------------------------------------------------------- pencereler
+const GUVENLI_WEB = { contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, spellcheck: false };
+
+function kioskKlavyesiKur(win) {
+  win.webContents.on("before-input-event", (olay, girdi) => {
+    if (girdi.type !== "keyDown") return;
+    const tus = (girdi.key || "").toLowerCase();
+    if (girdi.control && girdi.shift && tus === "q") {
+      olay.preventDefault();
+      dialog.showMessageBox(win, {
+        type: "question",
+        buttons: ["Vazgeç", "Pencereyi kapat"],
+        defaultId: 0,
+        cancelId: 0,
+        title: "DersNabzı",
+        message: "Bu pencere kapatılsın mı?",
+      }).then(({ response }) => {
+        if (response === 1 && !win.isDestroyed()) { win.__dnKapatIzni = true; win.close(); }
+      }).catch(() => {});
+      return;
+    }
+    // Esc engellenmez: kiosk'u bozmaz (yalnız sayfanın HTML tam ekranından çıkar, pencere kiosk kalır;
+    // denendi) ve gaze.js kalibrasyonundaki "Vazgeç (Esc)" buna dayanır.
+    if (tus === "f11" || (girdi.alt && tus === "f4") || (girdi.control && tus === "w")) {
+      olay.preventDefault();
+    }
+  });
+  // Alt+F4 işletim sisteminden doğrudan "close" olarak gelebilir: izin yoksa kapanma.
+  win.on("close", (e) => {
+    if (!cikiliyor && !win.__dnKapatIzni) e.preventDefault();
+  });
+}
+
+function gezinmeKilidiKur(wc) {
+  const ayniKoken = (url) => sunucuKoken !== null && koken(url) === sunucuKoken;
+  wc.on("will-navigate", (e, url) => {
+    if (ayniKoken(url)) return;
+    e.preventDefault();
+    const k = koken(url);
+    if (k) shell.openExternal(url).catch(() => {});
+  });
+  wc.on("will-redirect", (e, url) => { if (!ayniKoken(url)) e.preventDefault(); });
+  wc.setWindowOpenHandler(({ url }) => {
+    if (ayniKoken(url)) {
+      sayfaPenceresiAc(new URL(url).pathname + new URL(url).search);
+    } else if (koken(url)) {
+      shell.openExternal(url).catch(() => {});
+    }
+    return { action: "deny" };
+  });
+}
+
+function hedefKioskMu(yol) {
+  if (SMOKE) return false;
+  if (yol.startsWith(SAYFALAR.ogrenci)) return !!ayar.kiosk.ogrenci;
+  if (yol.startsWith(SAYFALAR.test)) return !!ayar.kiosk.test;
+  return false;
+}
+
+function sayfaPenceresiAc(yol, { goster = true } = {}) {
+  if (!sunucuKoken) throw new Error("Sunucu hazır değil");
+  const kiosk = hedefKioskMu(yol);
+  const yonetim = yol.startsWith(SAYFALAR.yonetim);
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    show: false,
+    kiosk,
+    autoHideMenuBar: true,
+    backgroundColor: "#f6f7f9",
+    title: "DersNabzı",
+    webPreferences: { ...GUVENLI_WEB },   // preload YOK
+  });
+  win.setMenuBarVisibility(false);
+  sayfaPencereleri.add(win);
+  win.on("closed", () => sayfaPencereleri.delete(win));
+  gezinmeKilidiKur(win.webContents);
+  if (kiosk) kioskKlavyesiKur(win);
+  if (yonetim) anahtarEnjeksiyonuKur(win);
+  else if (goster) win.once("ready-to-show", () => win.show());
+  win.loadURL(sunucuKoken + yol);
+  return win;
+}
+
+function baslangicPenceresiAc() {
+  const win = new BrowserWindow({
+    width: 980,
+    height: 720,
+    minWidth: 640,
+    minHeight: 520,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: "#f6f7f9",
+    title: "DersNabzı",
+    webPreferences: { ...GUVENLI_WEB, preload: path.join(__dirname, "preload.js") },
+  });
+  win.setMenuBarVisibility(false);
+  win.webContents.on("will-navigate", (e) => e.preventDefault());
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  if (!SMOKE) win.once("ready-to-show", () => win.show());
+  win.on("closed", () => {
+    baslangicPenceresi = null;
+    app.quit();   // ana pencere kapanınca uygulama (ve sunucu) kapanır
+  });
+  baslangicPenceresi = win;
+  win.loadFile(BASLANGIC_HTML);
+  return win;
+}
+
+// ---------------------------------------------------------------- IPC (yalnız başlangıç ekranından)
+function baslangictanMi(olay) {
+  const f = olay.senderFrame;
+  if (!f || !baslangicPenceresi || olay.sender !== baslangicPenceresi.webContents) return false;
+  try {
+    const a = path.resolve(fileURLToPath(f.url));
+    return process.platform === "win32" ? a.toLowerCase() === BASLANGIC_HTML.toLowerCase() : a === BASLANGIC_HTML;
+  } catch (_) {
+    return false;
+  }
+}
+
+function ipcKur() {
+  const kayit = (kanal, isleyici) => ipcMain.handle(kanal, (olay, ...a) => {
+    if (!baslangictanMi(olay)) throw new Error("izin yok");
+    return isleyici(...a);
+  });
+  kayit("dn:durum", () => durum);
+  kayit("dn:ayarlar", () => ({ ...ayar, kiosk: { ...ayar.kiosk }, veriKlasoruZorla: VERI_ZORLA || null }));
+  kayit("dn:ac", (hedef) => {
+    const yol = SAYFALAR[hedef];
+    if (!yol) throw new Error(`bilinmeyen hedef: ${hedef}`);
+    if (!sunucuKoken) throw new Error("Sunucu hazır değil");
+    sayfaPenceresiAc(yol);
+    return true;
+  });
+  kayit("dn:veriKlasoruSec", async () => {
+    const r = await dialog.showOpenDialog(baslangicPenceresi, {
+      title: "Veri klasörünü seçin",
+      defaultPath: veriKlasoru(),
+      properties: ["openDirectory", "createDirectory"],
+    });
+    return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
+  });
+  kayit("dn:ayarKaydet", async (yeni) => {
+    if (!yeni || typeof yeni !== "object") throw new Error("geçersiz ayar");
+    const eskiVeri = veriKlasoru();
+    const birlesik = {
+      ...ayar,
+      kiosk: {
+        ogrenci: typeof yeni.kiosk?.ogrenci === "boolean" ? yeni.kiosk.ogrenci : ayar.kiosk.ogrenci,
+        test: typeof yeni.kiosk?.test === "boolean" ? yeni.kiosk.test : ayar.kiosk.test,
+      },
+    };
+    if (typeof yeni.veriKlasoru === "string" && yeni.veriKlasoru) {
+      if (!path.isAbsolute(yeni.veriKlasoru)) throw new Error("Veri klasörü tam yol olmalı");
+      birlesik.veriKlasoru = path.resolve(yeni.veriKlasoru);
+    }
+    ayarlar.kaydet(AYAR_DOSYASI(), birlesik);
+    ayar = ayarlar.yukle(AYAR_DOSYASI());
+    const yenidenBaslat = veriKlasoru() !== eskiVeri;
+    if (yenidenBaslat) sunucuyuYenidenBaslat();   // beklemeden; durum olaylarla gelir
+    return { ayar, yenidenBaslat };
+  });
+  kayit("dn:yenidenDene", () => { sunucuyuYenidenBaslat(); return true; });
+}
+
+// ---------------------------------------------------------------- güvenlik: izinler, webview
+function oturumKur() {
+  const s = session.defaultSession;
+  const karar = (url, izin) =>
+    // Sayfalar requestFullscreen kullanır; tam ekran da yalnız sunucu kökenine açıktır.
+    izin === "fullscreen" ? (sunucuKoken !== null && koken(url) === sunucuKoken) : izinVerilsinMi(url, izin, sunucuKoken);
+  s.setPermissionRequestHandler((wc, izin, geri, ayrinti) => {
+    geri(karar((ayrinti && ayrinti.requestingUrl) || wc.getURL(), izin));
+  });
+  s.setPermissionCheckHandler((wc, izin, istekKoken, ayrinti) => {
+    return karar(istekKoken || (ayrinti && ayrinti.requestingUrl) || (wc ? wc.getURL() : ""), izin);
+  });
+}
+
+app.on("web-contents-created", (_e, wc) => {
+  wc.on("will-attach-webview", (e) => e.preventDefault());
+});
+
+// ---------------------------------------------------------------- smoke
+async function smokeKos() {
+  const zaman = setTimeout(() => { console.error("SMOKE: zaman aşımı"); cikisYap(1); }, 90000);
+  const adimlar = [];
+  const yaz = (m) => { adimlar.push(m); console.log(`SMOKE: ${m}`); };
+  try {
+    yaz(`veri klasörü: ${veriKlasoru()}`);
+    yaz(`profil: ${app.getPath("userData")}`);
+    await sira;   // sunucu başlatma bitsin
+    if (durum.asama !== "hazir") throw new Error(`sunucu hazır değil: ${durum.hata}`);
+    yaz(`sunucu hazır, port ${durum.port}`);
+    const win = baslangicPenceresi;
+    if (win.webContents.isLoading()) await new Promise((r) => win.webContents.once("did-finish-load", r));
+    await new Promise((r) => setTimeout(r, 300));
+    const ekran = await win.webContents.executeJavaScript(
+      `({ durum: document.getElementById("durumMetni").textContent, dugme: document.querySelectorAll("[data-hedef]").length, api: typeof window.masaustu, node: typeof require })`,
+    );
+    yaz(`başlangıç ekranı: ${JSON.stringify(ekran)}`);
+    if (ekran.dugme !== 4 || ekran.api !== "object" || ekran.node !== "undefined") throw new Error("başlangıç ekranı beklenen gibi değil");
+    if (!(await sunucu.saglikVar(durum.port))) throw new Error("/api/saglik yanıt vermiyor");
+    yaz("/api/saglik ok");
+    const anahtar = yoneticiAnahtariOku();
+    yaz(`yönetici anahtarı dosyası: ${anahtar ? "okundu" : "YOK"}`);
+    if (!anahtar) throw new Error("yönetici anahtarı okunamadı");
+    // Yönetim penceresi: anahtar enjeksiyonu + yeniden yükleme
+    const yw = sayfaPenceresiAc(SAYFALAR.yonetim);
+    await new Promise((coz, red) => {
+      const t = setTimeout(() => red(new Error("yönetim penceresi gösterilmedi")), 20000);
+      yw.once("show", () => { clearTimeout(t); coz(); });
+    });
+    await new Promise((r) => setTimeout(r, 1500));
+    const y = await yw.webContents.executeJavaScript(
+      `({ esit: sessionStorage.getItem("dn_admin_key") === ${JSON.stringify(anahtar)}, anahtarsiz: document.body.classList.contains("anahtarsiz"), url: location.href })`,
+    );
+    yaz(`yönetim: anahtar eşit=${y.esit}, anahtar formu açık=${y.anahtarsiz}, url anahtar içeriyor=${y.url.includes(anahtar)}`);
+    if (!y.esit || y.anahtarsiz || y.url.includes(anahtar)) throw new Error("yönetici anahtarı enjeksiyonu başarısız");
+    // İzin kontrolü (gerçek oturum işleyicisi)
+    const kamera = await yw.webContents.executeJavaScript(
+      `navigator.permissions.query({ name: "camera" }).then((p) => p.state).catch((e) => "hata: " + e.message)`,
+    );
+    yaz(`sunucu kökeninde kamera izni durumu: ${kamera}`);
+    clearTimeout(zaman);
+    yaz("tamam");
+    await cikisYap(0);
+  } catch (e) {
+    clearTimeout(zaman);
+    console.error(`SMOKE HATA: ${e.message}`);
+    await cikisYap(1);
+  }
+}
+
+// ---------------------------------------------------------------- yaşam döngüsü
+let cikisKodu = 0;
+async function cikisYap(kod) {
+  cikisKodu = kod;
+  cikiliyor = true;
+  try { await sirala(sunucuDurdur); } catch (e) { console.error(`Sunucu durdurulamadı: ${e.message}`); }
+  if (SMOKE_GECICI) {
+    // Geçici veri klasörü silinir (profil Electron açıkken kilitli olabilir; silinemezse kalır).
+    try { fs.rmSync(path.join(SMOKE_GECICI, "veri"), { recursive: true, force: true }); } catch (_) { /* kalır */ }
+  }
+  app.exit(cikisKodu);
+}
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const w = baslangicPenceresi;
+    if (w && !w.isDestroyed()) { if (w.isMinimized()) w.restore(); w.show(); w.focus(); }
+  });
+
+  app.on("before-quit", (e) => {
+    if (cikiliyor) return;
+    e.preventDefault();
+    cikisYap(cikisKodu);
+  });
+  app.on("window-all-closed", () => app.quit());
+
+  app.whenReady().then(() => {
+    ayar = ayarlar.yukle(AYAR_DOSYASI());
+    oturumKur();
+    ipcKur();
+    baslangicPenceresiAc();
+    sirala(sunucuBaslat);
+    if (SMOKE) smokeKos();
+  });
+}

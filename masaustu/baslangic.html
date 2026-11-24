@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DersNabzı</title>
+<style>
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f0f2f5; --border: #e3e6eb;
+  --text: #15181e; --muted: #626b78; --accent: #0f9d8a; --accent-ink: #ffffff;
+  --accent-soft: #e2f5f2; --good: #1f9d55; --warn: #d98a00; --bad: #d64545;
+  --radius: 14px; --shadow: 0 1px 2px rgba(16,24,40,.05), 0 4px 16px rgba(16,24,40,.06);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1216; --surface: #171b21; --surface-2: #1e232b; --border: #2a313b;
+    --text: #e8ebf0; --muted: #98a2b0; --accent: #2cc4ad; --accent-ink: #062b26;
+    --accent-soft: #11332e; --shadow: 0 1px 2px rgba(0,0,0,.3); color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2 { line-height: 1.2; margin: 0 0 .5em; letter-spacing: -.01em; }
+h2 { font-size: 16px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.hidden { display: none !important; }
+.topbar {
+  display: flex; align-items: center; gap: 10px; padding: 12px 24px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; }
+.dot { width: 26px; height: 26px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; }
+.dot svg { width: 16px; height: 16px; stroke: var(--accent-ink); }
+main { max-width: 900px; margin: 0 auto; padding: 24px 16px 40px; display: grid; gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 20px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.tile {
+  text-align: left; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: var(--radius); padding: 16px; cursor: pointer; font: inherit; box-shadow: var(--shadow);
+  display: grid; gap: 4px; min-height: 96px;
+}
+.tile:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.tile:disabled { opacity: .5; cursor: not-allowed; }
+.tile b { font-size: 16px; }
+.btn {
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 10px;
+  padding: 7px 14px; font: inherit; cursor: pointer;
+}
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.durum { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.isik { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); flex: none; }
+.isik.hazir { background: var(--good); }
+.isik.hata { background: var(--bad); }
+.yol { font-family: ui-monospace, Consolas, monospace; font-size: 13px; word-break: break-all; }
+pre.cikti {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px;
+  max-height: 260px; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-word; margin: 10px 0;
+}
+.satir { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+label.anahtar { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.not { border-left: 3px solid var(--warn); padding: 8px 12px; background: var(--surface-2); border-radius: 0 10px 10px 0; }
+.hata-metni { color: var(--bad); }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 12 7 12 10 5 14 19 17 12 21 12"/></svg></span>
+    DersNabzı
+  </div>
+</header>
+<main>
+  <section class="card" aria-live="polite">
+    <div class="durum">
+      <span class="isik" id="durumIsik"></span>
+      <strong id="durumMetni">Sunucu başlatılıyor…</strong>
+    </div>
+    <div class="small muted" style="margin-top:6px">Veri klasörü: <span class="yol" id="durumVeri">—</span></div>
+    <div id="hataKutusu" class="hidden">
+      <p class="hata-metni small" id="hataOzet"></p>
+      <pre class="cikti" id="hataCikti"></pre>
+      <button class="btn primary" id="yenidenDene">Yeniden dene</button>
+    </div>
+  </section>
+
+  <section class="tiles" aria-label="Ekranlar">
+    <button class="tile" data-hedef="ogretmen" disabled><b>Öğretmen paneli</b><span class="small muted">Dersi başlatın, sınıfı canlı izleyin</span></button>
+    <button class="tile" data-hedef="ogrenci" disabled><b>Öğrenci</b><span class="small muted">Ders koduyla katılım</span></button>
+    <button class="tile" data-hedef="test" disabled><b>Bakış testi</b><span class="small muted">Bakış kalibrasyonu ve testi</span></button>
+    <button class="tile" data-hedef="yonetim" disabled><b>Yönetim</b><span class="small muted">Kayıtlar ve dışa aktarma</span></button>
+  </section>
+  <p class="hata-metni small hidden" id="acHata"></p>
+
+  <section class="card">
+    <h2>Ayarlar</h2>
+    <div class="satir">
+      <span>Veri klasörü:</span> <span class="yol" id="ayarVeri">—</span>
+      <button class="btn" id="veriSec">Klasör seç…</button>
+    </div>
+    <p class="small muted hidden" id="veriZorlaNot">Veri klasörü komut satırından/ortam değişkeninden verildi; seçilen klasör kaydedilir ama bu oturumda kullanılmaz.</p>
+    <p class="small muted">Klasör değişince sunucu yeniden başlar; açık sayfa pencereleri kapanır.</p>
+    <div class="satir">
+      <label class="anahtar"><input type="checkbox" id="kioskOgrenci"> Öğrenci penceresi tam ekran kilitli (kiosk)</label>
+    </div>
+    <div class="satir">
+      <label class="anahtar"><input type="checkbox" id="kioskTest"> Bakış testi penceresi tam ekran kilitli (kiosk)</label>
+    </div>
+    <p class="small muted">Kiosk penceresinden çıkmak için <b>Ctrl+Shift+Q</b> tuşlayıp onaylayın.</p>
+    <p class="small" id="ayarMesaj" role="status"></p>
+  </section>
+
+  <p class="not small">MediaPipe dosyaları internetten gelir; internet yoksa bakış izleme çalışmaz.</p>
+</main>
+<script src="baslangic.js"></script>
+</body>
+</html>
