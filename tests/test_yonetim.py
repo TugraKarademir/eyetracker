@@ -225,6 +225,18 @@ class YonetimTest(unittest.TestCase):
         self.assertEqual(yonetim.karsilastirma(con)["tur"]["yz"]["n_ornek"], 1)
         self.assertIn("gecis", yonetim.csv_ham(con, "D1").splitlines()[0])
 
+    def test_baskin_duygu_esitlikte_alfabetik(self):
+        rs = [{"lesson_code": "D1", "sid": "s1", "gaze_cal": 0, "share": None, "attention": 1,
+               "energy": 1, "emotion": e} for e in ("zorlaniyor", "mutlu")]
+        rs += [{"lesson_code": "D1", "sid": "s2", "gaze_cal": 0, "share": None, "attention": 1,
+                "energy": 1, "emotion": e} for e in ("notr", "mutlu", "notr", "zorlaniyor")]
+        # s1: mutlu .5, zorlaniyor .5; s2: notr .5, mutlu .25, zorlaniyor .25 -> mutlu = zorlaniyor = .375
+        for sira in (rs, list(reversed(rs))):
+            g = yonetim._grup_ozet(sira)
+            self.assertEqual(g["baskin_duygu"], "mutlu")
+        self.assertEqual(yonetim._baskin(["zorlaniyor", "mutlu"]), "mutlu")
+        self.assertEqual(yonetim._baskin(["mutlu", "zorlaniyor"]), "mutlu")
+
     def test_kalite_esikleri(self):
         self.assertEqual(yonetim.kalite(95, 85, 9, 150), "iyi")
         self.assertEqual(yonetim.kalite(75, 60, 5, 400), "orta")

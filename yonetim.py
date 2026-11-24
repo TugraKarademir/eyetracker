@@ -39,7 +39,12 @@ def _baskin(emos):
     for e in emos:
         if e is not None:
             sayac[e] = sayac.get(e, 0) + 1
-    return max(sayac, key=sayac.get) if sayac else None
+    return _en_cok(sayac)
+
+
+def _en_cok(sayac):
+    """En sık değer; eşitlikte alfabetik ilk (sıra/ekleme düzenine bağlı değil)."""
+    return min(sayac, key=lambda k: (-round(sayac[k], 9), k)) if sayac else None
 
 
 def _isi(rows):
@@ -298,7 +303,7 @@ def _grup_ozet(rs):
                 hedef.append(v)
         e = [r["emotion"] for r in krs if r["emotion"] is not None]
         if e:
-            duy.append({k: e.count(k) / len(e) for k in set(e)})
+            duy.append({k: e.count(k) / len(e) for k in sorted(set(e))})
     dag = {}
     for d in duy:   # öğrenci başına duygu payları, öğrenciler üzerinden ortalama
         for k, v in d.items():
@@ -307,7 +312,7 @@ def _grup_ozet(rs):
             "ort_dikkat": _yuv(_ort(dik)), "n_dikkat": len(dik),
             "ort_enerji": _yuv(_ort(ene)), "n_enerji": len(ene),
             "duygu_pct": {k: round(100 * v) for k, v in sorted(dag.items())},
-            "baskin_duygu": max(dag, key=dag.get) if dag else None, "n_duygu": len(duy),
+            "baskin_duygu": _en_cok(dag), "n_duygu": len(duy),
             "n_ogrenci": len(kisi), "n_ornek": len(rs)}
 
 
