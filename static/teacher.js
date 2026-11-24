@@ -133,7 +133,10 @@ function btMetin(bt) {
 }
 function cihazMetin(c) {
   if (!c) return "veri yok";
-  return `${esc(c.tarayici || "tarayıcı veri yok")} · ${c.cekirdek != null ? `${c.cekirdek} çekirdek` : "çekirdek veri yok"} · ${esc(c.gpu || "GPU veri yok")}`;
+  const kam = c.kamera || c.kameraCozunurluk ? `📷 ${esc(c.kamera || "kamera")}${c.kameraCozunurluk ? ` ${esc(c.kameraCozunurluk)}` : ""}${c.kameraFps != null ? `@${Math.round(c.kameraFps)}` : ""}` : "kamera veri yok";
+  return [esc(c.tarayici || "tarayıcı veri yok"), esc(c.isletimSistemi || "işletim sistemi veri yok"),
+    c.cekirdek != null ? `${c.cekirdek} çekirdek` : "çekirdek veri yok", c.bellekGB != null ? `≈${c.bellekGB} GB RAM` : "RAM veri yok",
+    esc(c.gpu || "GPU veri yok"), kam].join(" · ");
 }
 function btSatiri(st) {
   if (st.demo) return "";
@@ -248,7 +251,7 @@ function ayrintiCiz(d) {
           ? `${satir("Model", esc(kal.model || "bizim (ana model)"))}${satir("Hata", kal.acc != null ? `~${kal.acc} px` : "–")}${satir("3×3 isabet", yuzde(kal.hit3))}${satir("Zaman", fmtTime(kal.t))}`
           : `<span class="muted small">${d.gazeCal ? "Kalibre (bu derste rapor gelmedi)" : "Bakış takibi kapalı"}</span>`)}
         ${d.demo ? "" : kutu("Bakış testi (ders başı)", `${satir("Durum", btMetin(d.bakisTesti))}${d.bakisTesti?.t ? satir("Son kayıt", fmtTime(d.bakisTesti.t)) : ""}${d.bakisTesti?.dosya ? `<div class="muted" style="font-size:11px;word-break:break-all">${esc(d.bakisTesti.dosya)}</div>` : ""}`)}
-        ${kutu("Cihaz ve kurulum", `${k.cihaz2 ? satir("İşlemci çekirdeği", k.cihaz2.cekirdek ?? "veri yok") + satir("Bellek", k.cihaz2.bellekGB != null ? `${k.cihaz2.bellekGB} GB` : "veri yok") + satir("GPU", esc(k.cihaz2.gpu || "veri yok")) : ""}${e ? satir("Tarayıcı", `${e.vw}×${e.vh}${e.fs ? " · tam ekran" : ""}${e.mobil ? " · mobil" : ""}`) + satir("Ekran", `${e.sw}×${e.sh} @${e.dpr}`) : ""}${k.kamera ? satir("Kamera", esc(k.kamera)) : ""}${k.fps != null ? satir("Kamera kare/sn", k.fps) : ""}${k.islemeFps != null ? satir("İşlenen kare/sn", k.islemeFps) : ""}${k.uzaklikCm != null ? satir("Uzaklık", `${Math.round(k.uzaklikCm)} cm`) : ""}${k.tarayici ? satir("Tarayıcı türü", esc(k.tarayici)) : ""}` || '<span class="muted small">Bilgi yok</span>')}
+        ${kutu("Cihaz ve kurulum", `${d.cihazOz ? `<div class="muted" style="font-size:12px;margin-bottom:4px">${cihazMetin(d.cihazOz)}</div>` : ""}${k.cihaz2 ? satir("İşlemci çekirdeği", k.cihaz2.cekirdek ?? "veri yok") + satir("Bellek", k.cihaz2.bellekGB != null ? `${k.cihaz2.bellekGB} GB` : "veri yok") + satir("GPU", esc(k.cihaz2.gpu || "veri yok")) : ""}${e ? satir("Tarayıcı", `${e.vw}×${e.vh}${e.fs ? " · tam ekran" : ""}${e.mobil ? " · mobil" : ""}`) + satir("Ekran", `${e.sw}×${e.sh} @${e.dpr}`) : ""}${k.kamera ? satir("Kamera", esc(k.kamera)) : ""}${k.fps != null ? satir("Kamera kare/sn", k.fps) : ""}${k.islemeFps != null ? satir("İşlenen kare/sn", k.islemeFps) : ""}${k.uzaklikCm != null ? satir("Uzaklık", `${Math.round(k.uzaklikCm)} cm`) : ""}${k.tarayici ? satir("Tarayıcı türü", esc(k.tarayici)) : ""}` || '<span class="muted small">Bilgi yok</span>')}
       </div>
       <div class="muted" style="font-size:11px">Kamera görüntüsü gönderilmez; tüm ölçümler öğrencinin cihazında yapılır, buraya yalnız sayılar gelir.</div>
     </div>`;

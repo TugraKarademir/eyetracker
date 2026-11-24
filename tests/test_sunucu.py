@@ -913,6 +913,17 @@ class SinifTesti(unittest.TestCase):
                 self.assertFalse(json.load(f)["dersBagli"])
         self.assertEqual(server.KAYIT.execute("SELECT COUNT(*) FROM bakis_testleri").fetchone()[0], 0)
 
+    def test_test_kaydi_cihaz_tam_ve_ozet(self):
+        tam = ornek_cihaz_tam()
+        tam["fazla"] = 1
+        st, r = post(self.base, "/api/testlog", {"cihaz": "Win", "log": [], "cihazTam": tam})
+        self.assertEqual(st, 200)
+        with open(os.path.join(self.td, r["dosya"]), encoding="utf-8") as f:
+            j = json.load(f)
+        self.assertNotIn("fazla", j["cihazTam"])
+        self.assertEqual((j["cihazOzet"]["tarayici"], j["cihazOzet"]["cekirdek"]), ("Chrome", 4))
+        self.assertIsNone(j["cihazOzet"]["kameraFpsOlculen"])   # aşama tablosu yok: ölçülen yok
+
     def test_kurulum_cihaz2_sinirlanir(self):
         k = server.temiz_kurulum({"tarayici": "Chrome 131", "cihaz2": {
             "cekirdek": 99999, "bellekGB": True, "gpu": "G" * 500, "ua": "U" * 900,
@@ -924,7 +935,8 @@ class SinifTesti(unittest.TestCase):
         self.assertEqual(len(c["uaVeri"]["brands"]), 6)
         self.assertEqual(len(c["uaVeri"]["brands"][0]["brand"]), 40)
         self.assertIsNone(c["uaVeri"]["mobile"])
-        self.assertEqual(server.cihaz_ozet(k), {"tarayici": "Chrome 131", "cekirdek": 1024, "gpu": "G" * 120})
+        self.assertEqual(server.cihaz_ozet(k), {"tarayici": "Chrome 131", "cekirdek": 1024, "gpu": "G" * 120, "isletimSistemi": None,
+                                                "bellekGB": None, "kamera": None, "kameraCozunurluk": None, "kameraFps": None})
         bos = server.temiz_kurulum({"cihaz2": {"cekirdek": None, "bellekGB": None, "gpu": None, "ua": None, "uaVeri": None}})["cihaz2"]
         self.assertEqual(bos, {"cekirdek": None, "bellekGB": None, "gpu": None, "ua": None, "uaVeri": None})
         self.assertNotIn("cihaz2", server.temiz_kurulum({"tarayici": "x"}))
@@ -934,6 +946,120 @@ class SinifTesti(unittest.TestCase):
                                          "kurulum": {"tarayici": "Edge 131", "cihaz2": {"cekirdek": 8, "gpu": "ANGLE (Intel)"}}})
         setup = json.loads(server.KAYIT.execute("SELECT setup FROM setups").fetchone()[0])
         self.assertEqual((setup["cihaz2"]["cekirdek"], setup["cihaz2"]["gpu"]), (8, "ANGLE (Intel)"))
+
+
+
+def ornek_cihaz_tam():
+    """cihaz.js cihazTamTopla çıktısı biçiminde örnek (Windows 11, Chrome, Intel GPU, USB kamera)."""
+    return {
+        "surum": 1, "zaman": "2026-11-25T08:00:00.000Z",
+        "tarayici": {"ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0",
+                     "uaVeri": {"brands": [{"brand": "Google Chrome", "version": "131"}], "mobile": False, "platform": "Windows"},
+                     "uaYuksek": {"platformVersion": "15.0.0", "architecture": "x86", "bitness": "64", "model": "", "wow64": False,
+                                  "fullVersionList": [{"brand": "Not_A Brand", "version": "24.0.0.0"},
+                                                      {"brand": "Google Chrome", "version": "131.0.6778.86"}]},
+                     "uaYuksekNeden": None},
+        "islemci": {"mantiksalCekirdek": 4, "cpuModel": None, "cpuModelNeden": "tarayıcı vermez"},
+        "bellek": {"deviceMemoryGB": 8, "bellekNot": "tarayıcı ≤8 GB'a yuvarlar", "jsHeapLimitMB": 4096},
+        "gpu": {"webglVendor": "Google Inc. (Intel)", "webglRenderer": "ANGLE (Intel, Intel(R) UHD Graphics 620)", "webglNeden": None,
+                "webgl2": True, "webgpu": False, "webgpuAdapter": None, "webgpuNeden": "WebGPU yok"},
+        "ekran": {"width": 1920, "height": 1080, "dpr": 1, "tamEkran": True, "genisletilmis": None},
+        "kamera": {"label": "HD Webcam (0c45:6340)", "ayar": {"width": 1280, "height": 720, "frameRate": 30, "deviceIdOz": "a1b2c3d4e5f6"},
+                   "yetenek": {"maxWidth": 1920, "maxHeight": 1080, "maxFrameRate": 30}, "videoGirisSayisi": 1,
+                   "videoGirisEtiketleri": ["HD Webcam (0c45:6340)"], "neden": None},
+        "ag": None,
+        "diger": {"dil": "tr-TR", "saatDilimi": "Europe/Istanbul", "platform": "Win32", "dokunmatikNokta": 0,
+                  "crossOriginIsolated": False, "mediapipeDelegate": "GPU", "isci": True},
+    }
+
+
+class CihazTam(unittest.TestCase):
+    def test_temizleyici_sinirlar_bilinmeyen_null(self):
+        c = ornek_cihaz_tam()
+        c["bilinmeyen"] = {"x": 1}
+        c["gpu"]["webglRenderer"] = "R" * 900
+        c["gpu"]["fazla"] = "atılır"
+        c["kamera"]["videoGirisEtiketleri"] = ["k"] * 40
+        c["tarayici"]["uaYuksek"]["fullVersionList"] = [{"brand": "B", "version": "1", "ek": "x"}] * 30
+        c["islemci"]["mantiksalCekirdek"] = True        # yanlış tür -> None
+        c["bellek"]["deviceMemoryGB"] = float("nan")     # sonlu değil -> None
+        c["ekran"]["width"] = "1920"                     # yanlış tür -> None
+        t = server.temiz_cihaz_tam(c)
+        self.assertNotIn("bilinmeyen", t)
+        self.assertNotIn("fazla", t["gpu"])
+        self.assertEqual(len(t["gpu"]["webglRenderer"]), 300)
+        self.assertEqual(len(t["kamera"]["videoGirisEtiketleri"]), 16)
+        self.assertEqual(len(t["tarayici"]["uaYuksek"]["fullVersionList"]), 16)
+        self.assertEqual(t["tarayici"]["uaYuksek"]["fullVersionList"][0], {"brand": "B", "version": "1"})
+        self.assertIsNone(t["islemci"]["mantiksalCekirdek"])
+        self.assertIsNone(t["bellek"]["deviceMemoryGB"])
+        self.assertIsNone(t["ekran"]["width"])
+        # null korunur, alınamayan + neden aynen
+        self.assertIn("cpuModel", t["islemci"])
+        self.assertIsNone(t["islemci"]["cpuModel"])
+        self.assertEqual(t["islemci"]["cpuModelNeden"], "tarayıcı vermez")
+        self.assertIsNone(t["gpu"]["webgpuAdapter"])
+        self.assertIsNone(t["ag"])
+        self.assertIsNone(server.temiz_cihaz_tam("x"))
+        self.assertIsNone(server.temiz_cihaz_tam(None))
+        # derin iç içe veri şema dışında kalır
+        derin = server.temiz_cihaz_tam({"kamera": {"ayar": {"width": {"a": {"b": {"c": 1}}}}}})
+        self.assertEqual(derin, {"kamera": {"ayar": {"width": None}}})
+
+    def test_ozet_gercek_degerlerden(self):
+        t = server.temiz_cihaz_tam(ornek_cihaz_tam())
+        asama = [{"Aşama": "a", "Kamera fps (gerçek)": 29.8, "İşleme fps": 14.0},
+                 {"Aşama": "b", "Kamera fps (gerçek)": 30.0, "İşleme fps": 10.0},
+                 {"Aşama": "c", "Kamera fps (gerçek)": None, "İşleme fps": 12.0}]
+        o = server.cihaz_tam_ozet(t, asama)
+        self.assertEqual((o["tarayici"], o["tarayiciSurum"]), ("Chrome", "131.0.6778.86"))
+        self.assertEqual(o["isletimSistemi"], "Windows 11 (15.0.0)")
+        self.assertEqual((o["cekirdek"], o["bellekGB"], o["gpuVendor"]), (4, 8, "Google Inc. (Intel)"))
+        self.assertEqual(o["gpu"], "ANGLE (Intel, Intel(R) UHD Graphics 620)")
+        self.assertEqual((o["kamera"], o["kameraCozunurluk"], o["kameraFpsAyar"]), ("HD Webcam (0c45:6340)", "1280x720", 30))
+        self.assertEqual((o["kameraFpsOlculen"], o["islemeFps"]), (29.9, 12.0))   # ölçülen: aşama medyanı, ayardan ayrı
+        self.assertEqual((o["delegate"], o["isci"]), ("GPU", True))
+        # veri yoksa None (uydurma yok): UA-CH yok -> UA metni; Windows 10/11 ayırt edilemez
+        b = server.cihaz_tam_ozet(server.temiz_cihaz_tam({"tarayici": {"ua": "Mozilla/5.0 (Windows NT 10.0) Firefox/133.0"}}))
+        self.assertEqual((b["tarayici"], b["tarayiciSurum"], b["isletimSistemi"]), ("Firefox", "133.0", "Windows 10/11"))
+        for a in ("gpu", "cekirdek", "bellekGB", "kamera", "kameraCozunurluk", "kameraFpsAyar", "kameraFpsOlculen", "islemeFps", "delegate", "isci"):
+            self.assertIsNone(b[a], a)
+        self.assertIsNone(server.cihaz_tam_ozet(None))
+
+    def test_gazelab_oturumu_cihazi_tasir(self):
+        gecici = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, gecici, True)
+        tam = ornek_cihaz_tam()
+        tam["fazla"] = "atılır"
+        with unittest.mock.patch.multiple(server, TEST_DIR=gecici, GL_DB=os.path.join(gecici, "gazelab.db")):
+            sid = server.gl_kaydet({"session": {"id": "cihaz123", "status": "completed",
+                                                "device": {"ua": "x", "browser": "Chrome 131", "screenW": 1920, "cihazTam": tam, "cihazOzet": {"sahte": 1}}},
+                                    "tablolar": {"yontem": [{"Kod": "biz", "Yöntem": "bizim", "GL doğruluk px": 120}],
+                                                 "asama": [{"Aşama": "bakarak", "Kamera fps (gerçek)": 30, "İşleme fps": 15}]}}, "o.json")
+            con = sqlite3.connect(os.path.join(gecici, "gazelab.db"))
+            self.addCleanup(con.close)
+            d = json.loads(con.execute("SELECT device FROM sessions WHERE id=?", (sid,)).fetchone()[0])
+            self.assertEqual((d["ua"], d["browser"], d["screenW"]), ("x", "Chrome 131", 1920))   # eski alanlar aynen
+            self.assertNotIn("fazla", d["cihazTam"])
+            self.assertEqual(d["cihazTam"]["kamera"]["label"], "HD Webcam (0c45:6340)")
+            self.assertNotIn("sahte", d["cihazOzet"])   # istemcinin özeti değil, sunucunun
+            self.assertEqual((d["cihazOzet"]["cekirdek"], d["cihazOzet"]["kameraFpsOlculen"], d["cihazOzet"]["islemeFps"]), (4, 30, 15))
+            # yöntem satırı cihazla session_id üzerinden birleşir
+            r = con.execute("SELECT m.method, json_extract(s.device, '$.cihazOzet.gpu') FROM method_stats m JOIN sessions s ON s.id=m.session_id").fetchone()
+            self.assertEqual(r, ("biz", "ANGLE (Intel, Intel(R) UHD Graphics 620)"))
+            # cihazTam yoksa özet de yok, eski davranış
+            sid2 = server.gl_kaydet({"session": {"id": "cihaz456", "device": {"ua": "y"}}}, "p.json")
+            self.assertEqual(json.loads(con.execute("SELECT device FROM sessions WHERE id=?", (sid2,)).fetchone()[0]), {"ua": "y"})
+
+    def test_kurulum_ve_panel_ozeti(self):
+        k = server.temiz_kurulum({"tarayici": "Chrome 131", "kamera": "1280x720", "fps": 30, "islemeFps": 15,
+                                  "cihaz2": {"cekirdek": 4}, "cihazTam": ornek_cihaz_tam()})
+        self.assertEqual(k["cihazTam"]["gpu"]["webglVendor"], "Google Inc. (Intel)")
+        o = server.cihaz_ozet(k)
+        self.assertEqual(o, {"tarayici": "Chrome 131.0.6778.86", "cekirdek": 4, "gpu": "ANGLE (Intel, Intel(R) UHD Graphics 620)",
+                             "isletimSistemi": "Windows 11 (15.0.0)", "bellekGB": 8, "kamera": "HD Webcam (0c45:6340)",
+                             "kameraCozunurluk": "1280x720", "kameraFps": 30})
+        self.assertIsNone(server.temiz_kurulum({"cihazTam": "x"})["cihazTam"])
 
 
 if __name__ == "__main__":

@@ -59,6 +59,11 @@
 #adimCubuk b { color: #facc15; }
 #adimCubuk .ag { opacity: .85; } #adimCubuk .ay { opacity: .4; } #adimCubuk .aa { opacity: .4; text-decoration: line-through; }
 #adimCubuk .as { color: #facc15; font-weight: 700; }
+/* Gömülü (öğrencinin ders içi kalibrasyonu, ?gomulu=1): yalnız ne yapacağı görünür; ölçüm, tablo, günlük ve teknik ayrıntı gizli.
+   Ölçümler ve gönderimler aynen çalışır (yalnız görünüm). */
+body.gomulu #detBtn, body.gomulu #panel, body.gomulu .mark, body.gomulu .line, body.gomulu #ayarBilgi,
+body.gomulu #sonucDugmeler, body.gomulu #glRapor, body.gomulu #sonucKat { display: none !important; }
+body.gomulu #adimCubuk { font-size: 14px; line-height: 22px; padding: 2px 14px; }
 </style>
 </head>
 <body>
@@ -104,7 +109,7 @@
 <div id="camMsg"></div>
 <div id="yuzDot"></div>
 <div id="startCard"><div id="resTxt" style="font-size:17px;margin-bottom:14px"></div><button id="startBtn">↻ Yeniden kalibre et</button>
-  <div style="margin-top:10px;display:flex;gap:8px;justify-content:center"><button id="raporBtn" style="background:#1c2633;border:1px solid #3a4756;font-size:14px">📊 İstatistikler</button>
+  <div id="sonucDugmeler" style="margin-top:10px;display:flex;gap:8px;justify-content:center"><button id="raporBtn" style="background:#1c2633;border:1px solid #3a4756;font-size:14px">📊 İstatistikler</button>
   <button id="noktaBtn" style="background:#1c2633;border:1px solid #3a4756;font-size:14px;display:none">🎯 Noktaları göster</button>
   <button id="isiBtn" style="background:#1c2633;border:1px solid #3a4756;font-size:14px;display:none">🔥 Isı testi</button>
   <button id="ayarBtn" style="background:#1c2633;border:1px solid #3a4756;font-size:14px">📷 Kamera ayarı</button></div></div>
@@ -118,6 +123,8 @@
 <script src="/gaze.js"></script>
 <script src="/gazelab_stats.js"></script>
 <script src="/isi_testi.js"></script>
+<script src="/cihaz.js"></script>
+<script src="/yedek.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
 <script src="/hsemotion.js"></script>
 <script>
@@ -432,6 +439,9 @@ async function start() {
   gaze.onLandmarks = reKanca;   // RealEye Light öznitelikleri (yalnız toplama aşamalarında)
   // gaze.js kendi kayıtlı modelini yükleyip tıklamayla öğrenmeye başlamış olabilir; bu sayfada kendi döngümüz var
   gaze.tracking = false; document.removeEventListener("pointerdown", gaze._onClick, true);
+  // Tam cihaz bilgisi bir kez (beklenmez; ölçüm akışını geciktirmez). Hata olursa null kalır, kayıt yine gider.
+  try { cihazTamTopla({ track: stream.getVideoTracks()[0], delegate: gaze.diag?.delegate, isci: gaze.diag?.isci }).then((c) => { CIHAZ_TAM = c; }, (e) => console.warn("cihaz bilgisi", e)); }
+  catch (e) { console.warn("cihaz bilgisi", e); }
   $("#sState").textContent = "hazır";
   sesAc(); addEventListener("pointerdown", sesAc, { once: true, capture: true });   // ses ancak ilk tıklamadan sonra kesin açılır
   // ?hafif=1: yalnız ana model (telefonda grafik belleği sınırlı; WebGazer/face-api/HSEmotion yüklenmez)
@@ -521,7 +531,23 @@ function gomuluCikisGoster(neden) {
   b.style.display = ""; try { tlog(`gömülü test: "Derse dön" görünür oldu (${neden})`); } catch {}
 }
 const guideBaslat = () => guideStart().catch((e) => { console.error(e); try { tlog(`kalibrasyon akışı hata verdi: ${e?.message || e}`); } catch {} if (GOMULU) gomuluCikisGoster("akış hatası"); });
+// Tam cihaz bilgisi (cihaz.js; kamera ve bakış modeli hazır olunca bir kez toplanır). Test kaydına (cihazTam) ve GazeLab oturumunun
+// device.cihazTam alanına girer; toplanmadan önceki gönderimlerde null. Özet (cihazOzet) sunucuda çıkarılır.
+let CIHAZ_TAM = null;
+// Gömülü görünüm (yalnız sunum; adımlar, süreler, noktalar, ölçüm ve gönderimler aynı): sade adım adları ve talimat kartları
+const GOMULU_ADIM = { ayar: "Kamera", bas: "Baş hareketi", profil: "Noktalara bakış", bakarak: "Noktalara bakış", duzeltme: "Tıklama", tiklama: "Tıklama",
+                      gazelab: "Doğrulama", kontrol: "Son kontrol" };
+const GOMULU_KART = {
+  profil: ["Yüz tanıma", () => `Üç kısa adım var, her birinden önce 3-2-1 sayılır.<br>Önce <b>sarı noktaya</b> rahatça bakın. Sonra <b>gözlerinizi kapatın</b>, bip sesini duyunca açın.${MOBIL ? "" : "<br>En son başınızı <b>kameraya</b> çevirip kameraya bakın."}`],
+  bas: ["Baş hareketi", "Sarı nokta çıkacak. <b>Gözünüz noktada kalsın</b>, başınızı yavaşça önce sağa-sola, sonra yukarı-aşağı çevirin.<br>Ne yapacağınız noktanın yanında yazar; yön değişince bip sesi gelir. <b>Tıklamayın.</b>"],
+  bakarak: ["Noktalara bakış", "Sarı noktalar sırayla çıkacak. Her noktaya <b>bakın</b> ve nokta küçülene kadar gözünüzü üzerinde tutun.<br><b>Tıklamayın.</b> Başınızı oynatmadan yalnız gözünüzle takip edin."],
+  duzeltme: ["Tıklama", "Sarı noktalar çıkacak. Her birine <b>bakın ve bir kez tıklayın</b>."],
+  tiklama: ["Tıklama", "Sarı noktalar çıkacak. Her birine <b>bakın ve bir kez tıklayın</b>."],
+  gazelab: ["Doğrulama", "Sarı nokta birkaç yerde sırayla çıkacak. <b>Yalnız bakın, tıklamayın</b>; nokta küçülene kadar gözünüzü üzerinde tutun."],
+  kontrol: ["Son kontrol", "Son birkaç nokta. Her birine <b>bakın ve bir kez tıklayın</b>."],
+};
 if (GOMULU) {
+  document.body.classList.add("gomulu");
   const b = document.createElement("button"); b.id = "gomuluKapat"; b.textContent = "✕ Derse dön";
   Object.assign(b.style, { display: "none", position: "fixed", top: "10px", right: "10px", zIndex: "50", padding: "6px 12px", borderRadius: "8px", border: "1px solid #3a4756", background: "#1c2633", color: "#e6edf3", font: "14px system-ui", cursor: "pointer", opacity: ".8" });
   b.onclick = (e) => { e.stopPropagation(); derseDon(); };
@@ -955,7 +981,7 @@ async function faceProfile() {
   if (kapali.n < PROFIL_MIN_KARE) sorun.push(`kapalı göz adımında yüz az algılandı (${kapali.n} kare)`);
   if (kapali.kirpma != null && notr.kirpma != null && kapali.kirpma - notr.kirpma < 0.3) sorun.push(`kapalı göz kırpma katsayısı (${kapali.kirpma.toFixed(2)}) nötrden (${notr.kirpma.toFixed(2)}) yeterince yüksek değil — gözler kapanmadı mı?`);
   if (notr.pitch == null) sorun.push("3B baş açısı gelmedi (tarayıcı/MediaPipe matrisi vermiyor)");
-  if (sorun.length) { tlog("yüz profili sorunlu: " + sorun.join("; ")); toast("Yüz profili: " + sorun[0], 5000); }
+  if (sorun.length) { tlog("yüz profili sorunlu: " + sorun.join("; ")); toast(GOMULU ? "Yüzünüz tam görülemedi; ekrana düz bakın ve yüzünüzü aydınlık tutun." : "Yüz profili: " + sorun[0], 5000); }
   if (notr.n < PROFIL_MIN_KARE || kapali.n < PROFIL_MIN_KARE) return false;
   const lo = notr.kirpma + 0.1, hi = kapali.kirpma - 0.05;
   yuz = { at: Date.now(), notr, kapali, kamera, esik: hi > lo ? +((lo + hi) / 2).toFixed(2) : null, kameraYuz: null,
@@ -1053,7 +1079,7 @@ function adimKur(ayarVar) {
   if (BAKIS.ACIK) L.push("bakarak", "duzeltme"); else L.push("tiklama");
   if (GLAB) L.push("gazelab");
   if (KONTROL) L.push("kontrol");
-  if (ISI.gorseller.length) L.push("isi");   // görsel seçilmediyse ısı testi adımı listede yok
+  if (ISI.gorseller.length && !GOMULU) L.push("isi");   // görsel seçilmediyse ısı testi adımı listede yok
   L.push("sonuc");
   ADIMLAR = L; adimSimdi = null; adimGecilen = new Set(); adimCiz();
 }
@@ -1063,7 +1089,17 @@ function adimBasla(k) {
   if (adimSimdi) adimGecilen.add(adimSimdi);
   adimSimdi = k; adimCiz();
 }
+// Gömülü: "Adım N/M · ad" — sade adlar (GOMULU_ADIM), aynı ada düşen iç adımlar tek sayılır; sonuç ve ısı testi sayılmaz
+function gomuluAdim() {
+  const L = [...new Set(ADIMLAR.map((k) => GOMULU_ADIM[k]).filter(Boolean))], ad = GOMULU_ADIM[adimSimdi];
+  return ad ? { i: L.indexOf(ad) + 1, n: L.length, ad } : null;
+}
 function adimCiz() {
+  if (GOMULU) {
+    const el = $("#adimCubuk"), a = gomuluAdim();
+    if (!a) { el.style.display = "none"; return; }
+    el.innerHTML = `<b>Adım ${a.i}/${a.n}</b> · ${a.ad}`; el.style.display = "block"; return;
+  }
   const el = $("#adimCubuk"), i = ADIMLAR.indexOf(adimSimdi);
   if (i < 0) { el.style.display = "none"; return; }
   const liste = ADIMLAR.map((k, j) => {
@@ -1075,12 +1111,16 @@ function adimCiz() {
 }
 // Hazır kartlarının üstündeki satır: "Adım N / M · ad" + "Sırada: …"
 function adimSatiri() {
+  if (GOMULU) { const a = gomuluAdim(); return a ? `<div style="font-size:15px;color:#facc15">Adım ${a.i}/${a.n}</div>` : ""; }
   const i = ADIMLAR.indexOf(adimSimdi); if (i < 0) return "";
   const s = ADIMLAR[i + 1];
   return `<div style="font-size:15px;color:#facc15">Adım ${i + 1} / ${ADIMLAR.length} · ${adimAd(adimSimdi)}</div>` +
     (s ? `<div style="font-size:14px;opacity:.7;margin-top:-10px">Sırada: ${adimAd(s)} — ${adimAcik(s)}</div>` : "");
 }
 function hazirKarti(baslik, metin, dugme) {
+  if (GOMULU && GOMULU_KART[adimSimdi]) {   // gömülü: aynı kart, sade talimat (sayı ve yöntem adı yok)
+    const [b, m] = GOMULU_KART[adimSimdi]; baslik = b; metin = typeof m === "function" ? m() : m; dugme = "Başla";
+  }
   return new Promise((ok) => {
     const k = document.createElement("div"); k.id = "hazirKart";
     Object.assign(k.style, { position: "fixed", inset: "0", zIndex: "19", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "16px",
@@ -1234,8 +1274,8 @@ async function guideStart() {
     KAYIT_SONUC = { durum: "bitti", glAcc: null, model: null };   // test bitti ama kalibrasyon yok: öğretmen panelinde "bitmedi"
     taniOzetYaz();
     const dosya = await testKaydiGonder(KAYIT_SURE.son);
+    if (GOMULU) { gomuluBitis(false, "Kameraya düz bakın ve yüzünüzün aydınlık olduğundan emin olun."); return; }
     if (dosya) $("#resTxt").innerHTML += `<br><span class="muted" style="font-size:12px">Kayıt bilgisayara gönderildi: ${dosya}</span>`;
-    if (GOMULU) $("#resTxt").insertAdjacentHTML("beforeend", `<div style="margin-top:12px"><button id="derseDonBtn" style="font-size:17px;padding:10px 22px">✓ Derse dön</button></div>`);
     $("#startBtn").textContent = "↻ Tekrar dene"; $("#startCard").style.display = "block"; return;
   }
   pencereOnce = { w: innerWidth, h: innerHeight };
@@ -1393,6 +1433,7 @@ async function guideFinish(neden) {
   const dosya = await testKaydiGonder(KAYIT_SURE.son);   // en çok KAYIT_SURE.son bekler; başarısızsa sonuç ekranı yine çizilir
   if (dosya) ISI.anaDosya = dosya;   // "tekrar gönder" ve "Bölgeleri kaydet" ana kaydın adını taşısın
   if (isiDosya && dosya) await isiTestiGonder(dosya);   // aynı kimlikle bir kez daha: ısı dosyasının "ana" alanı dolsun (dosya üzerine yazılır)
+  if (GOMULU) { document.querySelectorAll(".mark,.line").forEach((n) => n.remove()); gomuluBitis(kayit); return; }   // öğrenciye sonuç/sayı gösterilmez
   const glb = GLK.dog?.yontem?.biz;
   $("#resTxt").innerHTML = kayit ? `✓ Kalibrasyon tamam<br><span class="muted">Ders sayfasına aktarıldı: <b>${SON_AKTARIM?.ad ?? YONTEM.biz}</b> (${SON_AKTARIM?.gerekce ?? `bakış hatası ~${acc} px`})</span>${T.n ? `<br><span class="muted" style="font-size:13px">${yarisKisa(T)}</span>` : ""}`
                                  : `Kalibrasyon kaydedilmedi<br><span class="muted">Yeterli ölçüm yok, tekrar deneyin</span>`;
@@ -1400,13 +1441,37 @@ async function guideFinish(neden) {
   if (glb) $("#resTxt").innerHTML += `<br><span style="font-size:14px;color:${glb.good ? "#22c55e" : "#f59e0b"}">GazeLab: doğruluk ${Math.round(glb.acc)} px (${glb.accDeg.toFixed(1)}°) · kesinlik ${Math.round(glb.prec)} px${glb.good ? "" : ` — ${GL.VAL.MAX_ERR} px üstü, yeniden kalibrasyon önerilir`}</span>`;
   if (dosya) $("#resTxt").innerHTML += `<br><span class="muted" style="font-size:12px">Kayıt bilgisayara gönderildi: ${dosya}</span>`;
   if (isiDosya) ekranaIsiSatiri(isiDosya);
-  if (GOMULU) {
-    $("#resTxt").insertAdjacentHTML("beforeend", `<div style="margin-top:12px"><button id="derseDonBtn" style="font-size:17px;padding:10px 22px">✓ Derse dön</button></div>`);
-  }
   $("#startBtn").textContent = kayit ? "↻ Yeniden kalibre et" : "↻ Tekrar dene"; $("#startCard").style.display = "block";
   glRaporGoster();
   $("#noktaBtn").style.display = ""; sonucGoster();   // ölçüm bitti: tahminler artık gösterilebilir
   $("#isiBtn").style.display = isiGorunumVar() ? "" : "none";   // yalnız ısı testi verisi varsa (atlanmadıysa)
+}
+// Gömülü bitiş ekranı: yalnız "tamam" ya da "tamamlanamadı" + Derse dön (ve gerekirse Tekrar dene); sayı, yöntem, rapor yok.
+// Ölçümler ve gönderim guideFinish'te aynen yapıldı; bu yalnız görünüm.
+// Gömülü: son kayıt denemesinden sonra (başarılı ya da değil) yerel yedek: gönderilen gövdenin aynısı (JSON) + özet CSV
+// (yöntem, aşama, oturum tabloları ve cihaz). Sessiz; başarılıysa bitiş ekranında tek satır. Hata olursa yalnız günlüğe yazılır.
+function gomuluYedekIndir() {
+  if (!GOMULU || !window.DNYedek || !SON_GOVDE) return false;
+  try {
+    const t = new Date(), kok = (ek) => DNYedek.dosyaAdi(BAGLAM?.ders, BAGLAM?.ad, t, ek);
+    DNYedek.indir(SON_GOVDE, kok("bakis.json"), "application/json");
+    const cihaz = [...DNYedek.duzSatirlar(CIHAZ_TAM, "cihazTam"), ...DNYedek.duzSatirlar(SON_CIHAZ_OZET, "cihazOzet")];
+    const csv = DNYedek.csvMetni([{ baslik: "Yöntemler", rows: glYontemTablosu() }, { baslik: "Aşamalar", rows: glFazTablosu() },
+      { baslik: "Oturum", rows: glOturumTablosu() }, { baslik: "Cihaz", rows: cihaz }]);
+    setTimeout(() => { try { DNYedek.indir(csv, kok("bakis_ozet.csv"), "text/csv;charset=utf-8"); } catch (e) { console.warn("yedek CSV", e); } }, 600);
+    tlog("yerel yedek indirildi (JSON + özet CSV)");
+    return true;
+  } catch (e) { console.warn("yerel yedek", e); try { tlog(`yerel yedek indirilemedi: ${e?.message || e}`); } catch {} return false; }
+}
+function gomuluBitis(tamam, ipucu = "") {
+  const yedek = gomuluYedekIndir();
+  $("#resTxt").innerHTML = tamam ? `<div style="font-size:22px;font-weight:600">✓ Kalibrasyon tamam — derse dönebilirsiniz</div>`
+    : `<div style="font-size:22px;font-weight:600">Kalibrasyon tamamlanamadı</div>${ipucu ? `<div class="muted" style="margin-top:6px">${ipucu}</div>` : ""}`;
+  $("#resTxt").insertAdjacentHTML("beforeend", `<div style="margin-top:14px"><button id="derseDonBtn" style="font-size:17px;padding:10px 22px">✓ Derse dön</button></div>`
+    + (yedek ? `<div class="muted" style="font-size:12px;margin-top:10px">Yedek dosya bu bilgisayara indirildi.</div>` : ""));
+  $("#startBtn").textContent = "↻ Tekrar dene"; $("#startBtn").style.display = tamam ? "none" : "";
+  $("#noktaBtn").style.display = "none"; $("#isiBtn").style.display = "none";
+  $("#startCard").style.display = "block";
 }
 // Konsol kaydını sunucuya gönder (test_kayitlari/ altına yazılır). Telefondan konsol kopyalamak zor olduğu için.
 let tanıOnce = null;
@@ -1532,7 +1597,8 @@ function kayitHataCiz() {
       border: "1px solid #f87171", background: "#3b1219", color: "#fecaca", font: "15px system-ui", textAlign: "center", cursor: "pointer" });
     el.onclick = (e) => { e.stopPropagation(); el.remove(); }; document.body.append(el);
   }
-  el.textContent = L.map(([t, n]) => `⚠ ${t} bilgisayara GÖNDERİLEMEDİ (${n}). Veri sunucuya yazılmadı.`).join(" ") + " Kapatmak için tıklayın.";
+  el.textContent = GOMULU ? "⚠ Kayıt öğretmen bilgisayarına gönderilemedi. Lütfen öğretmeninize haber verin. Kapatmak için tıklayın."
+    : L.map(([t, n]) => `⚠ ${t} bilgisayara GÖNDERİLEMEDİ (${n}). Veri sunucuya yazılmadı.`).join(" ") + " Kapatmak için tıklayın.";
   if (KAYIT_HATA["Isı testi verisi"] && ISI.veri && ISI.kimlik) {   // bellekteki ISI.veri ile yeniden dene; aynı kimlik → dosya üzerine yazılır
     const b = document.createElement("button"); b.textContent = "Isı verisini tekrar gönder";
     Object.assign(b.style, { display: "block", margin: "8px auto 0", padding: "6px 14px", borderRadius: "8px", border: "1px solid #f87171", background: "#7f1d1d", color: "#fff", font: "inherit", cursor: "pointer" });
@@ -1545,7 +1611,7 @@ function kayitHataCiz() {
     b.onclick = async (e) => {
       e.stopPropagation(); b.disabled = true; b.textContent = "Gönderiliyor…";
       const d = await testKaydiGonder(KAYIT_SURE.son);
-      if (d && KAYIT_SONUC.durum === "bitti") $("#resTxt").insertAdjacentHTML("beforeend", `<br><span class="muted" style="font-size:12px">Kayıt bilgisayara gönderildi: ${d}</span>`);
+      if (d && KAYIT_SONUC.durum === "bitti" && !GOMULU) $("#resTxt").insertAdjacentHTML("beforeend", `<br><span class="muted" style="font-size:12px">Kayıt bilgisayara gönderildi: ${d}</span>`);
     };
     el.append(b);
   }
@@ -1556,15 +1622,18 @@ function kayitHataCiz() {
 // (LAN, 8 MB'a kadar gövde, 7 bilgisayar sunucuda sırada). Süre dolarsa ya da hata olursa zincir ilerler, hata ekranda görünür.
 const KAYIT_SURE = { ara: 60000, son: 120000 };
 let kayitZinciri = Promise.resolve();
+let SON_GOVDE = null, SON_CIHAZ_OZET = null;   // son gönderilen gövde (yerel yedek bunun aynısıdır) ve sunucunun çıkardığı cihaz özeti
 function testKaydiGonder(sureMs = KAYIT_SURE.ara) { const p = kayitZinciri.then(() => testKaydiGonderNow(sureMs)); kayitZinciri = p.catch(() => {}); return p; }
 async function testKaydiGonderNow(sureMs) {
   const ac = new AbortController(), zaman = setTimeout(() => ac.abort(), sureMs);
   try {
     const cihaz = navigator.userAgent.match(/Android[^;)]*|iPhone|Windows NT [\d.]+|Mac OS X/)?.[0] || "bilinmiyor";
-    const r = await fetch("/api/testlog", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-      body: JSON.stringify({ kimlik: KAYIT_KIMLIK, ...BAGLAM, ...KAYIT_SONUC, cihaz, ua: navigator.userAgent, cihaz2: cihaz2(), ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, log: testLog, tiklamaOz: tiklamaOz, gazelab: glPaket() }) });
+    const govde = JSON.stringify({ kimlik: KAYIT_KIMLIK, ...BAGLAM, ...KAYIT_SONUC, cihaz, ua: navigator.userAgent, cihaz2: cihaz2(), cihazTam: CIHAZ_TAM, ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, log: testLog, tiklamaOz: tiklamaOz, gazelab: glPaket() });
+    SON_GOVDE = govde;
+    const r = await fetch("/api/testlog", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal, body: govde });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.status);
+    if (j.cihazOzet) SON_CIHAZ_OZET = j.cihazOzet;
     tlog(`kayıt bilgisayara gönderildi: test_kayitlari/${j.dosya}`); kayitHataKaldir("Kayıt"); return j.dosya;
   } catch (e) {
     const neden = e.name === "AbortError" ? `${Math.round(sureMs / 1000)} sn içinde yanıt gelmedi` : e.message;
@@ -1627,9 +1696,11 @@ async function guideDone(t) {
       $("#guide").style.display = "block";
     }
     if (!KONTROL) { await guideFinish("kalibrasyon tamam (kontrol atlandı)"); return; }
-    adimBasla("kontrol"); glFazBasla("kontrol");
+    adimBasla("kontrol");
+    if (GOMULU) { $("#guide").style.display = "none"; await hazirKarti(); $("#guide").style.display = "block"; }   // gömülü: talimat kartı, faz ölçümü karttan sonra başlar
+    glFazBasla("kontrol");
     guide.dogrula = "kontrol"; guide.round = "K"; guide.targets = kontrolNoktalari(); guide.total = guide.targets.length; guide.startN = clicks.length;
-    toast("Son 5 nokta (ölçüm): bakın ve bir kez tıklayın", 3000);
+    if (!GOMULU) toast("Son 5 nokta (ölçüm): bakın ve bir kez tıklayın", 3000);
     tlog(`KONTROL başladı: ${guide.targets.length} yeni nokta; ${ADIM_OGRET ? "her nokta önce ölçülür, sonra öğretilir (adım adım iyileştirme)" : "model bunlardan öğrenmez"}, sonuç bunlardan hesaplanır`); guideShow(); return;
   }
   guide.round++; guide.targets = guidePoints(guide.round); guide.total = guide.targets.length; guide.startN = clicks.length;
@@ -1821,7 +1892,8 @@ function basUyariGoster(goster, d) {
     if (d.scale > 100 + L.scale) neden.push("ekrana yaklaştınız");
     if (d.scale < 100 - L.scale) neden.push("ekrandan uzaklaştınız");
     if (d.shift > L.shift) neden.push("yerinizden kaydınız");
-    el.innerHTML = `⚠ Çok hareket ettiniz<small>${neden.join(", ") || "baş konumu değişti"} — lütfen kalibrasyondaki konuma dönün ve başınızı sabit tutun</small>`;
+    el.innerHTML = GOMULU ? `⚠ Başınızı sabit tutun<small>${neden.join(", ") || "başınız kıpırdadı"} — ilk oturduğunuz gibi ekrana düz bakın</small>`
+                          : `⚠ Çok hareket ettiniz<small>${neden.join(", ") || "baş konumu değişti"} — lütfen kalibrasyondaki konuma dönün ve başınızı sabit tutun</small>`;
   }
   el.style.display = goster ? "block" : "none";
 }
@@ -1951,6 +2023,7 @@ function isiKare(t, l, P) {   // glKare'den, görsel ekrandayken her MediaPipe k
   g.kareler.push({ t, k: 0, p });
 }
 async function isiTestiAdimi() {
+  if (GOMULU) return;   // öğrencinin ders içi kalibrasyonunda ısı testi yok (seçici de gösterilmez)
   if (ISI.yukleme) await ISI.yukleme;
   if (!ISI.gorseller.length) return;
   if (!gaze) { ISI.veri = { surum: 1, atlandi: "bakış modeli (gaze) yok" }; tlog("ısı testi atlandı: bakış modeli yok"); return; }   // adım listesinde "atlandı" görünür
@@ -2047,9 +2120,10 @@ async function kameraAyari() {
   const K = document.createElement("div"); K.id = "hazirKart";
   Object.assign(K.style, { position: "fixed", inset: "0", zIndex: "19", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "10px",
     background: "rgba(15,20,27,.97)", color: "#e6edf3", font: "16px system-ui", textAlign: "center", padding: "16px", cursor: "default" });
-  K.innerHTML = `<div style="font-size:24px">📷 Kamera ayarı</div>
-    <div style="opacity:.8;max-width:680px">Yüzünüz <b>yeşil kutunun içinde</b> ve yeterince büyük olsun. Küçük görünüyorsa kameraya yaklaşın ya da
-      <b>yakınlaştırın</b>. Önizleme, bakış modelinin gördüğü görüntüdür.</div>
+  K.innerHTML = `${GOMULU ? adimSatiri() : ""}<div style="font-size:24px">${GOMULU ? "Kamera" : "📷 Kamera ayarı"}</div>
+    <div style="opacity:.8;max-width:680px">${GOMULU ? "Yüzünüz <b>kutunun içinde</b> ve yeterince büyük görünsün. Küçük görünüyorsa biraz yaklaşın ya da <b>yakınlaştırın</b>. Hazır olunca düğmeye basın."
+      : `Yüzünüz <b>yeşil kutunun içinde</b> ve yeterince büyük olsun. Küçük görünüyorsa kameraya yaklaşın ya da
+      <b>yakınlaştırın</b>. Önizleme, bakış modelinin gördüğü görüntüdür.`}</div>
     <canvas id="ayarCv" width="640" height="360" style="width:min(640px,92vw);border-radius:12px;background:#000"></canvas>
     <div id="ayarDurum" style="font-size:20px;font-weight:600">Yüzünüz aranıyor…</div>
     <div id="ayarBilgi" style="font-size:13px;opacity:.75"></div>
@@ -2088,7 +2162,7 @@ async function kameraAyari() {
     const f = gaze.face, l = gaze.latest, taze = f && simdi() / 1000 - f.t < 0.5;
     // gazelab yüz geri bildirim kutusu: ortadaki alan
     const [bw, bh] = AYAR.KUTU, bx = cv.width * (1 - bw) / 2, by = cv.height * (1 - bh) / 2;
-    let durum = "Yüzünüz aranıyor…", renk = "#ef4444", ok = false;
+    let durum = "Yüzünüz aranıyor…", renk = "#ef4444", ok = false, sade = durum;   // sade: gömülüde gösterilen (sayısız) metin
     if (taze) {
       const X = (x) => (x * vw - k.x0) / k.cw * cv.width, Y = (y) => (y * vh - k.y0) / k.ch * cv.height;
       const fx0 = X(f.box.x0), fy0 = Y(f.box.y0), fx1 = X(f.box.x1), fy1 = Y(f.box.y1), mx = (fx0 + fx1) / 2, my = (fy0 + fy1) / 2;
@@ -2097,10 +2171,11 @@ async function kameraAyari() {
       son = { gozPx: Math.round(gozPx), yuzPay: +yuzPay.toFixed(2), uzaklik: l?.pose3?.dist ? Math.round(l.pose3.dist) : null, icinde };
       // Dijital yakınlaştırma göz bölgesindeki kamera pikselini artırmaz (yalnız kırpar; yüz bulma ve modelin gördüğü kare için iyi).
       // Bu yüzden ölçüt yüzün modele giden karedeki payı; göz pikseli bilgi + "yaklaşın" önerisi olarak verilir.
-      if (yuzPay < AYAR.MIN_YUZ) { durum = "Yüzünüz küçük / uzak görünüyor — yaklaşın ya da yakınlaştırın"; renk = "#f59e0b"; }
-      else if (yuzPay > 0.85) { durum = "Çok yakın — yakınlaştırmayı azaltın ya da biraz uzaklaşın"; renk = "#f59e0b"; }
-      else if (!icinde) { durum = donanim ? "Yüzünüzü kutunun ortasına getirin" : "Yüzünüzü ortalayın (ya da \"Yüze ortala\")"; renk = "#f59e0b"; }
-      else { durum = gozPx < AYAR.IYI_GOZ_PX ? `Yüz bulundu ✓ — göz bölgesi kamerada küçük (${Math.round(gozPx)} px): mümkünse kameraya biraz yaklaşın` : "Yüz bulundu ✓ — konum iyi"; renk = "#22c55e"; ok = true; }
+      if (yuzPay < AYAR.MIN_YUZ) { durum = "Yüzünüz küçük / uzak görünüyor — yaklaşın ya da yakınlaştırın"; sade = "Biraz yaklaşın"; renk = "#f59e0b"; }
+      else if (yuzPay > 0.85) { durum = "Çok yakın — yakınlaştırmayı azaltın ya da biraz uzaklaşın"; sade = "Biraz uzaklaşın"; renk = "#f59e0b"; }
+      else if (!icinde) { durum = donanim ? "Yüzünüzü kutunun ortasına getirin" : "Yüzünüzü ortalayın (ya da \"Yüze ortala\")"; sade = durum; renk = "#f59e0b"; }
+      else { durum = gozPx < AYAR.IYI_GOZ_PX ? `Yüz bulundu ✓ — göz bölgesi kamerada küçük (${Math.round(gozPx)} px): mümkünse kameraya biraz yaklaşın` : "Yüz bulundu ✓ — konum iyi";
+             sade = gozPx < AYAR.IYI_GOZ_PX ? "Yüzünüz görünüyor ✓ — mümkünse biraz yaklaşın" : "Yüzünüz görünüyor ✓"; renk = "#22c55e"; ok = true; }
       cx.strokeStyle = renk; cx.lineWidth = 3; cx.strokeRect(fx0, fy0, fx1 - fx0, fy1 - fy0);
     }
     cx.strokeStyle = ok ? "#22c55e" : "rgba(255,255,255,.5)"; cx.setLineDash([8, 6]); cx.lineWidth = 2; cx.strokeRect(bx, by, cv.width * bw, cv.height * bh); cx.setLineDash([]);
@@ -2108,7 +2183,7 @@ async function kameraAyari() {
     if (ok) okSince = okSince || simdi(); else okSince = 0;
     const hazir = (ok && simdi() - okSince > 800) || simdi() - t0 > 15000;   // gazelab: 0,8 sn yüz; 15 sn sonra yine de devam
     const b = K.querySelector("#ayarTamam"); b.disabled = !hazir; b.style.opacity = hazir ? 1 : 0.5;
-    K.querySelector("#ayarDurum").textContent = durum; K.querySelector("#ayarDurum").style.color = renk;
+    K.querySelector("#ayarDurum").textContent = GOMULU ? sade : durum; K.querySelector("#ayarDurum").style.color = renk;
     const st = track?.getSettings?.() || {};
     K.querySelector("#ayarBilgi").textContent = `kamera ${vw}×${vh}${st.frameRate ? ` @ ${Math.round(st.frameRate)} fps` : ""} · modele giden ${k.cw}×${k.ch} · `
       + (son ? `göz köşeleri arası ${son.gozPx} px (önerilen ≥ ${AYAR.IYI_GOZ_PX}) · yüz genişliği %${Math.round(100 * son.yuzPay)} · uzaklık ~${son.uzaklik ?? "-"} cm (MediaPipe tahmini)` : "yüz yok");
@@ -2616,7 +2691,7 @@ function glPaket() {
   if (!GLK.recs.length && !GLK.dog && !GLK.cur) return null;
   const b = GLK.dog?.yontem?.biz, d = GL.deviceInfo();
   return {
-    session: { id: GLK.oturumId || null, participant: null, status: GLK.bitti ? "completed" : "started", device: d, accuracy_px: b ? r1(b.acc) : null, precision_px: b ? r1(b.prec) : null,
+    session: { id: GLK.oturumId || null, participant: null, status: GLK.bitti ? "completed" : "started", device: { ...d, cihazTam: CIHAZ_TAM }, accuracy_px: b ? r1(b.acc) : null, precision_px: b ? r1(b.prec) : null,
       created_at: GLK.basEpoch, completed_at: GLK.bitti ? Date.now() / 1000 : null,
       meta: { desen: DESEN, camera: GLK.kamera, wgCamera: wgKameraBilgi(), kameraAyari: GLK.ayar, head: { base: GLK.headBase, limits: GL.LIMITS }, dogrulama: GLK.dog,
               sure: Object.fromEntries(Object.entries(GLK.sure).map(([k, v]) => [k, Math.round(v - (GLK.sure.basla || 0))])), diag: gaze?.diag || null,
@@ -2702,10 +2777,15 @@ basla.innerHTML = `<div style="font-size:22px">🎯 Bakış testi</div>
     <div id="isiBilgi" style="font-size:13px;opacity:.7">Seçilmezse ısı testi adımı atlanır. Görseller yalnız bu tarayıcıda gösterilir, gönderilmez (kayda yalnız adı ve boyutu girer).</div>
   </div>
   <button id="baslaBtn" style="font:inherit;font-size:20px;padding:12px 28px;border-radius:12px;border:1px solid #facc15;background:#1c2633;color:#facc15;cursor:pointer">▶ Başla</button>`;
+// Gömülü (öğrencinin ders içi kalibrasyonu): sade başlangıç kartı; ısı testi seçicisi ve süre alanı yok
+if (GOMULU) basla.innerHTML = `<div style="font-size:24px;font-weight:600">Bakış kalibrasyonu</div>
+  <div style="opacity:.85;max-width:520px;line-height:1.6">Ekranda sırayla sarı noktalar çıkacak; ne yapacağınız her adımda yazacak. Yaklaşık 2-3 dakika sürer.<br>
+  Rahat oturun, ekrandan yaklaşık bir kol boyu uzakta durun ve yüzünüzün kamerada görünmesine dikkat edin.</div>
+  <button id="baslaBtn" style="font:inherit;font-size:20px;padding:12px 32px;border-radius:12px;border:1px solid #facc15;background:#1c2633;color:#facc15;cursor:pointer">Başla</button>`;
 document.body.append(basla);
-$("#isiDosya").onchange = async (e) => { $("#isiBilgi").textContent = "Görseller okunuyor…"; const m = await isiDosyaSec(e.target.files || []); if (m != null) $("#isiBilgi").textContent = m; };
+if ($("#isiDosya")) $("#isiDosya").onchange = async (e) => { $("#isiBilgi").textContent = "Görseller okunuyor…"; const m = await isiDosyaSec(e.target.files || []); if (m != null) $("#isiBilgi").textContent = m; };
 $("#baslaBtn").onclick = async () => {
-  { const v = +$("#isiSure").value; ISI.sureMs = 1000 * (Number.isFinite(v) && v > 0 ? Math.min(ISI.SURE[1], Math.max(ISI.SURE[0], Math.round(v))) : 15); }
+  if ($("#isiSure")) { const v = +$("#isiSure").value; ISI.sureMs = 1000 * (Number.isFinite(v) && v > 0 ? Math.min(ISI.SURE[1], Math.max(ISI.SURE[0], Math.round(v))) : 15); }
   try { await document.documentElement.requestFullscreen?.({ navigationUI: "hide" }); } catch (e) { tlog(`tam ekran açılamadı (${e.message}); pencere modunda devam`); }
   sesAc(); basla.remove();
   start().catch((e) => {

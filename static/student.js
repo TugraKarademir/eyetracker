@@ -94,9 +94,12 @@ async function sendMetrics() {
   const kal = kalYeni();
   const ht = $("#hseChk").checked ? hse.top() : null;   // HSEmotion: yalnız sınıf, oran ve valence/arousal (görüntü değil)
   try {
-    await api("/api/metrics", { code: CODE, sid: SID, attention: s.attention, energy: s.energy, emotion: s.emotion,
+    const govde = { code: CODE, sid: SID, attention: s.attention, energy: s.energy, emotion: s.emotion,
       face: s.face, lookingAway: away, eyesClosed: s.eyesClosed, tabHidden: document.hidden, gaze: g, ekran: ekranBilgi(), kurulum: kurulumBilgi(), ...kal,
-      hse: ht ? { top: ht.name, p: ht.p, valence: hse.valence, arousal: hse.arousal } : null });
+      hse: ht ? { top: ht.name, p: ht.p, valence: hse.valence, arousal: hse.arousal } : null };
+    const t = Date.now();
+    await api("/api/metrics", govde);
+    if (window.DNYedek) DERS_YEDEK.push(DNYedek.dersSatiri(govde, t));   // yalnız sunucuya giden ölçüm (yerel yedek; bellekte)
     if (kal.kal) sonKalAt = kal.kal.at;   // yalnız başarılı gönderimden sonra: başarısızsa rapor bir sonrakinde yeniden gider
   } catch (err) { if (/aktif değil/.test(err.message)) finish(); }
 }
@@ -127,7 +130,16 @@ function kurulumBilgi() {
   return { kamera: st.width ? `${st.width}x${st.height}` : null, fps: st.frameRate ? Math.round(st.frameRate) : null,
     ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, dpr: +(devicePixelRatio || 1).toFixed(2),
     fs: !!document.fullscreenElement, tarayici: ad ? `${ad} ${m[2]}` : "", uzaklikCm: Number.isFinite(dist) ? Math.round(dist) : null, islemeFps: fps != null ? Math.round(fps / 5) * 5 : null,
-    isci: d ? !!d.isci : null, gecikmeMs, cihaz2: cihaz2() };
+    isci: d ? !!d.isci : null, gecikmeMs, cihaz2: cihaz2(), ...(CIHAZ_TAM ? { cihazTam: CIHAZ_TAM } : {}) };
+}
+// Tam cihaz bilgisi (cihaz.js): bakış modeli yüklenince bir kez toplanır, sonra kurulum kaydına eklenir (sunucu temizler ve özetler).
+let CIHAZ_TAM = null;
+function cihazTamBaslat() {
+  if (CIHAZ_TAM || typeof cihazTamTopla !== "function") return;
+  try {
+    cihazTamTopla({ track: $("#video").srcObject?.getVideoTracks?.()[0] || null, delegate: gaze?.diag?.delegate, isci: gaze?.diag?.isci })
+      .then((c) => { CIHAZ_TAM = c; }, (e) => console.warn("cihaz bilgisi", e));
+  } catch (e) { console.warn("cihaz bilgisi", e); }
 }
 // Cihaz bilgisi (sınıf testi): tarayıcının verdiği kadarı, vermediği null (uydurma yok). GPU adı WebGL'den bir kez okunur.
 let _gpuAdi;
@@ -206,7 +218,21 @@ $("#handBtn").onclick = () => { setHand(!handUp); ev({ type: "hand", up: handUp 
 document.querySelectorAll("[data-r]").forEach((b) => (b.onclick = () => { ev({ type: "reaction", emoji: b.dataset.r }); floatEmoji(b.dataset.r); }));
 $("#chatForm").onsubmit = (e) => { e.preventDefault(); const v = $("#chatIn").value.trim(); if (v) { ev({ type: "chat", text: v }); $("#chatIn").value = ""; } };
 
+// Yerel yedek: bu öğrencinin gönderilen ders ölçümleri (bellekte; localStorage yok). Ders bitince bir kez CSV iner;
+// "Ders verimi indir" düğmesi istendiğinde yeniden indirir (sinyal kaçarsa).
+const DERS_YEDEK = [];
+let dersYedekIndi = false;
+function dersYedekIndir() {
+  if (!window.DNYedek) return false;
+  try {
+    DNYedek.indir(DNYedek.csvMetni([{ baslik: `Ders ölçümleri (${CODE || "-"})`, rows: DERS_YEDEK }]),
+      DNYedek.dosyaAdi(CODE, AD, new Date(), "ders.csv"), "text/csv;charset=utf-8");
+    return true;
+  } catch (e) { console.warn("ders yedeği", e); return false; }
+}
+$("#dersYedekBtn").onclick = () => dersYedekIndir();
 function finish() {
+  if (!dersYedekIndi && DERS_YEDEK.length) { dersYedekIndi = true; dersYedekIndir(); }
   gaze?.pause(true); gaze?.setShowDot(false);
   analyzer?.stop(); clearInterval(sendTimer); es?.close(); window.LIVE?.setLive(false);
   stream?.getTracks().forEach((t) => t.stop());
@@ -257,6 +283,7 @@ async function startGaze() {
   gaze = new GazeTracker($("#video"), { getRegions: gazeRegions, onStatus: gazeStatus });
   try {
     await gaze.load();
+    cihazTamBaslat();
     // Sınıf testi: katılınca bakış testi zorunlu; bu derste bu tarayıcıda tamamlanmışsa (sayfa yenilendi) yeniden açılmaz
     if (!store.get(BAKIS_TAMAM())) bakisTestiAc();
     else if (!gaze.model) toast("👁️ Bakış takibini açmak için soldaki “Bakışı kalibre et” düğmesine basın (≈2 dk).", 7000);

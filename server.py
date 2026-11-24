@@ -94,13 +94,20 @@ def gl_kaydet(g, log_file):
     cid = str(se.get("id") or "")
     sid = cid if re.fullmatch(r"[A-Za-z0-9_-]{6,16}", cid) else secrets.token_urlsafe(6)[:8]
     tab = g.get("tablolar") if isinstance(g.get("tablolar"), dict) else {}
+    # Cihaz: GazeLab alanları aynen; tam cihaz bilgisi (cihazTam) temizlenir, düz özet (cihazOzet) burada çıkarılır.
+    # method_stats satırları session_id ile bu cihaza bağlanır.
+    dev = dict(se.get("device")) if isinstance(se.get("device"), dict) else {}
+    dev.pop("cihazOzet", None)
+    if "cihazTam" in dev:
+        dev["cihazTam"] = temiz_cihaz_tam(dev.get("cihazTam"))
+        dev["cihazOzet"] = cihaz_tam_ozet(dev["cihazTam"], tab.get("asama") if isinstance(tab.get("asama"), list) else None)
     with GL_LOCK, gl_db() as con:
         for t in ("recordings", "method_stats", "phase_stats", "session_stats"):
             con.execute(f"DELETE FROM {t} WHERE session_id=?", (sid,))
         con.execute("DELETE FROM sessions WHERE id=?", (sid,))
         con.execute("INSERT INTO sessions(id,study_id,participant,status,device,accuracy_px,precision_px,meta,created_at,completed_at,log_file)"
                     " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                    (sid, "bakis_testi", None, str(se.get("status") or "started")[:20], json.dumps(se.get("device") or {}),
+                    (sid, "bakis_testi", None, str(se.get("status") or "started")[:20], json.dumps(dev, ensure_ascii=False),
                      gl_num(se.get("accuracy_px")), gl_num(se.get("precision_px")), json.dumps(se.get("meta") or {}, ensure_ascii=False),
                      gl_num(se.get("created_at")) or time.time(), gl_num(se.get("completed_at")), log_file))
         for r in g.get("recordings") or []:
@@ -393,11 +400,20 @@ def public_student(s, t):
 
 
 def cihaz_ozet(k):
-    """Öğretmen paneli için cihaz özeti (kurulumdan): tarayıcı, çekirdek, GPU. Bilinmeyen None."""
+    """Öğretmen paneli için cihaz özeti (kurulumdan): tarayıcı + sürüm, işletim sistemi, çekirdek, RAM, GPU, kamera adı,
+    çözünürlük ve fps ayarı. Tam cihaz bilgisi (cihazTam) yoksa eski cihaz2 alanları. Bilinmeyen None."""
     if not isinstance(k, dict):
         return None
     c = k.get("cihaz2") if isinstance(k.get("cihaz2"), dict) else {}
-    return {"tarayici": k.get("tarayici") or None, "cekirdek": c.get("cekirdek"), "gpu": c.get("gpu")}
+    o = cihaz_tam_ozet(k.get("cihazTam"), None, k.get("islemeFps")) or {}
+    tar = " ".join(x for x in (o.get("tarayici"), o.get("tarayiciSurum")) if x) or k.get("tarayici") or None
+
+    def ilk(a, b):
+        return a if a is not None else b
+    return {"tarayici": tar, "cekirdek": ilk(o.get("cekirdek"), c.get("cekirdek")), "gpu": o.get("gpu") or c.get("gpu"),
+            "isletimSistemi": o.get("isletimSistemi"), "bellekGB": ilk(o.get("bellekGB"), c.get("bellekGB")),
+            "kamera": o.get("kamera"), "kameraCozunurluk": o.get("kameraCozunurluk") or k.get("kamera") or None,
+            "kameraFps": ilk(o.get("kameraFpsAyar"), k.get("fps"))}
 
 
 HSE_SINIF = ("Anger", "Contempt", "Disgust", "Fear", "Happiness", "Neutral", "Sadness", "Surprise")
@@ -817,6 +833,8 @@ def temiz_kurulum(k):
     out["isci"] = k["isci"] if isinstance(k.get("isci"), bool) else None   # işleme yeri; bilinmiyorsa None
     if "cihaz2" in k:
         out["cihaz2"] = temiz_cihaz2(k.get("cihaz2"))
+    if "cihazTam" in k:
+        out["cihazTam"] = temiz_cihaz_tam(k.get("cihazTam"))
     return out
 
 
@@ -852,6 +870,137 @@ def temiz_cihaz2(c):
               "mobile": u["mobile"] if isinstance(u.get("mobile"), bool) else None}
     return {"cekirdek": sayi(c.get("cekirdek"), 0, 1024), "bellekGB": sayi(c.get("bellekGB"), 0, 1024),
             "gpu": _metin(c.get("gpu"), 120), "ua": _metin(c.get("ua"), 300), "uaVeri": uv}
+
+
+# Tam cihaz bilgisi (static/cihaz.js cihazTamTopla). Şemadaki alanlar kabul edilir, bilinmeyen atılır; tür yanlışsa None,
+# None korunur. Metin ≤300, dizi ≤16 öğe, derinlik şemayla sınırlı (en çok 6).
+_S, _N, _B = "s", "n", "b"
+_MARKA = {"brand": _S, "version": _S}
+CIHAZ_TAM_SEMA = {
+    "surum": _N, "zaman": _S,
+    "tarayici": {"ua": _S, "uaVeri": {"brands": [_MARKA], "mobile": _B, "platform": _S},
+                 "uaYuksek": {"platformVersion": _S, "architecture": _S, "bitness": _S, "model": _S, "wow64": _B,
+                              "fullVersionList": [_MARKA]},
+                 "uaYuksekNeden": _S},
+    "islemci": {"mantiksalCekirdek": _N, "cpuModel": _S, "cpuModelNeden": _S},
+    "bellek": {"deviceMemoryGB": _N, "bellekNot": _S, "jsHeapLimitMB": _N},
+    "gpu": {"webglVendor": _S, "webglRenderer": _S, "webglNeden": _S, "webgl2": _B, "webgpu": _B,
+            "webgpuAdapter": {"vendor": _S, "architecture": _S, "device": _S, "description": _S}, "webgpuNeden": _S},
+    "ekran": {"width": _N, "height": _N, "availWidth": _N, "availHeight": _N, "colorDepth": _N, "dpr": _N,
+              "innerW": _N, "innerH": _N, "outerW": _N, "outerH": _N, "tamEkran": _B, "genisletilmis": _B},
+    "kamera": {"label": _S, "ayar": {"width": _N, "height": _N, "frameRate": _N, "deviceIdOz": _S, "groupIdOz": _S,
+                                     "facingMode": _S, "resizeMode": _S},
+               "yetenek": {"maxWidth": _N, "maxHeight": _N, "maxFrameRate": _N},
+               "videoGirisSayisi": _N, "videoGirisEtiketleri": [_S], "neden": _S, "olculenKaynak": _S},
+    "ag": {"effectiveType": _S, "downlinkMbps": _N, "rttMs": _N, "type": _S},
+    "diger": {"dil": _S, "diller": [_S], "saatDilimi": _S, "platform": _S, "dokunmatikNokta": _N,
+              "crossOriginIsolated": _B, "mediapipeDelegate": _S, "isci": _B},
+}
+
+
+def _sema_temizle(v, sema, derinlik=0):
+    if v is None or derinlik > 6:
+        return None
+    if sema == _S:
+        return v[:300] if isinstance(v, str) else None
+    if sema == _N:
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
+            return None
+        return int(clamp(v, -1e9, 1e9)) if isinstance(v, int) else round(clamp(v, -1e9, 1e9), 4)
+    if sema == _B:
+        return v if isinstance(v, bool) else None
+    if isinstance(sema, list):
+        return [_sema_temizle(x, sema[0], derinlik + 1) for x in v[:16]] if isinstance(v, list) else None
+    if isinstance(sema, dict):
+        return {k: _sema_temizle(v[k], alt, derinlik + 1) for k, alt in sema.items() if k in v} if isinstance(v, dict) else None
+    return None
+
+
+def temiz_cihaz_tam(c):
+    """cihazTam doğrulama: şema dışı alan atılır, sınırlar uygulanır; sözlük değilse None."""
+    return _sema_temizle(c, CIHAZ_TAM_SEMA) if isinstance(c, dict) else None
+
+
+_TARAYICI_ONCELIK = (("Microsoft Edge", "Edge"), ("Opera", "Opera"), ("Google Chrome", "Chrome"), ("Chromium", "Chromium"))
+_UA_TARAYICI = (("Edg", "Edge"), ("OPR", "Opera"), ("Firefox", "Firefox"), ("Chrome", "Chrome"), ("Version", "Safari"))
+
+
+def _tarayici_coz(t):
+    """(ad, sürüm): önce UA-CH tam sürüm listesi, sonra marka listesi (ana sürüm), sonra UA metni. Bilinmiyorsa (None, None)."""
+    yuksek = (t.get("uaYuksek") or {}).get("fullVersionList") or []
+    markalar = (t.get("uaVeri") or {}).get("brands") or []
+    for liste in (yuksek, markalar):
+        adlar = {x.get("brand"): x.get("version") for x in liste if isinstance(x, dict)}
+        for marka, ad in _TARAYICI_ONCELIK:
+            if adlar.get(marka):
+                return ad, adlar[marka]
+    ua = t.get("ua") or ""
+    for anahtar, ad in _UA_TARAYICI:
+        m = re.search(anahtar + r"/([\d.]+)", ua)
+        if m:
+            return ad, m.group(1)
+    return None, None
+
+
+def _isletim_sistemi(t, diger):
+    """UA-CH platform + platformVersion (Windows: platformVersion ana sürümü ≥13 → 11, 1–12 → 10; Microsoft'un belgelediği
+    eşleme); yoksa UA metninden (Windows 10 ve 11 UA'da ayırt edilemez → "Windows 10/11")."""
+    pl = (t.get("uaVeri") or {}).get("platform") or None
+    pv = (t.get("uaYuksek") or {}).get("platformVersion") or None
+    if pl == "Windows" and pv:
+        try:
+            ana = int(pv.split(".")[0])
+            return ("Windows 11" if ana >= 13 else "Windows 10" if ana >= 1 else "Windows 7/8") + f" ({pv})"
+        except ValueError:
+            pass
+    if pl:
+        return f"{pl} {pv}" if pv else pl
+    ua = t.get("ua") or ""
+    for desen, ad in ((r"Windows NT 10\.0", "Windows 10/11"), (r"Windows NT ([\d.]+)", "Windows NT {}"),
+                      (r"Android ([\d.]+)", "Android {}"), (r"CrOS", "ChromeOS"), (r"Mac OS X ([\d_]+)", "macOS {}"), (r"Linux", "Linux")):
+        m = re.search(desen, ua)
+        if m:
+            return ad.format(*(x.replace("_", ".") for x in m.groups()))
+    return (diger or {}).get("platform") or None
+
+
+def _medyan(L):
+    L = sorted(v for v in L if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v))
+    if not L:
+        return None
+    n = len(L)
+    return round(L[n // 2] if n % 2 else (L[n // 2 - 1] + L[n // 2]) / 2, 1)
+
+
+def cihaz_tam_ozet(tam, asama=None, isleme_fps=None):
+    """Düz cihaz özeti (yöntem sonuçlarını cihazla birleştirmek için). tam: temizlenmiş cihazTam. Ölçülen fps: asama
+    verildiyse (GazeLab aşama tablosu) aşamaların medyanı; yoksa isleme_fps (öğrenci kurulumu). Ayar fps getSettings'ten.
+    Bilinmeyen None, uydurma yok."""
+    if not isinstance(tam, dict):
+        return None
+    t, g, k = tam.get("tarayici") or {}, tam.get("gpu") or {}, tam.get("kamera") or {}
+    ay, d, ad = k.get("ayar") or {}, tam.get("diger") or {}, g.get("webgpuAdapter") or {}
+    tar, surum = _tarayici_coz(t)
+    rows = [r for r in (asama or []) if isinstance(r, dict)]
+    kam_olc = _medyan([r.get("Kamera fps (gerçek)") for r in rows]) if rows else None
+    if rows:
+        isl = _medyan([r.get("İşleme fps") for r in rows])
+    else:
+        isl = isleme_fps if isinstance(isleme_fps, (int, float)) and not isinstance(isleme_fps, bool) else None
+    return {
+        "gpu": g.get("webglRenderer") or ad.get("description") or None,
+        "gpuVendor": g.get("webglVendor") or ad.get("vendor") or None,
+        "cekirdek": (tam.get("islemci") or {}).get("mantiksalCekirdek"),
+        "bellekGB": (tam.get("bellek") or {}).get("deviceMemoryGB"),
+        "tarayici": tar, "tarayiciSurum": surum,
+        "isletimSistemi": _isletim_sistemi(t, d),
+        "kamera": k.get("label") or None,
+        "kameraCozunurluk": f"{int(ay['width'])}x{int(ay['height'])}" if ay.get("width") and ay.get("height") else None,
+        "kameraFpsAyar": ay.get("frameRate"),
+        "kameraFpsOlculen": kam_olc, "islemeFps": isl,
+        "olculenKaynak": "GazeLab aşama tablosu, aşamaların medyanı" if rows else ("öğrenci kurulumu (islemeFps)" if isl is not None else None),
+        "delegate": d.get("mediapipeDelegate"), "isci": d.get("isci"),
+    }
 
 
 def _testlog_geri_mi(yol, n_log, bitti):
@@ -1034,6 +1183,11 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 etiket = kayit.ogrenci_var(KAYIT, ders, sid)
         b["dersBagli"] = etiket
+        if "cihazTam" in b:
+            b["cihazTam"] = temiz_cihaz_tam(b.get("cihazTam"))
+            gt = (b.get("gazelab") or {}).get("tablolar") if isinstance(b.get("gazelab"), dict) else None
+            asama = gt.get("asama") if isinstance(gt, dict) and isinstance(gt.get("asama"), list) else None
+            b["cihazOzet"] = cihaz_tam_ozet(b["cihazTam"], asama)
         on = f"{ders}_{sid[2:8]}_" if etiket else ""
         os.makedirs(TEST_DIR, exist_ok=True)
         ad = f"{zaman}_{on}{cihaz}_{son}.json"
@@ -1059,7 +1213,7 @@ class Handler(BaseHTTPRequestHandler):
                     print(f"[testlog] GazeLab oturumu {oturum} -> {GL_DB}")
                 except (sqlite3.Error, TypeError, ValueError) as e:
                     print(f"[testlog] GazeLab kaydı yazılamadı: {e}")
-        self.send_json({"ok": True, "dosya": ad, "oturum": oturum})
+        self.send_json({"ok": True, "dosya": ad, "oturum": oturum, "cihazOzet": b.get("cihazOzet")})
 
     def bakis_testi_bagla(self, b, ders, sid, ad):
         """Bakış testi kaydını dersler.db'de öğrenciye bağlar; öğretmen paneli için öğrencinin test durumunu günceller.
