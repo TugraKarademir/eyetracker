@@ -1042,11 +1042,24 @@ function basKur() {
   modelBH = new GazeModel(); modelBH.fit([...FB, ...FBH], [...Y, ...YH]);
   if (FKM.length >= 30 && FKH.length) { modelKH = new GazeModel(); modelKH.fit([...FKM, ...FKH], [...YK, ...YKH]); }
 }
+function basEtiketSil() { document.querySelectorAll(".basEt").forEach((n) => n.remove()); }
+function basEtiket(q, metin, yon) {   // talimat noktanın yanında: göz noktadan ayrılmasın
+  basEtiketSil();
+  const mk = (css, html) => { const d = document.createElement("div"); d.className = "basEt"; d.style.cssText = "position:fixed;z-index:7;pointer-events:none;color:#ffd84a;font:600 15px system-ui,sans-serif;white-space:nowrap;text-shadow:0 0 4px #000,0 0 2px #000;transform:translate(-50%,-50%);" + css; d.innerHTML = html; document.body.appendChild(d); return d; };
+  const W = innerWidth, H = innerHeight, d = 70;
+  const ust = q.y > H * 2 / 3, ly = ust ? q.y - d : q.y + d;
+  const el = mk(`left:0;top:${ly}px`, metin);
+  const w = el.offsetWidth / 2 + 8; el.style.left = Math.min(W - w, Math.max(w, q.x)) + "px";
+  el.style.top = Math.min(H - 16, Math.max(16, ly)) + "px";
+  const ok = (dx, dy, g) => mk(`left:${Math.min(W - 14, Math.max(14, q.x + dx))}px;top:${Math.min(H - 14, Math.max(14, q.y + dy))}px;font-size:24px;opacity:.75`, g);
+  if (yon === "yatay") { ok(-52, 0, "◀"); ok(52, 0, "▶"); }
+  else if (yon === "dikey") { ok(0, -52, "▲"); ok(0, 52, "▼"); }
+}
 async function basTuru() {
   if (!BASTUR.ACIK) return;
   adimBasla("bas");
   await hazirKarti("🙆 Baş turu (yaklaşık 25 sn)",
-    `${BASTUR.NOKTA.length} sarı nokta çıkacak. <b>Gözünüzü noktadan ayırmadan</b> başınızı yavaşça çevirin:<br>önce <b>sağa-sola</b>, sonra <b>yukarı-aşağı</b> (ekranda yazacak).<br>Büyük hareket gerekmez, derste nasıl kıpırdıyorsanız öyle. <b>Tıklamayın.</b>`, "Hazırım");
+    `${BASTUR.NOKTA.length} sarı nokta çıkacak. <b>Gözünüzü noktadan ayırmadan</b> başınızı yavaşça çevirin:<br>önce <b>sağa-sola</b>, sonra <b>yukarı-aşağı</b> (talimat noktanın hemen yanında yazar; yön değişince kısa bir <b>bip</b> sesi gelir).<br>Büyük hareket gerekmez, derste nasıl kıpırdıyorsanız öyle. <b>Tıklamayın.</b>`, "Hazırım");
   glFazBasla("bas_turu");
   $("#guide").style.display = "block";
   const Y3 = [], P3 = [];
@@ -1056,12 +1069,14 @@ async function basTuru() {
       const q = { x: Math.round(BASTUR.NOKTA[i][0] * innerWidth), y: Math.round(BASTUR.NOKTA[i][1] * innerHeight) };
       guide = { round: "baş", targets: [q], total: BASTUR.NOKTA.length, startN: 0, ozet: "", meds: [], bakarak: true };
       guideShow(); q.el?.classList.add("bakis"); if (q.el) q.el.style.animationDuration = `${BASTUR.BEKLE + BASTUR.SURE}s`;
-      const yaz = (m) => { $("#gTxt").innerHTML = `${m}<br><span class="muted">baş turu ${i + 1}/${BASTUR.NOKTA.length} · gözünüz noktada</span>`; };
-      yaz("<b>Noktaya bakın</b>"); yerlestir();
+      const G = $("#guide"); G.style.visibility = "hidden"; $("#gTxt").innerHTML = "";   // toplama boyunca alttaki yazı gözü çekmesin
+      const yaz = (m, ok) => basEtiket(q, m, ok);
+      yaz("noktaya bakın", ""); yerlestir(); G.style.visibility = "hidden";
       const t0 = performance.now() / 1000;
-      await sleep(BASTUR.BEKLE * 1000); yaz("<b>↔ Başınızı yavaşça sağa-sola çevirin</b>");
-      await sleep(BASTUR.SURE * 500); yaz("<b>↕ Başınızı yavaşça yukarı-aşağı çevirin</b>");
+      await sleep(BASTUR.BEKLE * 1000); beep(660, 0.25); yaz("↔ sağa-sola", "yatay");
+      await sleep(BASTUR.SURE * 500); beep(990, 0.25); yaz("↕ yukarı-aşağı", "dikey");
       await sleep(BASTUR.SURE * 500 + 150);
+      basEtiketSil(); G.style.visibility = "";
       const S = buf.filter((b) => !b.blink && b.t >= t0 + BASTUR.BEKLE && b.t <= t0 + BASTUR.BEKLE + BASTUR.SURE);
       const adim = Math.max(1, S.length / BASTUR.EN_COK), sec = [];
       for (let k = 0; k < S.length && sec.length < BASTUR.EN_COK; k += adim) sec.push(S[Math.floor(k)]);
@@ -1075,7 +1090,7 @@ async function basTuru() {
       const ar = (A) => (A.length ? `${Math.round(Math.min(...A))}…${Math.round(Math.max(...A))}°` : "-");
       tlog(`  baş turu nokta ${i + 1} (x ${q.x}, y ${q.y}): ${S.length} kare, ${sec.length} öğretildi · baş yaw ${ar(yw)}, pitch ${ar(pt)}`, { x: q.x, y: q.y, kare: S.length, ogretilen: sec.length });
     }
-  } finally { document.querySelectorAll(".tgt").forEach((n) => n.remove()); guide = null; glFazBitir(); }
+  } finally { basEtiketSil(); $("#guide").style.visibility = ""; document.querySelectorAll(".tgt").forEach((n) => n.remove()); guide = null; glFazBitir(); }
   const aralik = (A) => (A.length ? Math.round(Math.max(...A) - Math.min(...A)) : null);
   basOzet = { kare: FH.length, yawAralik: aralik(Y3), pitchAralik: aralik(P3) };
   basKur();
