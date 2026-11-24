@@ -2,6 +2,10 @@
 let gaze = null;
 let CODE = null, SID = null, analyzer = null, stream = null, es = null, paused = false, handUp = false, sendTimer = null;
 const params = new URLSearchParams(location.search);
+// Öğrenci yalnız bakışı kalibre eder ve etkileşir; ekran alanı, bakış noktası, duygu paneli ve el hareketi ayarları
+// yalnız ?gelismis=1 ile görünür. Gizliyken el hareketi ve HSEmotion her zaman açık çalışır (onay metni kapsar).
+const GELISMIS = params.get("gelismis") === "1";
+document.head.insertAdjacentHTML("beforeend", `<style>${GELISMIS ? ".basit" : ".gelismis"}{display:none!important}</style>`);
 $("#jCode").value = (params.get("code") || "").toUpperCase();
 const prev = store.get("dn_student") || {};
 if (prev.name) $("#jName").value = prev.name;
@@ -55,8 +59,24 @@ function renderMe(s) {
     !s.face ? "Yüzünüz görünmüyor" : s.eyesClosed ? "Gözler kapalı" : s.lookingAway ? "Ekran dışına bakıyorsunuz" : "Analiz ediliyor ✓";
   $("#mAtt").textContent = s.attention; $("#mAttBar").style.width = s.attention + "%"; $("#mAttBar").style.background = levelColor(s.attention);
   $("#mEn").textContent = s.energy; $("#mEnBar").style.width = s.energy + "%";
-  $("#mEmo").textContent = `${EMO[s.emotion].icon} ${EMO[s.emotion].label}`;
+  meDuygu(s);
 }
+// Duygu satırı: HSEmotion ölçümü tazeyse onun en olası sınıfı, değilse yüz ifadesi kuralının sonucu
+const HSE_IKON = { Anger: "😠", Contempt: "😒", Disgust: "🤢", Fear: "😨", Happiness: "😊", Neutral: "😐", Sadness: "😢", Surprise: "😮" };
+function meDuygu(s = analyzer?.state) {
+  const h = $("#hseChk").checked ? hse.top() : null;
+  if (h) $("#mEmo").textContent = `${HSE_IKON[h.name] || "🧠"} ${h.tr} %${Math.round(100 * h.p)}`;
+  else if (s) $("#mEmo").textContent = `${EMO[s.emotion].icon} ${EMO[s.emotion].label}`;
+  // Sekiz HSEmotion duygusu (büyükten küçüğe); taze ölçüm yoksa son çubuklar soluk kalır
+  const box = $("#meHse");
+  if (!$("#hseChk").checked || !hse.probs) { box.innerHTML = ""; return; }
+  box.style.opacity = h ? "" : "0.35";
+  if (!h) return;
+  box.innerHTML = hse.probs.map((p, i) => [p, HSE_CLASSES[i]]).sort((a, b) => b[0] - a[0]).map(([p, k]) =>
+    `<div class="row" style="gap:6px;margin:2px 0;align-items:center"><span style="width:96px;white-space:nowrap">${HSE_IKON[k]} ${HSE_TR[k]}</span>` +
+    `<div class="bar" style="flex:1;height:5px"><i style="width:${Math.round(100 * p)}%;transition:none"></i></div><b style="width:34px;text-align:right">%${Math.round(100 * p)}</b></div>`).join("");
+}
+setInterval(() => { if (analyzer && !paused) meDuygu(); }, 500);
 
 async function sendMetrics() {
   if (paused) kareOnceki = null;   // duraklatma süresi işlenen kare/sn'yi düşürmesin
@@ -67,9 +87,11 @@ async function sendMetrics() {
   // Bakış kalibre ise "ekran dışı" kararı baş yönünden daha güvenilirdir
   const away = s.lookingAway || !!(g && (g.cal || g.coarse) && (g.share?.disari || 0) >= 0.6);
   const kal = kalYeni();
+  const ht = $("#hseChk").checked ? hse.top() : null;   // HSEmotion: yalnız sınıf, oran ve valence/arousal (görüntü değil)
   try {
     await api("/api/metrics", { code: CODE, sid: SID, attention: s.attention, energy: s.energy, emotion: s.emotion,
-      face: s.face, lookingAway: away, eyesClosed: s.eyesClosed, tabHidden: document.hidden, gaze: g, ekran: ekranBilgi(), kurulum: kurulumBilgi(), ...kal });
+      face: s.face, lookingAway: away, eyesClosed: s.eyesClosed, tabHidden: document.hidden, gaze: g, ekran: ekranBilgi(), kurulum: kurulumBilgi(), ...kal,
+      hse: ht ? { top: ht.name, p: ht.p, valence: hse.valence, arousal: hse.arousal } : null });
     if (kal.kal) sonKalAt = kal.kal.at;   // yalnız başarılı gönderimden sonra: başarısızsa rapor bir sonrakinde yeniden gider
   } catch (err) { if (/aktif değil/.test(err.message)) finish(); }
 }
@@ -197,9 +219,10 @@ function gazeStatus(s) {
   $("#gazeBanner").classList.toggle("hidden", s !== "stale");
   if (s === "ok" && gaze?.report) {
     const r = gaze.report;
-    st.innerHTML = gaze.coarse
+    st.innerHTML = !GELISMIS ? `<span style="color:var(--good)">● Aktif</span>`
+      : gaze.coarse
       ? `<span style="color:var(--warn)">● Kaba mod</span> · isabet %${r.hit3} düşük: yalnız "ekrana bakıyor mu" kullanılıyor, bölge gönderilmiyor`
-      : `<span style="color:var(--good)">● Aktif</span> · hata ~${r.acc} px · 3×3 isabet %${r.hit3}`;
+      : `<span style="color:var(--good)">● Aktif</span> · hata ~${r.acc} px · 3×3 isabet %${r.hit3}<br><span class="small">model: ${esc(gaze.secim?.ad || "bizim (ana model)")}</span>`;
     $("#gazeCalBtn").textContent = "👁️ Bakışı yeniden kalibre et";
   } else if (s === "stale") {
     st.innerHTML = '<span style="color:var(--warn)">● Duraklatıldı</span> · ekran değişti, yeniden kalibre edin';
@@ -212,7 +235,7 @@ async function startGaze() {
   gaze = new GazeTracker($("#video"), { getRegions: gazeRegions, onStatus: gazeStatus });
   try {
     await gaze.load();
-    if (!gaze.model) toast("👁️ Bakış takibini açmak için soldaki “Kalibre et” düğmesine basın (≈40 sn).", 7000);
+    if (!gaze.model) toast("👁️ Bakış takibini açmak için soldaki “Bakışı kalibre et” düğmesine basın (≈2 dk).", 7000);
   } catch (e) {
     console.error(e);
     gazeStatus("Bakış modeli yüklenemedi (internet bağlantısını kontrol edin)");
@@ -227,9 +250,31 @@ setInterval(() => {
   $("#gazeRegion").textContent = gaze.blocked ? "" : a ? `${a.icon} Şu an: ${a.label}` : "Yüz algılanmıyor";
 }, 500);
 
-$("#gazeCalBtn").onclick = () => gaze?.calibrate();
-$("#gazeCalYeniBtn").onclick = () => gaze?.calibrateYeni();
-$("#gazeRecalBtn").onclick = () => gaze?.calibrate();
+// Bakış kalibrasyonu = bakış testi (bakis_test.html, ?gomulu=1) tam ekran çerçevede. O sürede bu sayfanın yüz, el ve duygu işlemesi
+// durur (iki MediaPipe aynı anda çalışıp kare hızını düşürmesin). Test, aktarım kuralıyla seçtiği modeli aynı tarayıcı deposuna
+// yazar (gaze.save); "Derse dön" (postMessage) ile çerçeve kapanınca model buraya yüklenir.
+let kalCerceve = null, kalOnce = null;
+function bakisTestiAc() {
+  if (kalCerceve || !gaze?.ready) return;
+  kalOnce = { el: handDet.enabled, hs: hse.enabled };
+  gaze.pause(true); analyzer?.stop(); handDet.setEnabled(false); hse.setEnabled(false);
+  const f = kalCerceve = document.createElement("iframe");
+  f.src = "/bakis_test.html?gomulu=1"; f.allow = "camera; fullscreen; autoplay"; f.allowFullscreen = true; f.title = "Bakış kalibrasyonu";
+  Object.assign(f.style, { position: "fixed", inset: "0", width: "100vw", height: "100vh", border: "0", zIndex: "9999", background: "#0f141b" });
+  document.body.append(f);
+}
+function bakisTestiKapat() {
+  if (!kalCerceve) return;
+  kalCerceve.remove(); kalCerceve = null;
+  if (!paused) { gaze.pause(false); analyzer?.start(); }
+  if (kalOnce?.el) handDet.setEnabled(true).catch(() => {});
+  if (kalOnce?.hs) hse.setEnabled(true).catch(() => {});
+  if (gaze.restore()) { gazeStatus("ok"); toast(GELISMIS ? `👁️ Kalibrasyon yüklendi: ${gaze.secim?.ad || "ana model"}` : "👁️ Bakış kalibrasyonu tamam", 5000); }
+  else toast("Kalibrasyon kaydedilmedi; tekrar deneyebilirsiniz.", 5000);
+}
+addEventListener("message", (e) => { if (e.origin === location.origin && e.data?.tip === "bakis-testi-kapat") bakisTestiKapat(); });
+$("#gazeCalBtn").onclick = bakisTestiAc;
+$("#gazeRecalBtn").onclick = bakisTestiAc;
 $("#gazeFsBtn").onclick = () => document.documentElement.requestFullscreen?.().catch(() => {});
 $("#gazeDotChk").onchange = (e) => gaze?.setShowDot(e.target.checked);
 // Tam ekrana dönüldüğünde / pencere eski boyutuna gelince kayıtlı kalibrasyonu tekrar kullan
@@ -237,7 +282,7 @@ const regaze = () => { if (gaze && gaze.ready && !gaze.model && gaze.restore()) 
 addEventListener("resize", regaze);
 // Bakış test sayfasında (bakis_test.html) tıklayarak yapılan kalibrasyon kaydedilince bu sekme onu hemen kullanır
 addEventListener("storage", (e) => {
-  if (!e.key || !e.key.startsWith("dn_gaze_v2_") || !gaze || !gaze.ready) return;
+  if (!e.key || !e.key.startsWith("dn_gaze_v2_") || !gaze || !gaze.ready || kalCerceve) return;   // çerçevedeki test: kapanınca yüklenir
   if (gaze.restore()) { gazeStatus("ok"); toast("👁️ Test sayfasındaki tıklamalı kalibrasyon yüklendi.", 4000); }
 });
 document.addEventListener("fullscreenchange", regaze);
@@ -250,10 +295,15 @@ const handDet = new HandRaiseDetector($("#video"), {
     setHand(true); ev({ type: "hand", up: true });
     toast("✋ Elinizi 3 sn kaldırdınız: söz istendi. Geri almak için “Eli indir”e basın.", 5000);
   },
+  onThumb: () => {
+    if (!SID) return;
+    ev({ type: "reaction", emoji: "👍" }); floatEmoji("👍");
+    toast("👍 Başparmak işaretiniz “Anladım” olarak gönderildi.", 3000);
+  },
 });
 (() => {
   const chk = $("#autoHandChk"), key = "dn_auto_hand";
-  chk.checked = store.get(key) ?? true;
+  chk.checked = GELISMIS ? store.get(key) ?? true : true;
   const apply = async () => {
     store.set(key, chk.checked);
     if (!chk.checked) { $("#handStatus").textContent = ""; return handDet.setEnabled(false); }
@@ -268,19 +318,22 @@ const handDet = new HandRaiseDetector($("#video"), {
   setInterval(() => {
     if (!chk.checked || !handDet.ready || !handDet.enabled) return;
     const i = handDet.info;
+    const bas = i.thumbHold > 0 && !handDet.thumbLatched ? `👍 Anladım ${Math.min(i.thumbHold, HAND_CFG.THUMB_HOLD).toFixed(1)} / ${HAND_CFG.THUMB_HOLD} sn` : "";
+    if (!GELISMIS) { $("#handStatus").textContent = i.up ? `✋ El kaldırıldı ${Math.min(i.hold, HAND_CFG.HOLD).toFixed(1)} / ${HAND_CFG.HOLD} sn` : bas; return; }
+    if (bas) { $("#handStatus").textContent = bas; return; }
     $("#handStatus").textContent = !i.hand ? "El görünmüyor" :
       i.up ? `El kaldırıldı ${Math.min(i.hold, HAND_CFG.HOLD).toFixed(1)} / ${HAND_CFG.HOLD} sn` :
       `El görüldü (${i.gesture || "?"} %${Math.round(100 * i.score)}) · avucunuzu açıp parmaklarınız göz hizasının üstünde kalacak şekilde tutun`;
   }, 200);
 })();
 
-// ================================================================ TEST: HSEmotion (8 duygu + valence/arousal)
-// Yalnızca bu sayfada gösterilir ve konsola [HS …] satırı yazar; sunucuya/öğretmene gönderilmez.
+// ================================================================ HSEmotion (8 duygu + valence/arousal)
+// Bu sayfada gösterilir, konsola [HS …] satırı yazar; öğretmene en olası sınıf, oranı ve valence/arousal gider (sendMetrics).
 const hse = new HSEmotionProbe($("#video"), { getFace: () => gaze?.face || null, isOccluded: () => handDet.occluding(),
   getBaseline: () => gaze?.report?.yuz?.notr?.duygu?.hse || null });
 (() => {
   const chk = $("#hseChk"), key = "dn_hse";
-  chk.checked = store.get(key) ?? true;
+  chk.checked = GELISMIS ? store.get(key) ?? true : true;
   const apply = async () => {
     store.set(key, chk.checked);
     if (!chk.checked) { hse.setEnabled(false); $("#hseBars").innerHTML = ""; return; }

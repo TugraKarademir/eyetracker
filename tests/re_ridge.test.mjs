@@ -2,6 +2,7 @@
 //  1) çift (dual) çözüm = birincil (primal) ridge çözümü
 //  2) gruplu birini-dışarıda-bırak özdeşliği r_G = (C_GG)⁻¹ α_G = grubu çıkarıp yeniden kurmak (kaba kuvvet)
 //  3) fitSec en küçük medyan hatalı λ'yı seçer ve tabloyu doldurur
+//  4) CV sızdırmaz (sabit terim her katta yeniden kestirilir)
 import fs from "node:fs";
 import vm from "node:vm";
 import assert from "node:assert/strict";
@@ -61,5 +62,26 @@ assert.equal(REY.BOY, 1652); assert.equal(REY.LM.length, 15); assert.equal(new S
   const tek = new ReRidge().fit(F, Y, m.lam), q1 = m.predict(F[0]), q2 = tek.predict(F[0]);
   assert.ok(Math.abs(q1[0] - q2[0]) < 1e-6 && Math.abs(q1[1] - q2[1]) < 1e-6, "fitSec modeli seçilen λ ile fit'e eşit değil");
   console.log(`3) fitSec: λ ${m.lam} seçildi; ${m.secim.tablo.map((t) => `${t.carpan}:${t.medyan.toFixed(1)}`).join(" ")} px`);
+
+  // 5) ders sayfasına aktarım: JSON'a yazılıp geri yüklenen model aynı tahmini verir (eğitim satırları olmadan)
+  const geri = ReRidge.from(JSON.parse(JSON.stringify(m)));
+  assert.equal(geri.X, undefined);
+  for (const f of F.slice(0, 5)) { const a = m.predict(f), b = geri.predict(f); assert.ok(Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9, "JSON gidiş-dönüşte tahmin değişti"); }
+  console.log("5) JSON gidiş-dönüş: aynı tahmin");
+}
+
+// 4) CV sızdırmaz: öznitelik hedefle ilgisizken (her noktanın rastgele imzası) dışarıda bırakılan noktanın hatası küçük çıkmamalı.
+//    Sabit terim katta yeniden kestirilmezse en küçük λ'da ~1 px çıkıyordu (Σ yc = 0 kısıtı hedefi geri veriyor).
+{
+  const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.PI * rnd());
+  const p = 300, F = [], Y = [], G = [];
+  for (let g = 0; g < 9; g++) {
+    const imza = Array.from({ length: p }, gauss), y = [320 + 960 * (g % 3), 240 + 480 * Math.floor(g / 3)];
+    for (let r = 0; r < 8; r++) { F.push(imza.map((v) => v + 0.3 * gauss())); Y.push(y); G.push(g); }
+  }
+  const m = await new ReRidge().fitSec(F, Y, G);
+  const enKucuk = Math.min(...m.secim.tablo.map((t) => t.medyan));
+  assert.ok(enKucuk > 300, `ilgisiz öznitelikte CV hatası ${enKucuk.toFixed(0)} px (sızıntı)`);
+  console.log(`4) CV sızdırmaz: ilgisiz öznitelikte en küçük CV hatası ${enKucuk.toFixed(0)} px`);
 }
 console.log("TAMAM");

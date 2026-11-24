@@ -247,6 +247,28 @@ class SunucuOrnek(unittest.TestCase):
         self.assertEqual(rows[0]["gaze_cal"], 1)
         self.assertEqual(rows[0]["coarse"], 0)
 
+    def test_metrics_hse_ogretmene_gider(self):
+        kod, _, sid = self.ogrenci()
+        self.metrik(kod, sid, hse={"top": "Happiness", "p": 0.62, "valence": 3, "arousal": -0.1})
+        s = server.public_student(server.CLASSES[kod]["students"][sid], server.now())
+        self.assertEqual(s["hse"], {"top": "Happiness", "p": 0.62, "valence": 1.0, "arousal": -0.1})
+        self.metrik(kod, sid, hse={"top": "<script>"})
+        self.assertIsNone(server.public_student(server.CLASSES[kod]["students"][sid], server.now())["hse"])
+
+    def test_ogrenci_ayrinti_isi_ve_kalibrasyon(self):
+        kod, _, sid = self.ogrenci()
+        self.metrik(kod, sid, gaze={"cal": True, "region": "materyal", "share": {"materyal": 1},
+                                    "pts": [[.5, .5]], "scr": [[-100, .25, .5], [-50, 1.1, .5]]},
+                    kal={"at": 1, "acc": 57.4, "hit3": 100, "aktarim": {"kod": "karmaH", "ad": "karma + baş turu"}})
+        d = server.ogrenci_ayrinti(server.CLASSES[kod]["students"][sid], server.now())
+        self.assertEqual(d["kal"]["model"], "karma + baş turu")
+        self.assertEqual((d["kal"]["acc"], d["kal"]["hit3"]), (57, 100))
+        self.assertEqual(d["scrOutPct"], 50)
+        self.assertEqual(max(d["scrHeat"]), 100)
+        self.assertEqual(d["scrHeat"][9 * server.SX + 8], 100)
+        self.assertEqual(len(d["scrSon"]), 2)
+        self.assertEqual(max(d["heat"]), 100)
+
     def test_metrics_coarse_bakis_saklamaz(self):
         kod, _, sid = self.ogrenci()
         self.metrik(kod, sid, gaze={"cal": False, "coarse": True, "share": {"disari": .2},
@@ -423,6 +445,75 @@ class SunucuYonetim(unittest.TestCase):
         st, b, _ = self.get("/api/admin/katilimcilar")
         self.assertEqual(st, 200)
         self.assertIn("P07", b.decode())
+
+    def admin_post(self, yol, govde):
+        r = urllib.request.Request(self.base + yol, json.dumps(govde).encode(),
+                                   {"Content-Type": "application/json", "X-Admin-Key": self.ANAHTAR})
+        try:
+            with urllib.request.urlopen(r) as f:
+                return f.status, json.loads(f.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
+    def test_ogretmen_ekle_ders_baglanir_pasif_listede_yok(self):
+        self.assertEqual(self.admin_post("/api/admin/ogretmen", {"name": " "})[0], 400)
+        self.assertEqual(self.admin_post("/api/admin/ogretmen", {"name": "A", "email": "yok"})[0], 400)
+        st, r = self.admin_post("/api/admin/ogretmen", {"name": "Ayşe Öğretmen", "email": "a@okul.tr", "kurum": "Okul"})
+        self.assertEqual(st, 200)
+        tid = r["id"]
+        with urllib.request.urlopen(self.base + "/api/teachers") as f:
+            self.assertEqual(json.loads(f.read()), [{"id": tid, "name": "Ayşe Öğretmen"}])
+        _, d1 = post(self.base, "/api/class", {"name": "Ders 1", "teacher_id": tid})
+        _, d2 = post(self.base, "/api/class", {"name": "Ders 2", "teacher_id": "t_sahte"})
+        st, b, _ = self.get("/api/admin/dersler?ogretmen=" + tid)
+        self.assertEqual([(d["code"], d["teacher_name"]) for d in json.loads(b)], [(d1["code"], "Ayşe Öğretmen")])
+        _, b, _ = self.get("/api/admin/dersler?ogretmen=-")
+        self.assertEqual([d["code"] for d in json.loads(b)], [d2["code"]])
+        _, b, _ = self.get("/api/admin/ogretmenler")
+        t = json.loads(b)[0]
+        self.assertEqual((t["n_ders"], t["aktif"], t["kurum"]), (1, 1, "Okul"))
+        self.assertEqual(self.admin_post("/api/admin/ogretmen", {"id": tid, "aktif": False})[0], 200)
+        self.assertEqual(self.admin_post("/api/admin/ogretmen", {"id": "t_yok", "name": "x"})[0], 404)
+        with urllib.request.urlopen(self.base + "/api/teachers") as f:
+            self.assertEqual(json.loads(f.read()), [])
+        _, d3 = post(self.base, "/api/class", {"name": "Ders 3", "teacher_id": tid})   # pasif öğretmen: bağlanmaz
+        _, b, _ = self.get("/api/admin/dersler?ogretmen=-")
+        self.assertIn(d3["code"], [d["code"] for d in json.loads(b)])
+
+    def test_kalibrasyonlar_ve_veri_paketi(self):
+        _, r = self.admin_post("/api/admin/ogretmen", {"name": "Can"})
+        _, d = post(self.base, "/api/class", {"name": "D", "teacher_id": r["id"]})
+        _, j = post(self.base, "/api/join", {"code": d["code"], "name": "Öğr"})
+        post(self.base, "/api/metrics", {"code": d["code"], "sid": j["sid"], "attention": 50, "energy": 50,
+                                         "kal": {"at": 5, "acc": 61, "hit3": 100, "gazelab": {"acc": 48.2},
+                                                 "aktarim": {"kod": "karmaH", "ad": "karma + baş turu", "gerekce": "g"}}})
+        _, b, _ = self.get("/api/admin/kalibrasyonlar?ogretmen=" + r["id"])
+        k = json.loads(b)
+        self.assertEqual([(x["ogretmen"], x["ogrenci"], x["model_kod"], x["gl_acc"]) for x in k], [("Can", "Öğr", "karmaH", 48.2)])
+        gecici = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, gecici, True)
+        with open(os.path.join(gecici, "o.json"), "w", encoding="utf-8") as f:
+            json.dump({"log": [{"msg": "AKTARIM", "aktarim": {"kod": "reL", "ad": "RE"}}]}, f)
+        with unittest.mock.patch.multiple(server, TEST_DIR=gecici, GL_DB=os.path.join(gecici, "gazelab.db")):
+            server.gl_kaydet({"session": {"id": "abcdef12", "status": "completed"},
+                              "tablolar": {"yontem": [{"Kod": "karmaH", "Yöntem": "karma", "GL doğruluk px": 48}]}}, "o.json")
+            st, b, _ = self.get("/api/admin/bakis_testleri")
+            s = json.loads(b)[0]
+            self.assertEqual((s["en_iyi"]["kod"], s["aktarim"]["kod"], s["dosya"]), ("karmaH", "reL", "o.json"))
+            self.assertEqual(self.get("/api/admin/bakis_dosya?ad=..%2Fserver.py")[0], 404)
+            st, b, _ = self.get("/api/admin/bakis_dosya?ad=o.json")
+            self.assertEqual((st, json.loads(b)["log"][0]["aktarim"]["kod"]), (200, "reL"))
+            st, b, h = self.get("/api/admin/veri_paketi")
+            self.assertEqual((st, h["Content-Type"]), (200, "application/zip"))
+            import zipfile
+            with zipfile.ZipFile(io.BytesIO(b)) as z:
+                self.assertTrue({"dersler.db", "gazelab.db", "bakis_testi/o.json", "BENIOKU.txt"} <= set(z.namelist()))
+                with tempfile.TemporaryDirectory() as td:
+                    z.extract("dersler.db", td)
+                    c = sqlite3.connect(os.path.join(td, "dersler.db"))
+                    self.assertEqual(c.execute("SELECT name FROM teachers").fetchone()[0], "Can")
+                    c.close()
+        self.assertEqual(self.get("/api/admin/veri_paketi", None)[0], 403)
 
     def test_admin_csv_bom(self):
         st, b, h = self.get("/api/admin/csv?tur=uzun")

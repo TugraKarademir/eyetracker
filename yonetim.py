@@ -111,19 +111,52 @@ def _bitis(con, code, ended):
     return _sorgu(con, "SELECT MAX(t) FROM samples WHERE lesson_code=?", code)[0][0]
 
 
-def dersler(con, ara=None, bas=None, bit=None):
-    sql, a = "SELECT * FROM lessons WHERE 1=1", []
+def kalibrasyonlar(con, ogretmen=None):
+    """Ders sayfasından gelen bütün kalibrasyon raporları (öğretmen, ders, öğrenci ve o anki kurulumla)."""
+    sql = ("SELECT c.*, l.name AS ders, l.teacher_id, t.name AS ogretmen, s.name AS ogrenci, s.participant_code AS pcode"
+           " FROM calibrations c JOIN lessons l ON l.code=c.lesson_code LEFT JOIN teachers t ON t.id=l.teacher_id"
+           " LEFT JOIN students s ON s.lesson_code=c.lesson_code AND s.sid=c.sid")
+    a = []
+    if ogretmen:
+        sql += " WHERE l.teacher_id=?"
+        a.append(ogretmen)
+    out = []
+    for r in _sorgu(con, sql + " ORDER BY c.t DESC", *a):
+        k = _j(r["report"], {}) or {}
+        ak = k.get("aktarim") if isinstance(k.get("aktarim"), dict) else {}
+        gl = k.get("gazelab") if isinstance(k.get("gazelab"), dict) else {}
+        kur = _sorgu(con, "SELECT setup FROM setups WHERE lesson_code=? AND sid=? AND t<=? ORDER BY t DESC LIMIT 1",
+                     r["lesson_code"], r["sid"], r["t"] + 5)
+        kur = _j(kur[0]["setup"], {}) if kur else {}
+        out.append({"t": r["t"], "at": r["at"], "code": r["lesson_code"], "ders": r["ders"], "sid": r["sid"],
+                    "ogrenci": r["ogrenci"], "pcode": r["pcode"], "teacher_id": r["teacher_id"], "ogretmen": r["ogretmen"],
+                    "acc": k.get("acc"), "hit3": k.get("hit3"), "gl_acc": gl.get("acc"), "gl_prec": gl.get("prec"),
+                    "model": ak.get("ad") or "bizim (ana model)", "model_kod": ak.get("kod") or "biz", "gerekce": ak.get("gerekce"),
+                    "kaynak": k.get("kaynak"), "n": k.get("n"), "zoom": k.get("zoom"), "kamera": k.get("kamera") or kur.get("kamera"),
+                    "ekran": kur.get("ekran"), "pencere": kur.get("pencere"), "uzaklik": kur.get("uzaklikCm"),
+                    "tarayici": kur.get("tarayici"), "kameraKonumu": (k.get("kameraKonumu") or {}).get("metin")})
+    return out
+
+
+def dersler(con, ara=None, bas=None, bit=None, ogretmen=None):
+    sql, a = ("SELECT l.*, t.name AS teacher_name FROM lessons l LEFT JOIN teachers t ON t.id=l.teacher_id"
+              " WHERE 1=1"), []
+    if ogretmen == "-":
+        sql += " AND l.teacher_id IS NULL"
+    elif ogretmen:
+        sql += " AND l.teacher_id=?"
+        a.append(ogretmen)
     if ara:
-        sql += " AND (name LIKE ? OR topic LIKE ? OR code LIKE ?)"
-        a += [f"%{ara}%"] * 3
+        sql += " AND (l.name LIKE ? OR l.topic LIKE ? OR l.code LIKE ? OR t.name LIKE ?)"
+        a += [f"%{ara}%"] * 4
     if bas is not None:
-        sql += " AND created>=?"
+        sql += " AND l.created>=?"
         a.append(bas)
     if bit is not None:
-        sql += " AND created<=?"
+        sql += " AND l.created<=?"
         a.append(bit)
     out = []
-    for d in _sorgu(con, sql + " ORDER BY created DESC", *a):
+    for d in _sorgu(con, sql + " ORDER BY l.created DESC", *a):
         c = d["code"]
         son = _bitis(con, c, d["ended"])
         ok = son is not None and d["created"] is not None
@@ -134,6 +167,7 @@ def dersler(con, ara=None, bas=None, bit=None):
             con, "SELECT kind, COUNT(*) FROM materials WHERE lesson_code=?"
                  " GROUP BY kind", c)}
         row = {"code": c, "name": d["name"], "topic": d["topic"],
+               "teacher_id": d["teacher_id"], "teacher_name": d["teacher_name"],
                "created": d["created"], "ended": d["ended"],
                "sure_dk": round(max(0, son - d["created"]) / 60, 1) if ok else None,
                "n_ogrenci": _sorgu(

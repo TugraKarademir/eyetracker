@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS calibrations(lesson_code TEXT, sid TEXT, t REAL,
   at REAL, report TEXT);
 CREATE TABLE IF NOT EXISTS events(lesson_code TEXT, sid TEXT, t REAL,
   kind TEXT, data TEXT);
+CREATE TABLE IF NOT EXISTS teachers(id TEXT PRIMARY KEY, name TEXT, email TEXT,
+  kurum TEXT, note TEXT, created REAL, aktif INTEGER DEFAULT 1);
 """
 _KOD = re.compile(r"^[A-Z0-9_-]{1,20}$")
 _TUR = ("insan", "yz", "diger")
@@ -46,13 +48,69 @@ def ac(yol):
     if "gecis" not in {r[1] for r in con.execute("PRAGMA table_info(samples)")}:
         with con:
             con.execute("ALTER TABLE samples ADD COLUMN gecis INTEGER DEFAULT 0")
+    # Göç: dersin öğretmeni (öğretmen girişi henüz yok; ders başlatırken listeden seçilir, seçilmezse NULL)
+    if "teacher_id" not in {r[1] for r in con.execute("PRAGMA table_info(lessons)")}:
+        with con:
+            con.execute("ALTER TABLE lessons ADD COLUMN teacher_id TEXT")
     return con
 
 
-def ders_ekle(con, code, name, topic, created):
+def ders_ekle(con, code, name, topic, created, teacher_id=None):
     with con:
-        con.execute("INSERT OR IGNORE INTO lessons(code,name,topic,created)"
-                    " VALUES(?,?,?,?)", (code, name, topic, created))
+        con.execute("INSERT OR IGNORE INTO lessons(code,name,topic,created,teacher_id)"
+                    " VALUES(?,?,?,?,?)", (code, name, topic, created, teacher_id))
+
+
+_OGRETMEN_ALAN = {"name": 80, "email": 120, "kurum": 120, "note": 500}
+
+
+def _ogretmen_temiz(d):
+    out = {k: str(d.get(k) or "").strip()[:n] for k, n in _OGRETMEN_ALAN.items() if k in d}
+    if "email" in out and out["email"] and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", out["email"]):
+        raise ValueError("e-posta biçimi geçersiz")
+    return out
+
+
+def ogretmen_ekle(con, d):
+    """Öğretmen ekle (giriş henüz yok: yalnız kimlik ve iletişim bilgisi). Döner: yeni id."""
+    import secrets
+    v = _ogretmen_temiz(d)
+    if not v.get("name"):
+        raise ValueError("öğretmen adı gerekli")
+    tid = "t_" + secrets.token_hex(4)
+    with con:
+        con.execute("INSERT INTO teachers(id,name,email,kurum,note,created,aktif) VALUES(?,?,?,?,?,?,1)",
+                    (tid, v["name"], v.get("email", ""), v.get("kurum", ""), v.get("note", ""), time.time()))
+    return tid
+
+
+def ogretmen_guncelle(con, tid, d):
+    v = _ogretmen_temiz(d)
+    if "name" in v and not v["name"]:
+        raise ValueError("öğretmen adı boş olamaz")
+    if "aktif" in d:
+        v["aktif"] = 1 if d["aktif"] else 0
+    if not con.execute("SELECT 1 FROM teachers WHERE id=?", (tid,)).fetchone():
+        raise KeyError(tid)
+    if v:
+        with con:
+            con.execute("UPDATE teachers SET %s WHERE id=?" % ",".join(f"{k}=?" for k in v), (*v.values(), tid))
+
+
+def ogretmen_aktif(con, tid):
+    return bool(tid) and con.execute("SELECT 1 FROM teachers WHERE id=? AND aktif=1", (tid,)).fetchone() is not None
+
+
+def ogretmenler(con, yalniz_aktif=False):
+    """Öğretmenler ve ders verisi özetleri (ders, öğrenci, örnek, kalibrasyon sayısı, son ders)."""
+    sql = ("SELECT t.*, COUNT(DISTINCT l.code) AS n_ders, MAX(l.created) AS son_ders,"
+           " (SELECT COUNT(*) FROM students s JOIN lessons x ON x.code=s.lesson_code WHERE x.teacher_id=t.id) AS n_ogrenci,"
+           " (SELECT COUNT(*) FROM samples s JOIN lessons x ON x.code=s.lesson_code WHERE x.teacher_id=t.id) AS n_ornek,"
+           " (SELECT COUNT(*) FROM calibrations c JOIN lessons x ON x.code=c.lesson_code WHERE x.teacher_id=t.id) AS n_kalibrasyon"
+           " FROM teachers t LEFT JOIN lessons l ON l.teacher_id=t.id")
+    if yalniz_aktif:
+        sql += " WHERE t.aktif=1"
+    return [dict(r) for r in con.execute(sql + " GROUP BY t.id ORDER BY t.name COLLATE NOCASE")]
 
 
 def ders_bitir(con, code, ended):

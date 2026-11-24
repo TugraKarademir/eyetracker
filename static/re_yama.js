@@ -102,6 +102,11 @@ function reArtir(src, p, bs) {
 // düzeltme tıklaması: tüm kareleri ve 9 kopyası birlikte). Çekirdek ridge özdeşliği: C = (K + λI)⁻¹, α = C·y ise grup G dışarıda
 // bırakılınca G'deki artıklar r_G = (C_GG)⁻¹ α_G. K bir kez, her λ için bir Cholesky. Ortalama/z-skor tüm kalibrasyon satırlarından
 // (dışarıda bırakılan grup dahil) — özdeşliğin varsaydığı sabit ön işlem; kontrol/GazeLab verisi hiç kullanılmaz.
+// Sabit terim CV'de her katta yeniden kestirilmeli: global ortalama sabitken Σ yc = 0 kısıtı, küçük λ'da (eğitim ezberlenince)
+// dışarıdaki grubun hedefini kalanlardan birebir geri verir (hedefle ilgisiz öznitelikte bile CV ~1 px; en küçük λ hep seçilir).
+// Bu yüzden CV çekirdeğine sabit sütun eklenir (K + s·11ᵀ). X sütunları tüm veriyle merkezli olduğundan K·1 = 0: tüm veriyle
+// kurulan model (α) değişmez, yalnız dışarıda-bırakma artıkları düzelir.
+const RER_SABIT = 100;   // s = RER_SABIT × iz: sabit terimin cezası λ/s, en büyük λ'da (10·iz) bile ihmal edilebilir
 // λ = iz × çarpan. iz = Σ sütun ağırlığı² = çekirdeğin ortalama köşegeni (K_ii'nin satır ortalaması). Ağırlıksız (RealEye Light)
 // her sabit olmayan sütunun ağırlığı 1 olduğundan iz = p_eff (sabit olmayan sütun sayısı): eski davranışın aynısı.
 const RER_CARPAN = [1e-3, 1e-2, 1e-1, 1, 10];
@@ -200,6 +205,7 @@ class ReRidge {
   // sutunGrup: rerHazirla'daki grup ağırlığı (karma); verilmezse RealEye Light'ın ağırlıksız hâli
   async fitSec(F, Y, grup, carpanlar = RER_CARPAN, bekle = null, sutunGrup = null) {
     const H = rerHazirla(F, sutunGrup), n = H.n, K = rerCekirdek(H.X, n, H.p);
+    { const s = RER_SABIT * H.iz; for (let i = 0; i < n * n; i++) K[i] += s; }
     const my = [0, 1].map((c) => Y.reduce((s, y) => s + y[c], 0) / n), Yc = Y.map((y) => [y[0] - my[0], y[1] - my[1]]);
     const harita = new Map(); grup.forEach((g, i) => { if (!harita.has(g)) harita.set(g, []); harita.get(g).push(i); });
     const gruplar = [...harita.values()];
@@ -219,6 +225,9 @@ class ReRidge {
     this.secim = { tablo, grup: gruplar.length, peff: H.peff, iz: H.iz, grupBoy: H.grupBoy ? Object.fromEntries(H.grupBoy) : null };
     return this;
   }
+  // Tahmin için yalnız standartlaştırma ve birincil ağırlıklar (β = Xᵀα) gerekir; eğitim satırları saklanmaz (ders sayfasına aktarım)
+  toJSON() { return { mu: Array.from(this.mu), sd: Array.from(this.sd), b: this.b.map((z) => Array.from(z)), my: this.my, p: this.p, lam: this.lam }; }
+  static from(o) { return Object.assign(new ReRidge(), o); }
   predict(f) {
     let x = this.my[0], y = this.my[1];
     const { mu, sd, b } = this;

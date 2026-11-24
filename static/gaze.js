@@ -118,6 +118,28 @@ function gzSolve(A, B) {
 // WebGazer yöntemi (wg_yama.js): 120 göz yaması değeri. İlk 4 sabit sıfır: gzExpand'in göz terimleri boş kalır,
 // yani model yalnız WebGazer'ın öznitelikleriyle (bizim ridge çözücüsüyle) çalışır.
 const gzWgOz = (w) => [0, 0, 0, 0, ...w];
+// Bakış testinin aktarım kuralıyla seçtiği model (bakis_test.html aktarimSec). biz dışındaki her yöntem kare başına kendi özniteliğini
+// ister: bizA bas_arindir.js, reL re_yama.js, karma/karmaH karma.js + re_yama.js (ders sayfası bunları yükler). l: gaze.latest.
+const GZ_SECIM_KOD = ["bizA", "bizW", "bizK", "kureM", "reL", "karma", "karmaH"];
+function gzSecimOz(S, l) {
+  if (!l?.raw) return null;
+  switch (S.kod) {
+    case "bizA": { const v = basCikar(S.ba, gzModelFeatures(l.raw), basPoz(l)); return v ? Array.from(v) : null; }
+    case "bizW": return l.wgp ? [...gzModelFeatures(l.raw), ...l.wgp] : null;
+    case "bizK": return l.kure ? [...gzModelFeatures(l.raw), ...l.kure] : null;
+    case "kureM": return l.kure || null;
+    case "reL": return l.re || null;
+    default: { const o = karmaOznitelik(l, gzModelFeatures); return o && o.v.length === S.model.p ? o.v : null; }
+  }
+}
+// Kayıttan seçim: gereken kütüphane yoksa null (ana modele dönülür)
+function gzSecimYukle(d) {
+  if (!d || !GZ_SECIM_KOD.includes(d.kod)) return null;
+  const re = ["reL", "karma", "karmaH"].includes(d.kod), karma = d.kod.startsWith("karma");
+  if ((re && (typeof ReRidge !== "function" || typeof reOznitelik !== "function")) || (karma && typeof karmaOznitelik !== "function")
+      || (d.kod === "bizA" && typeof basCikar !== "function")) return null;
+  return { ...d, re, model: re ? ReRidge.from(d.model) : GazeModel.from(d.model) };
+}
 // 3B göz küresi (JEOresearch/EyeTracker Webcam3DTracker fikri): bakış yönü = iris − göz küresi merkezi, kamera ekseninde açı.
 // Oradaki gibi tek anlık "c" kalibrasyonu yok: küre merkezi göz köşelerinin ortasından yüzün arka yönünde göz genişliğinin
 // 0,25'i kadar geride varsayılır (göz ~30 mm, köşe düzlemi küre merkezinin ~7-8 mm önünde). Baş ekseni yüz noktalarından
@@ -224,6 +246,8 @@ class GazeTracker {
     this.assigner = new RegionAssigner();
     // WebGazer yöntemi: aynı karelerden, aynı kalibrasyon noktalarıyla eğitilen ikinci model (ayrı kütüphane çalışmaz)
     this.wgModel = null; this.wgClickF = []; this.wgClickY = []; this.wgPoint = null;
+    // secim: bakış testinden aktarılan model (gzSecimYukle); yoksa ana model. Tıklamayla öğrenme yalnız ana modeli günceller.
+    this.secim = null; this.secimSon = []; this.secimSay = { ok: 0, yok: 0 };
     this.wfx = new OneEuro(); this.wfy = new OneEuro(); this.wgAssigner = new RegionAssigner();
     this.point = null; this.region = null; this.stale = false;
     this.win = { n: 0, counts: {}, pts: [], scr: [], wgN: 0, wgCounts: {} };
@@ -419,6 +443,8 @@ class GazeTracker {
       if (typeof wgYama === "function") { try { wgp = wgYama(this.kareKaynak, p); } catch { wgp = null; } }
       this.latest.wgp = wgp;
       try { this.latest.kure = gzKure(lm, w, h); } catch { this.latest.kure = null; }
+      // Seçilen model göz kesiti istiyorsa (reL, karma): yalnız takip sırasında, aynı karenin pikselinden
+      if (this.secim?.re && this.tracking && !blink) { try { this.latest.re = reOznitelik(this.kareKaynak, p, bsAll); } catch { this.latest.re = null; } }
       // İsteğe bağlı kanca (bakış testi: yakın göz). Aynı karenin landmark pikselleriyle çağrılır.
       if (this.onLandmarks) { try { this.latest.yakin = this.onLandmarks(p, lm); } catch (e) { this.latest.yakinHata = String(e?.message || e); } }
       // Yüz konumu (normalize 0-1): el kaldırma algılayıcısı başa göre karar verir
@@ -446,7 +472,16 @@ class GazeTracker {
     this.recent.push(raw); if (this.recent.length > GZ.SMOOTH) this.recent.shift();
     const avg = raw.map((_, j) => this.recent.reduce((s, r) => s + r[j], 0) / this.recent.length);
     const f = gzModelFeatures(avg);
-    const [px, py] = this.model.predict(f);                       // ekran koordinatı
+    let [px, py] = this.model.predict(f);                         // ekran koordinatı
+    // Seçilen model: kare tahminlerinin son GZ.SMOOTH ortalaması; bu karede özniteliği çıkmazsa ana model kullanılır
+    if (this.secim) {
+      let q = null; try { const v = gzSecimOz(this.secim, this.latest); if (v) q = this.secim.model.predict(v); } catch { q = null; }
+      if (q && q.every(Number.isFinite)) {
+        this.secimSon.push(q); if (this.secimSon.length > GZ.SMOOTH) this.secimSon.shift();
+        px = this.secimSon.reduce((s, z) => s + z[0], 0) / this.secimSon.length; py = this.secimSon.reduce((s, z) => s + z[1], 0) / this.secimSon.length;
+        this.secimSay.ok++;
+      } else { this.secimSon = []; this.secimSay.yok++; }
+    }
     this.hist.push({ t, f, p: [px, py], w: wgp }); if (this.hist.length > 60) this.hist.shift();
     const o = this._off();
     const x = this.fx.f(px, t) - o.x, y = this.fy.f(py, t) - o.y;   // pencere (CSS px) koordinatı
@@ -576,7 +611,7 @@ class GazeTracker {
 
   // ---- kalıcılık: aynı pencere geometrisinde önceki kalibrasyon yeniden kullanılır
   _key() { const c = this._curGeom(); return `dn_gaze_v2_${c.sw}x${c.sh}@${c.dpr}`; }
-  save() { store.set(this._key(), { geom: this.geom, model: this.model.toJSON(), wgModel: this.wgModel ? this.wgModel.toJSON() : null, report: this.report }); }
+  save(secim = null) { store.set(this._key(), { geom: this.geom, model: this.model.toJSON(), wgModel: this.wgModel ? this.wgModel.toJSON() : null, report: this.report, secim }); }
   restore() {
     const d = store.get(this._key());
     if (!d || !d.model) return false;
@@ -590,6 +625,11 @@ class GazeTracker {
     this.model = GazeModel.from(d.model); this.geom = d.geom; this.report = d.report;
     if (d.report.zoom > 1.01) this.setZoom(d.report.zoom, d.report.zoomC);   // bakış testinin kamera ayarındaki yakınlaştırma
     this.wgModel = d.wgModel ? GazeModel.from(d.wgModel) : null; this.wgClickF = []; this.wgClickY = [];
+    this.secim = null; this.secimSon = []; this.secimSay = { ok: 0, yok: 0 };
+    if (d.secim) {
+      try { this.secim = gzSecimYukle(d.secim); } catch { this.secim = null; }
+      this._klog(this.secim ? `aktarılan model: ${this.secim.ad} (${this.secim.kod}) — ${this.secim.gerekce || ""}` : `aktarılan model (${d.secim.kod}) yüklenemedi (gereken betik yok): ana model kullanılıyor`);
+    }
     this.coarse = !!(d.report && d.report.hit3 < GZ.MIN_HIT);
     this.startTracking(); this._geomOk();
     return true;
@@ -818,6 +858,7 @@ class GazeTracker {
                     yontem: "yeni: 9 bakarak + 5 tıklama (demo)", olcum: "5 düzeltme tıklaması, her biri öğretilmeden önce ölçüldü", wgAcc: accW,
                     ...(this.yuzOnce ? { yuz: this.yuzOnce } : {}) };
     this.coarse = hit < GZ.MIN_HIT; this.report.coarse = this.coarse;
+    this.secim = null; this.secimSon = [];   // ders sayfasında yeniden kalibre edildi: bakış testinden aktarılan model bırakılır
     this.save();
     const good = !this.coarse;
     this._klog(`YENİ akış sonucu: ${good ? "TAMAM" : "ZAYIF → KABA MOD"} | 5 tıklamada (öğretmeden önce) medyan hata: bizim ${acc} px, WebGazer yöntemi ${accW ?? "-"} px | 3x3 isabet %${hit}`, this.report);
@@ -871,6 +912,7 @@ class GazeTracker {
     this.report = { acc: Math.round(acc), prec: Math.round(prec), hit3: Math.round(100 * hit / tot), deg: +deg.toFixed(1), at: Date.now(),
                     kamera: `${this.video.videoWidth}x${this.video.videoHeight}` };
     this.coarse = this.report.hit3 < GZ.MIN_HIT; this.report.coarse = this.coarse;
+    this.secim = null; this.secimSon = [];
     this.save();
     const good = this.report.hit3 >= 70;
     this._klog(`sonuç: ${good ? "TAMAM" : "ZAYIF"}${this.coarse ? " → KABA MOD (bölge gönderilmez)" : ""} | hata ${this.report.acc} px (~${this.report.deg}°, 55 cm varsayımı) | titreme ${this.report.prec} px | 3x3 isabet %${this.report.hit3}`, this.report);

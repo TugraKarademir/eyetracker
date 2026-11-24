@@ -64,6 +64,13 @@ async function csvIndir(tur, code) {
   a.download = `dersnabzi_${tur}${code ? "_" + code : ""}.csv`;
   a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
+async function dosyaIndir(yol, ad) {
+  const r = await aapiResp(yol);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(await r.blob());
+  a.download = (r.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || ad;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
 
 // ---------------------------------------------------------------- biçim yardımcıları
 const KIND = { insan: { label: "İnsan", color: "#2f6fdb" }, yz: { label: "YZ", color: "#e8790c" }, diger: { label: "Diğer", color: "#8a94a3" } };
@@ -443,10 +450,12 @@ function fiksOzet(list) {
 }
 
 // ---------------------------------------------------------------- görünüm 1: dersler
-const FILTRE = { ara: "", bas: "", bit: "", tur: "" };
+const FILTRE = { ara: "", bas: "", bit: "", tur: "", ogretmen: "" };
 async function viewDersler(_p, live) {
   const q = new URLSearchParams();
   if (FILTRE.ara) q.set("ara", FILTRE.ara);
+  if (FILTRE.ogretmen) q.set("ogretmen", FILTRE.ogretmen);
+  const ogretmenler = await aapi("ogretmenler");
   if (FILTRE.bas) q.set("bas", new Date(FILTRE.bas + "T00:00:00").getTime() / 1000);
   if (FILTRE.bit) q.set("bit", new Date(FILTRE.bit + "T23:59:59").getTime() / 1000);
   const liste = await aapi("dersler?" + q);
@@ -459,16 +468,19 @@ async function viewDersler(_p, live) {
       <div class="grow"><label for="fAra">Ad / konu / kod</label><input id="fAra" value="${esc(FILTRE.ara)}" placeholder="ara…"></div>
       <div><label for="fBas">Başlangıç tarihi</label><input id="fBas" type="date" value="${esc(FILTRE.bas)}"></div>
       <div><label for="fBit">Bitiş tarihi</label><input id="fBit" type="date" value="${esc(FILTRE.bit)}"></div>
+      <div><label for="fOgr">Öğretmen</label><select id="fOgr"><option value="">Hepsi</option><option value="-">Öğretmeni seçilmemiş</option>
+        ${ogretmenler.map((t) => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("")}</select></div>
       <div><label for="fTur">Materyal türü</label><select id="fTur">
         <option value="">Hepsi</option><option value="insan">İnsan materyali olan</option>
         <option value="yz">YZ materyali olan</option><option value="ikisi">İkisi de olan</option></select></div>
       <div class="row"><button class="btn primary">Uygula</button><button class="btn" type="button" id="fSifir">Temizle</button></div>
     </form>
     <div class="card"><div class="tbl"><table>
-      <tr><th>Tarih</th><th>Ders</th><th>Konu</th><th>Süre</th><th>Öğrenci</th><th>Materyal</th><th>Ort. dikkat</th><th>Kalibreli örnek</th></tr>
+      <tr><th>Tarih</th><th>Ders</th><th>Öğretmen</th><th>Konu</th><th>Süre</th><th>Öğrenci</th><th>Materyal</th><th>Ort. dikkat</th><th>Kalibreli örnek</th></tr>
       ${goster.map((d) => `<tr class="click" data-code="${esc(d.code)}">
         <td class="num">${tarih(d.created)}</td>
         <td><b>${esc(d.name || "—")}</b> <span class="muted small">${esc(d.code)}</span>${d.bitmedi ? ' <span class="pill" title="Bitiş kaydı yok; süre son örneğe göre">bitmedi</span>' : ""}</td>
+        <td>${d.teacher_name ? esc(d.teacher_name) : '<span class="yok">seçilmedi</span>'}</td>
         <td>${esc(d.topic || "—")}</td>
         <td class="num">${val(d.sure_dk, (v) => fix1(v) + " dk")}</td>
         <td class="num">${d.n_ogrenci}</td>
@@ -479,12 +491,13 @@ async function viewDersler(_p, live) {
     ${goster.length ? "" : `<div class="muted" style="padding:14px 4px">${liste.length ? "Filtreye uyan ders yok." : "Kayıtlı ders yok."}</div>`}
     <div class="note">Ort. dikkat: tüm öğrencilerin 2 sn örneklerinin ortalaması. Kalibreli örnek: bakışı iyi kalibreli örneklerin yüzdesi (kaba/kalibresiz örnekler bakış ölçülerine girmez).</div></div>`;
   $("#fTur").value = FILTRE.tur;
+  $("#fOgr").value = FILTRE.ogretmen;
   $("#filt").onsubmit = (e) => {
     e.preventDefault();
-    Object.assign(FILTRE, { ara: $("#fAra").value.trim(), bas: $("#fBas").value, bit: $("#fBit").value, tur: $("#fTur").value });
+    Object.assign(FILTRE, { ara: $("#fAra").value.trim(), bas: $("#fBas").value, bit: $("#fBit").value, tur: $("#fTur").value, ogretmen: $("#fOgr").value });
     route();
   };
-  $("#fSifir").onclick = () => { Object.assign(FILTRE, { ara: "", bas: "", bit: "", tur: "" }); route(); };
+  $("#fSifir").onclick = () => { Object.assign(FILTRE, { ara: "", bas: "", bit: "", tur: "", ogretmen: "" }); route(); };
   APP.querySelectorAll("tr[data-code]").forEach((tr) => (tr.onclick = () => (location.hash = "#ders/" + enc(tr.dataset.code))));
 }
 
@@ -1074,6 +1087,131 @@ async function viewKatilimcilar(_p, live) {
   };
 }
 
+// ---------------------------------------------------------------- öğretmenler
+// Öğretmen girişi henüz yok: burada eklenen öğretmenler ders başlatma formunda listeden seçilir.
+async function viewOgretmenler(_p, live) {
+  const liste = await aapi("ogretmenler");
+  if (!live()) return;
+  const sayi = (v) => (v ? v.toLocaleString("tr-TR") : "0");
+  APP.innerHTML = `
+    <div class="head"><h1>Öğretmenler</h1><div class="muted small">Öğretmen girişi henüz açık değil: öğretmen dersi başlatırken adını listeden seçer, ders verisi ona bağlanır.</div></div>
+    <form class="card filters" id="ogF">
+      <input type="hidden" id="ogId">
+      <div class="grow"><label for="ogAd">Ad soyad</label><input id="ogAd" maxlength="80" required autocomplete="off"></div>
+      <div class="grow"><label for="ogEp">E-posta</label><input id="ogEp" type="email" maxlength="120" autocomplete="off"></div>
+      <div class="grow"><label for="ogKu">Kurum</label><input id="ogKu" maxlength="120" autocomplete="off"></div>
+      <div class="grow"><label for="ogNot">Not</label><input id="ogNot" maxlength="500" autocomplete="off"></div>
+      <div class="row"><button class="btn primary" id="ogKaydet">Öğretmen ekle</button><button class="btn hidden" type="button" id="ogVazgec">Vazgeç</button></div>
+      <div class="error" id="ogErr" style="flex-basis:100%"></div>
+    </form>
+    <div class="card"><h3>Öğretmenler (${liste.length})</h3>${liste.length ? `<div class="tbl"><table>
+      <tr><th>Ad</th><th>E-posta</th><th>Kurum</th><th>Ders</th><th>Öğrenci</th><th>2 sn örnek</th><th>Kalibrasyon</th><th>Son ders</th><th>Durum</th><th></th></tr>
+      ${liste.map((t) => `<tr data-id="${esc(t.id)}">
+        <td><b>${esc(t.name)}</b>${t.note ? `<div class="muted small">${esc(t.note)}</div>` : ""}</td>
+        <td>${esc(t.email || "—")}</td><td>${esc(t.kurum || "—")}</td>
+        <td class="num">${sayi(t.n_ders)}</td><td class="num">${sayi(t.n_ogrenci)}</td><td class="num">${sayi(t.n_ornek)}</td><td class="num">${sayi(t.n_kalibrasyon)}</td>
+        <td class="num">${t.son_ders ? tarih(t.son_ders) : "—"}</td>
+        <td>${t.aktif ? '<span class="pill" style="color:var(--good)">aktif</span>' : '<span class="pill">pasif</span>'}</td>
+        <td style="white-space:nowrap"><button class="btn sm" data-ders>Dersleri</button> <button class="btn sm" data-kal>Kalibrasyonlar</button>
+          <button class="btn sm" data-duz>Düzenle</button> <button class="btn sm" data-akt>${t.aktif ? "Pasifleştir" : "Aktifleştir"}</button></td></tr>`).join("")}
+    </table></div>` : '<p class="muted">Henüz öğretmen yok. Yukarıdan ekleyin.</p>'}
+    <div class="note">Pasif öğretmen ders başlatma listesinde görünmez; eski dersleri ve verileri silinmez. Öğretmen seçmeden başlatılan dersler “Dersler” listesinde “seçilmedi” olarak görünür.</div></div>`;
+  const formuSifirla = () => { ["#ogId", "#ogAd", "#ogEp", "#ogKu", "#ogNot"].forEach((s) => ($(s).value = "")); $("#ogKaydet").textContent = "Öğretmen ekle"; $("#ogVazgec").classList.add("hidden"); };
+  $("#ogVazgec").onclick = formuSifirla;
+  $("#ogF").onsubmit = async (e) => {
+    e.preventDefault();
+    const id = $("#ogId").value;
+    try {
+      await aapi("ogretmen", { ...(id ? { id } : {}), name: $("#ogAd").value, email: $("#ogEp").value, kurum: $("#ogKu").value, note: $("#ogNot").value });
+      toast(id ? "Öğretmen güncellendi" : "Öğretmen eklendi");
+      route();
+    } catch (err) { if (!(err instanceof Yetkisiz)) $("#ogErr").textContent = err.message; }
+  };
+  APP.querySelectorAll("tr[data-id]").forEach((tr) => {
+    const t = liste.find((x) => x.id === tr.dataset.id);
+    tr.querySelector("[data-ders]").onclick = () => { Object.assign(FILTRE, { ara: "", bas: "", bit: "", tur: "", ogretmen: t.id }); location.hash = "#dersler"; };
+    tr.querySelector("[data-kal]").onclick = () => { KAL.ogretmen = t.id; location.hash = "#kalibrasyon"; };
+    tr.querySelector("[data-duz]").onclick = () => {
+      $("#ogId").value = t.id; $("#ogAd").value = t.name || ""; $("#ogEp").value = t.email || ""; $("#ogKu").value = t.kurum || ""; $("#ogNot").value = t.note || "";
+      $("#ogKaydet").textContent = "Kaydet"; $("#ogVazgec").classList.remove("hidden"); $("#ogAd").focus();
+    };
+    tr.querySelector("[data-akt]").onclick = async () => {
+      try { await aapi("ogretmen", { id: t.id, aktif: !t.aktif }); route(); }
+      catch (err) { if (!(err instanceof Yetkisiz)) toast(err.message); }
+    };
+  });
+}
+
+// ---------------------------------------------------------------- kalibrasyon ve model verileri
+// Modeli iyileştirmek için gereken her şey: bakış testi oturumları (yöntem başına GazeLab/kontrol), ders sayfası kalibrasyonları,
+// ham kayıtlar ve tek dosyalık veri paketi.
+const KAL = { ogretmen: "", acik: null };
+const medyan = (a) => { a = a.filter((x) => x != null).sort((x, y) => x - y); return a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2) : null; };
+async function viewKalibrasyon(_p, live) {
+  const [testler, kalib, ogretmenler] = await Promise.all([aapi("bakis_testleri"), aapi("kalibrasyonlar" + (KAL.ogretmen ? "?ogretmen=" + enc(KAL.ogretmen) : "")), aapi("ogretmenler")]);
+  if (!live()) return;
+  // Yöntem özeti: bütün bakış testlerinde
+  const Y = {};
+  for (const s of testler) for (const y of s.yontemler) {
+    const o = (Y[y.method] ||= { kod: y.method, ad: y.label, gl: [], km: [], k150: [], en: 0, akt: 0 });
+    o.gl.push(y.gl_accuracy_px); o.km.push(y.control_median_px); o.k150.push(y.control_hit150_pct);
+  }
+  for (const s of testler) { if (s.en_iyi && Y[s.en_iyi.kod]) Y[s.en_iyi.kod].en++; if (s.aktarim?.kod && Y[s.aktarim.kod]) Y[s.aktarim.kod].akt++; }
+  const yont = Object.values(Y).map((o) => ({ ...o, glM: medyan(o.gl), kmM: medyan(o.km), k150O: ortalama(o.k150), n: o.gl.filter((x) => x != null).length }))
+    .sort((a, b) => (a.glM ?? 1e9) - (b.glM ?? 1e9));
+  const px = (v) => (v == null ? YOK : Math.round(v) + " px");
+  const tamam = testler.filter((s) => s.status === "completed").length;
+  APP.innerHTML = `
+    <div class="head"><h1>Kalibrasyon ve model verileri</h1><div class="muted small">Bakış modelini iyileştirmek için toplanan bütün veriler. Kamera görüntüsü yoktur; yalnız sayısal ölçümler.</div></div>
+    <div class="card"><h3>İndir</h3>
+      <div class="row" style="flex-wrap:wrap;gap:8px">
+        <button class="btn primary" id="paket">⬇ Veri paketi (ZIP)</button>
+        ${["sessions", "methods", "phases", "session_stats", "gaze", "head", "mouse"].map((k) => `<a class="btn sm" href="/api/testlog/export.csv?kind=${k}">CSV: ${k}</a>`).join("")}
+      </div>
+      <div class="note">Veri paketi: <code>dersler.db</code> (dersler, öğretmenler, 2 sn örnekler, tam sayfa bakış izi, kurulumlar, ders kalibrasyonları), <code>gazelab.db</code> (bakış testi oturumları ve yöntem ölçüleri) ve bakış testinin ham günlükleri (tıklama başına kareler, öznitelikler). CSV'ler yalnız bakış testi verisidir.</div></div>
+    <div class="card"><h3>Yöntem karşılaştırması <span class="muted small">(${testler.length} bakış testi, ${tamam} tamamlanan)</span></h3>
+      <div class="tbl"><table><tr><th>Yöntem</th><th>GazeLab doğruluk (medyan)</th><th>Kontrol hatası (medyan)</th><th>Kontrol ≤150 px (ort.)</th><th>En iyi GazeLab</th><th>Ders sayfasına aktarıldı</th></tr>
+      ${yont.map((o) => `<tr><td><b>${esc(o.ad || o.kod)}</b> <span class="muted small">${esc(o.kod)}</span></td><td class="num">${px(o.glM)}${nTag(o.n, "oturum")}</td><td class="num">${px(o.kmM)}</td>
+        <td class="num">${o.k150O == null ? YOK : "%" + Math.round(o.k150O)}</td><td class="num">${o.en}</td><td class="num">${o.akt}</td></tr>`).join("") || `<tr><td colspan="6" class="yok">Bakış testi yok</td></tr>`}
+      </table></div>
+      <div class="note">GazeLab doğruluğu: tıklamasız doğrulama noktalarında, nokta öğretilmeden önce ölçülen hata. Kontrol: öğretilmeden ölçülen yeni tıklama noktaları. Satırlar GazeLab medyanına göre sıralı.</div></div>
+    <div class="card"><h3>Bakış testi oturumları</h3><div class="tbl"><table>
+      <tr><th>Tarih</th><th>Durum</th><th>Ekran</th><th>Kamera · yakınlaştırma</th><th>Uzaklık</th><th>En iyi GazeLab</th><th>Aktarılan model</th><th>Ham kayıt</th></tr>
+      ${testler.map((s) => `<tr class="click" data-s="${esc(s.id)}">
+        <td class="num">${tarih(s.created)}</td><td>${s.status === "completed" ? "tamamlandı" : esc(s.status || "—")}</td>
+        <td class="num">${esc(s.ekran || "—")}</td><td class="num">${esc(s.kamera || "—")}${s.zoom ? ` · ${s.zoom}×` : ""}</td><td class="num">${s.uzaklik ? s.uzaklik + " cm" : "—"}</td>
+        <td>${s.en_iyi ? `${esc(s.en_iyi.ad)} <b>${Math.round(s.en_iyi.gl)} px</b>` : YOK}</td>
+        <td>${s.aktarim ? `${esc(s.aktarim.ad || s.aktarim.kod)}<div class="muted small">${esc(s.aktarim.gerekce || "")}</div>` : '<span class="yok">kayıt yok</span>'}</td>
+        <td>${s.dosya ? `<button class="btn sm" data-dosya="${esc(s.dosya)}">JSON</button>` : "—"}</td></tr>
+        ${KAL.acik === s.id ? `<tr><td colspan="8" style="background:var(--surface-2)"><table>
+          <tr><th>Yöntem</th><th>GL doğruluk</th><th>GL kesinlik</th><th>GL düzeltmeli</th><th>Kontrol medyan</th><th>Kontrol ≤150</th><th>3×3</th><th>Hz</th></tr>
+          ${[...s.yontemler].sort((a, b) => (a.gl_accuracy_px ?? 1e9) - (b.gl_accuracy_px ?? 1e9)).map((y) => `<tr><td>${esc(y.label || y.method)}</td><td class="num">${px(y.gl_accuracy_px)}</td><td class="num">${px(y.gl_precision_px)}</td>
+            <td class="num">${px(y.gl_corrected_px)}</td><td class="num">${px(y.control_median_px)}</td><td class="num">${y.control_hit150_pct == null ? YOK : "%" + Math.round(y.control_hit150_pct)}</td>
+            <td class="num">${y.control_cell_pct == null ? YOK : "%" + Math.round(y.control_cell_pct)}</td><td class="num">${y.sample_hz == null ? YOK : fix1(y.sample_hz)}</td></tr>`).join("")}
+        </table></td></tr>` : ""}`).join("") || `<tr><td colspan="8" class="yok">Bakış testi yok</td></tr>`}
+    </table></div><div class="note">Satıra tıklayınca yöntem ayrıntısı açılır.</div></div>
+    <div class="card"><div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px"><h3 style="margin:0">Ders sayfası kalibrasyonları (${kalib.length})</h3>
+      <select id="kalOgr" style="width:auto"><option value="">Bütün öğretmenler</option>${ogretmenler.map((t) => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join("")}</select></div>
+      <div class="tbl"><table>
+      <tr><th>Tarih</th><th>Öğretmen</th><th>Ders</th><th>Öğrenci</th><th>Model</th><th>Hata</th><th>3×3</th><th>GazeLab</th><th>Kamera · yakınlaştırma</th><th>Ekran · pencere</th><th>Uzaklık</th></tr>
+      ${kalib.map((k) => `<tr class="click" data-ogr="${esc(k.code)}/${esc(k.sid)}">
+        <td class="num">${tarih(k.t)}</td><td>${k.ogretmen ? esc(k.ogretmen) : '<span class="yok">seçilmedi</span>'}</td>
+        <td>${esc(k.ders || "—")} <span class="muted small">${esc(k.code)}</span></td>
+        <td>${esc(GIZLE ? k.pcode || "kodsuz" : k.ogrenci || "—")}</td>
+        <td>${esc(k.model)}${k.gerekce ? `<div class="muted small">${esc(k.gerekce)}</div>` : ""}</td>
+        <td class="num">${px(k.acc)}</td><td class="num">${k.hit3 == null ? YOK : "%" + k.hit3}</td><td class="num">${px(k.gl_acc)}</td>
+        <td class="num">${esc(k.kamera || "—")}${k.zoom ? ` · ${k.zoom}×` : ""}</td><td class="num">${esc(k.ekran || "—")}${k.pencere ? ` · ${esc(k.pencere)}` : ""}</td>
+        <td class="num">${k.uzaklik ? Math.round(k.uzaklik) + " cm" : "—"}</td></tr>`).join("") || `<tr><td colspan="11" class="yok">Ders sayfasından gelen kalibrasyon yok</td></tr>`}
+    </table></div><div class="note">Hata ve 3×3: ders sayfasına aktarılan yöntemin kontrol noktalarındaki ölçüsü. GazeLab: aynı yöntemin tıklamasız doğrulaması. Satıra tıklayınca öğrencinin ders verisi açılır.</div></div>`;
+  $("#kalOgr").value = KAL.ogretmen;
+  $("#kalOgr").onchange = (e) => { KAL.ogretmen = e.target.value; route(); };
+  const indir = (yol, ad) => dosyaIndir(yol, ad).catch((e) => { if (!(e instanceof Yetkisiz)) toast(e.message); });
+  $("#paket").onclick = async (e) => { const b = e.target; b.disabled = true; b.textContent = "Hazırlanıyor…"; await indir("veri_paketi", "dersnabzi_veri.zip"); b.disabled = false; b.textContent = "⬇ Veri paketi (ZIP)"; };
+  APP.querySelectorAll("[data-dosya]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); indir("bakis_dosya?ad=" + enc(b.dataset.dosya), b.dataset.dosya); }));
+  APP.querySelectorAll("tr[data-s]").forEach((tr) => (tr.onclick = () => { KAL.acik = KAL.acik === tr.dataset.s ? null : tr.dataset.s; route(); }));
+  APP.querySelectorAll("tr[data-ogr]").forEach((tr) => (tr.onclick = () => (location.hash = "#ogrenci/" + tr.dataset.ogr.split("/").map(enc).join("/"))));
+}
+
 // ---------------------------------------------------------------- yönlendirme
 // karma: #<rota>/<parametreler…>; parametreler URL-kodlu. Ders kodu içeren rotalar: ilk parametre = ders kodu.
 const ROUTES = {
@@ -1083,6 +1221,8 @@ const ROUTES = {
   ogrenci: { view: viewOgrenci, dersli: true },
   karsilastirma: { view: viewKarsilastirma },
   katilimcilar: { view: viewKatilimcilar },
+  ogretmenler: { view: viewOgretmenler },
+  kalibrasyon: { view: viewKalibrasyon },
 };
 
 function karma() {

@@ -24,6 +24,9 @@ const HAND_CFG = {
   // Sağ/sol etiketi ters mi? Gerçek kamerayla ölçüldü (18.11): avuç kameraya dönük kaldırılan elde etiket
   // ters kabul edilince "arkada" çıktı (iki elde de, ~25 karede tutarlı). Bu yüzden etiket olduğu gibi kullanılır.
   HAND_LABEL_SWAPPED: false,
+  // 👍 (Anladım): modelin hazır "Thumb_Up" hareketi bu güvenle THUMB_HOLD sn sürerse bir kez; el inip GAP sn geçene dek tekrar etmez.
+  // Elle seçilmiş başlangıç değerleri, doğrulanmadı.
+  THUMB_SCORE: 0.7, THUMB_HOLD: 2.0,
 };
 
 class HandRaiseDetector {
@@ -32,8 +35,9 @@ class HandRaiseDetector {
    * @param getFace    () => {t, eyeY, top} | null   (gaze.js yüz konumu, normalize)
    * @param onRaise    () => void   el HOLD sn kaldırılı kalınca bir kez çağrılır
    */
-  constructor(video, { getFace = () => null, onRaise = () => {} } = {}) {
-    Object.assign(this, { video, getFace, onRaise });
+  constructor(video, { getFace = () => null, onRaise = () => {}, onThumb = () => {} } = {}) {
+    Object.assign(this, { video, getFace, onRaise, onThumb });
+    this.thumbSince = null; this.lastThumb = 0; this.thumbLatched = false;
     this.ready = false; this.enabled = false; this.loading = null;
     this.upSince = null; this.lastUp = 0; this.latched = false;
     this.info = { hand: false, gesture: null, score: 0, up: false, hold: 0 };
@@ -76,7 +80,7 @@ class HandRaiseDetector {
     if (this.enabled) this.loop();
   }
 
-  reset() { this.upSince = null; this.latched = false; this.info = { hand: false, gesture: null, score: 0, up: false, hold: 0 }; }
+  reset() { this.upSince = null; this.latched = false; this.thumbSince = null; this.thumbLatched = false; this.info = { hand: false, gesture: null, score: 0, up: false, hold: 0, thumbHold: 0 }; }
 
   loop() {
     clearTimeout(this.timer);
@@ -204,7 +208,13 @@ class HandRaiseDetector {
     if (wasUp && this.upSince == null) this._log(t, "el indi / kural bozuldu (sayaç sıfır)", extra);
     if (hold >= HAND_CFG.HOLD && !this.latched) { this.latched = true; this._log(t, "✋ SÖZ İSTENDİ", extra); this.onRaise(); }
     else if (hand && t - (this.lastLogT || 0) >= 1) { this.lastLogT = t; this._log(t, up ? "kalkık" : "el var", extra); }
+    // 👍: herhangi bir elde Thumb_Up (el kaldırmadan bağımsız; söz isteme kuralını etkilemez)
+    const thumb = (r.gestures || []).some((g) => g?.[0]?.categoryName === "Thumb_Up" && g[0].score >= HAND_CFG.THUMB_SCORE);
+    if (thumb) { this.lastThumb = t; if (this.thumbSince == null) this.thumbSince = t; }
+    else if (t - this.lastThumb > HAND_CFG.GAP) { this.thumbSince = null; this.thumbLatched = false; }
+    const thumbHold = this.thumbSince != null ? t - this.thumbSince : 0;
+    if (thumbHold >= HAND_CFG.THUMB_HOLD && !this.thumbLatched) { this.thumbLatched = true; this._log(t, "👍 ANLADIM", extra); this.onThumb(); }
     this.prevHand = hand;
-    this.info = { hand, gesture: best, score: bestScore, up, hold, faceOk: !!face, occluded };
+    this.info = { hand, gesture: best, score: bestScore, up, hold, faceOk: !!face, occluded, thumbHold };
   }
 }

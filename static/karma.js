@@ -1,30 +1,34 @@
-// Karma model (bakis_test.html "karma", "karmaH"): bizim öznitelikler + WebGazer 120 göz yaması + RealEye Light öznitelikleri TEK
-// modelde (öznitelik düzeyinde birleştirme; sonuç ortalaması "karisim" değil). Çözüm re_yama.js'in çift ridge'i (ReRidge.fitSec):
-// p ≈ 7 + 120 + 1.652 ≫ n olduğu için n×n; λ aynı gruplu bir-kalibrasyon-noktası-dışarıda CV ile seçilir (kod kopyası yok).
+// Karma model (bakis_test.html "karma", "karmaH"): bizim öznitelikler + WebGazer 120 göz yaması + RealEye Light öznitelikleri + 3B baş
+// pozu TEK modelde (öznitelik düzeyinde birleştirme; sonuç ortalaması "karisim" değil). Çözüm re_yama.js'in çift ridge'i (ReRidge.fitSec):
+// p ≈ 7 + 120 + 1.652 + 6 ≫ n olduğu için n×n; λ aynı gruplu bir-kalibrasyon-noktası-dışarıda CV ile seçilir (kod kopyası yok).
 //
 // Ölçek: üç kaynağın değerleri farklı birimde (bizim: normalize göz konumu/baş açısı; yama: 0-255 gri; RE: 0-1). Her sütun eğitim
 // verisinden z-skorlanır, sonra sütun grubu boyutuna göre 1/√boy ile ağırlıklanır (rerHazirla, sutunGrup). Gerekçe: z-skordan sonra
 // her sütun çekirdeğe K = X Xᵀ eşit varyans katar; ağırlıksız hâlde 1.600 kesit pikseli çekirdeğin ~%90'ını oluşturur ve bizW'yi iyi
 // yapan 7 bizim öznitelik ile 120 yama değeri ezilir. 1/√boy ile her grup toplam varyans 1 katar (gruplar eşit söz hakkı). RE'nin
-// kendi içindeki 52 nokta+katsayı ile 1.600 kesit pikseli de aynı nedenle iki ayrı ağırlık grubudur: 4 ağırlık grubu, 3 veri kaynağı.
+// kendi içindeki 52 nokta+katsayı ile 1.600 kesit pikseli de aynı nedenle iki ayrı ağırlık grubudur. Beşinci grup 3B baş pozu
+// (MediaPipe yüz dönüşüm matrisi: yaw/pitch/roll ve başın kameraya göre konumu, cm): bizimdeki 2B baş oranları yalnız yönü kabaca
+// verir, konumu (yana/öne kayma) hiç vermez. 5 ağırlık grubu, 4 veri kaynağı.
 // Eşit pay bir ön kabuldür (hangi grubun daha bilgili olduğu oturuma göre değişir); λ, CV ile bu ağırlıklı uzayda seçilir.
-const KARMA_GRUP = ["bizim", "WebGazer yaması", "RE nokta+katsayı", "RE göz kesiti"];
+const KARMA_GRUP = ["bizim", "WebGazer yaması", "RE nokta+katsayı", "RE göz kesiti", "3B baş"];
+const KARMA_BAS = ["yaw", "pitch", "roll", "tx", "ty", "tz"];   // gzPose3 alanları; vektörün sonuna eklenir
 
-// Bir karenin karma öznitelik vektörü. Üç kaynaktan biri yoksa null (eksik grup sıfırla doldurulmaz: kare atlanır).
+// Bir karenin karma öznitelik vektörü. Kaynaklardan biri yoksa null (eksik grup sıfırla doldurulmaz: kare atlanır).
 // bizOz: bizim ham vektör → öznitelik (bakis_test.html'de gzModelFeatures; bizW'nin ozW'sindeki bizim kısmın aynısı)
 function karmaOznitelik(b, bizOz) {
-  if (!b || !b.raw || !b.wgp || !b.re) return null;
+  if (!b || !b.raw || !b.wgp || !b.re || !b.pose3) return null;
   const f = bizOz(b.raw);
   if (!f?.length || !b.wgp.length || b.re.length !== REY.BOY) return null;
-  const v = new Float32Array(f.length + b.wgp.length + b.re.length);
+  const v = new Float32Array(f.length + b.wgp.length + b.re.length + KARMA_BAS.length), b0 = f.length + b.wgp.length + b.re.length;
   v.set(f, 0); v.set(b.wgp, f.length); v.set(b.re, f.length + b.wgp.length);
+  KARMA_BAS.forEach((k, i) => { v[b0 + i] = b.pose3[k]; });
   for (let j = 0; j < v.length; j++) if (!Number.isFinite(v[j])) return null;
   return { v, boy: [f.length, b.wgp.length] };
 }
-// Sütun → ağırlık grubu (0 bizim, 1 yama, 2 RE nokta+katsayı, 3 RE kesit)
+// Sütun → ağırlık grubu (0 bizim, 1 yama, 2 RE nokta+katsayı, 3 RE kesit, 4 3B baş)
 function karmaSutunGrup(nBiz, nYama) {
-  const p = nBiz + nYama + REY.BOY, g = new Int8Array(p);
-  for (let j = 0; j < p; j++) g[j] = j < nBiz ? 0 : j < nBiz + nYama ? 1 : j < nBiz + nYama + REY_KESIT0 ? 2 : 3;
+  const re0 = nBiz + nYama, bas0 = re0 + REY.BOY, p = bas0 + KARMA_BAS.length, g = new Int8Array(p);
+  for (let j = 0; j < p; j++) g[j] = j < nBiz ? 0 : j < re0 ? 1 : j < re0 + REY_KESIT0 ? 2 : j < bas0 ? 3 : 4;
   return g;
 }
 // Pencere karelerini depoya ekler. g: λ CV grubu (bir bakarak noktası / bir düzeltme tıklaması / bir baş turu noktası).

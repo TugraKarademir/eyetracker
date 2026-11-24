@@ -24,8 +24,10 @@ import re
 import secrets
 import sqlite3
 import sys
+import tempfile
 import threading
 import time
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -180,6 +182,99 @@ def gl_csv(kind):
     return buf.getvalue()
 
 
+_AKTARIM_ONB = {}
+
+
+def gl_aktarim(log_file):
+    """Bakış testi günlüğünden ders sayfasına aktarılan model (AKTARIM satırı). Dosya değişmedikçe önbellekten."""
+    yol = os.path.join(TEST_DIR, os.path.basename(str(log_file or "")))
+    try:
+        mt = os.path.getmtime(yol)
+    except OSError:
+        return None
+    k = _AKTARIM_ONB.get(yol)
+    if k and k[0] == mt:
+        return k[1]
+    ak = None
+    try:
+        with open(yol, encoding="utf-8") as f:
+            d = json.load(f)
+        for e in d.get("log") or []:
+            if isinstance(e, dict) and isinstance(e.get("aktarim"), dict):
+                ak = {x: e["aktarim"].get(x) for x in ("kod", "ad", "gerekce")}
+    except (OSError, ValueError, AttributeError):
+        pass
+    _AKTARIM_ONB[yol] = (mt, ak)
+    return ak
+
+
+def gl_oturumlar():
+    """Yönetim: bütün bakış testi oturumları, yöntem başına GazeLab/kontrol ölçüleri ve aktarılan model."""
+    with GL_LOCK, gl_db() as con:
+        ses = con.execute("SELECT * FROM sessions ORDER BY created_at DESC").fetchall()
+        ms = {}
+        for r in con.execute("SELECT session_id, method, label, gl_accuracy_px, gl_precision_px, gl_corrected_px,"
+                             " control_median_px, control_hit150_pct, control_cell_pct, sample_hz FROM method_stats"):
+            ms.setdefault(r["session_id"], []).append({k: r[k] for k in r.keys() if k != "session_id"})
+    out = []
+    for s in ses:
+        try:
+            d, m = json.loads(s["device"] or "{}"), json.loads(s["meta"] or "{}")
+        except ValueError:
+            d, m = {}, {}
+        cam, ay = m.get("camera") or {}, m.get("kameraAyari") or {}
+        yont = ms.get(s["id"], [])
+        gl = [y for y in yont if y["gl_accuracy_px"] is not None]
+        en = min(gl, key=lambda y: y["gl_accuracy_px"]) if gl else None
+        dosya = s["log_file"] if s["log_file"] and os.path.isfile(os.path.join(TEST_DIR, os.path.basename(s["log_file"]))) else None
+        out.append({"id": s["id"], "status": s["status"], "created": s["created_at"], "completed": s["completed_at"],
+                    "accuracy_px": s["accuracy_px"], "precision_px": s["precision_px"], "dosya": dosya,
+                    "ekran": f"{d.get('screenW')}x{d.get('screenH')}" if d.get("screenW") else None,
+                    "tarayici": d.get("browser"), "tur": d.get("type"),
+                    "kamera": f"{cam.get('width')}x{cam.get('height')}" if cam.get("width") else None,
+                    "zoom": ay.get("zoom"), "uzaklik": ay.get("uzaklik"), "sure": m.get("sure"),
+                    "en_iyi": {"kod": en["method"], "ad": en["label"], "gl": en["gl_accuracy_px"]} if en else None,
+                    "aktarim": gl_aktarim(dosya) if dosya else None, "yontemler": yont})
+    return out
+
+
+def veri_paketi():
+    """Model geliştirme veri paketi (ZIP, bellekte): iki veritabanının tutarlı kopyası, bakış testi ham kayıtları, BENIOKU."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for ad, kaynak in (("dersler.db", KAYIT), ("gazelab.db", None)):
+            with tempfile.TemporaryDirectory() as td:
+                hedef = sqlite3.connect(os.path.join(td, ad))
+                try:
+                    if kaynak is None:
+                        with GL_LOCK:
+                            src = gl_db()
+                            try:
+                                src.backup(hedef)
+                            finally:
+                                src.close()
+                    else:
+                        with LOCK:
+                            kaynak.backup(hedef)
+                finally:
+                    hedef.close()
+                z.write(os.path.join(td, ad), ad)
+        if os.path.isdir(TEST_DIR):
+            for f in sorted(os.listdir(TEST_DIR)):
+                if f.endswith(".json"):
+                    z.write(os.path.join(TEST_DIR, f), "bakis_testi/" + f)
+        z.writestr("BENIOKU.txt", (
+            "DersNabzı model geliştirme veri paketi (" + fmt_ts(time.time()) + ")\n\n"
+            "dersler.db   : dersler, öğretmenler (teachers), öğrenciler, 2 sn örnekler (samples: dikkat, bakış payları,\n"
+            "               materyal noktaları, tam sayfa bakış izi), kurulumlar (setups), ders sayfası kalibrasyonları\n"
+            "               (calibrations.report: hata, isabet, GazeLab, aktarılan model), olaylar.\n"
+            "gazelab.db   : bakış testi oturumları; yöntem başına GazeLab ve kontrol ölçüleri (method_stats),\n"
+            "               aşama ve oturum özetleri, ham bakış/baş/fare kayıtları (recordings).\n"
+            "bakis_testi/ : bakış testinin ham günlükleri (tıklama başına kareler, öznitelik özetleri, ısı testi).\n\n"
+            "Kamera görüntüsü hiçbir dosyada yoktur; yalnız sayısal ölçümler.\n").encode("utf-8"))
+    return buf.getvalue()
+
+
 def fmt_ts(t):
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(t)) if t else ""
 
@@ -287,7 +382,19 @@ def public_student(s, t):
         "gazeCal": m.get("gazeCal", False), "gazeRegion": m.get("gazeRegion"),
         "materialPct": material_pct(s["samples"][-30:]),
         "ekran": s.get("ekran"),
+        "hse": m.get("hse"),
     }
+
+
+HSE_SINIF = ("Anger", "Contempt", "Disgust", "Fear", "Happiness", "Neutral", "Sadness", "Surprise")
+
+
+def temiz_hse(h):
+    """Öğrencinin HSEmotion sonucu (static/hsemotion.js): en olası sınıf, oranı, valence/arousal (-1..1). Geçersizse None."""
+    if not isinstance(h, dict) or h.get("top") not in HSE_SINIF:
+        return None
+    return {"top": h["top"], "p": round(clamp(h.get("p"), 0, 1), 2),
+            "valence": round(clamp(h.get("valence"), -1, 1), 2), "arousal": round(clamp(h.get("arousal"), -1, 1), 2)}
 
 
 def material_pct(samples):
@@ -360,6 +467,46 @@ def add_heat(cls, pts, demo=False):
         else:
             cls["heat_live"][i] += 1
             cls["heat_total"][i] += 1
+
+
+SX, SY = 32, 18   # öğrenci sayfası ısı ızgarası (scr: sayfa oranı, ekran dışı dahil)
+SON_NOKTA = 60
+
+
+def ogrenci_isi(s, gaze):
+    """Öğrenci başına gerçek bakış ısısı: materyal içi noktalar (pts) ve tüm sayfa izi (scr). Sayfa dışı noktalar ayrı sayılır."""
+    mat = s.setdefault("heat", [0.0] * (HX * HY))
+    for u, v in gaze["pts"]:
+        mat[min(HY - 1, int(v * HY)) * HX + min(HX - 1, int(u * HX))] += 1
+    sayfa = s.setdefault("scr_heat", [0.0] * (SX * SY))
+    son = s.setdefault("scr_son", [])
+    for _, x, y in gaze.get("scr") or []:
+        if 0 <= x < 1 and 0 <= y < 1:
+            sayfa[int(y * SY) * SX + int(x * SX)] += 1
+        else:
+            s["scr_disari"] = s.get("scr_disari", 0) + 1
+        son.append([x, y])
+    del son[:-SON_NOKTA]
+
+
+def ogrenci_ayrinti(s, t):
+    """Öğretmen panelindeki öğrenci ayrıntısı (yalnız sayılar; görüntü yok)."""
+    sayfa = s.get("scr_heat") or []
+    ici = sum(sayfa)
+    disari = s.get("scr_disari", 0)
+    return {
+        **public_student(s, t),
+        "joined": s["joined"], "pcode": s.get("pcode"),
+        "samples": s["samples"][-600:],
+        "gazeRegions": pct_dist(s.get("gaze_time", {})),
+        "heat": norm_heat(s.get("heat") or []), "heatSize": [HX, HY],
+        "scrHeat": norm_heat(sayfa), "scrSize": [SX, SY],
+        "scrOutPct": round(100 * disari / (ici + disari)) if ici + disari else None,
+        "scrSon": s.get("scr_son", []),
+        "kurulum": s.get("kurulum"), "kal": s.get("kal"),
+        "hands": s["hand_count"], "messages": s["chat_count"], "reactions": s["reactions"],
+        "metrics": {k: s["metrics"].get(k) for k in ("face", "lookingAway", "eyesClosed", "tabHidden", "hse")},
+    }
 
 
 def add_alert(cls, kind, text, key, t, cooldown=60, demo=False):
@@ -479,6 +626,7 @@ def record_metrics(cls, s, m, t, gaze=None):
         if gaze["share"]:
             mat = round(gaze["share"].get("materyal", 0), 2)
         add_heat(cls, gaze["pts"], demo=s["demo"])
+        ogrenci_isi(s, gaze)
     s["samples"].append([round(t, 1), round(m["attention"]), round(m["energy"]), m["emotion"], mat])
     if m["attention"] < LOW_ATT:
         if not s["low_since"]:
@@ -672,6 +820,16 @@ def kayit_bakis(g, parsed):
             "gaze": parsed["scr"] or None, "wg_share": parsed["wgShare"] or None}
 
 
+def kal_ozet(kal, t):
+    """Öğretmen paneli için kalibrasyon özeti: hata (px), 3×3 isabet (%), ders sayfasına aktarılan bakış modeli."""
+    def sayi(v, lo, hi):
+        return None if isinstance(v, bool) or not isinstance(v, (int, float)) else round(clamp(v, lo, hi))
+    ak = kal.get("aktarim") if isinstance(kal.get("aktarim"), dict) else {}
+    ad = ak.get("ad") if isinstance(ak.get("ad"), str) else None
+    return {"acc": sayi(kal.get("acc"), 0, 5000), "hit3": sayi(kal.get("hit3"), 0, 100),
+            "model": ad[:60] if ad else None, "t": round(t)}
+
+
 def build_report(cls):
     end = cls["ended"] or now()
     students = []
@@ -761,6 +919,15 @@ class Handler(BaseHTTPRequestHandler):
     def err(self, msg, status=400):
         self.send_json({"error": msg}, status)
 
+    def send_dosya(self, veri, tur, ad):
+        self.send_response(200)
+        self.send_header("Content-Type", tur)
+        self.send_header("Content-Disposition", 'attachment; filename="%s"' % re.sub(r'[^\w.-]', "_", ad))
+        self.send_header("Content-Length", str(len(veri)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(veri)
+
     def body(self):
         n = int(self.headers.get("Content-Length") or 0)
         if n < 0 or n > 200_000:          # negatif uzunluk rfile.read(-1) ile sınırsız okumaya yol açıyordu
@@ -843,7 +1010,18 @@ class Handler(BaseHTTPRequestHandler):
             return self.err("Yetkisiz", 403)
         if yol == "kalite_esik":
             return self.send_json(yonetim.KALITE_ESIK)
-        if yol not in ("dersler", "ders", "ogrenci", "karsilastirma", "katilimcilar", "csv"):
+        if yol == "bakis_testleri":
+            return self.send_json(gl_oturumlar())
+        if yol == "bakis_dosya":
+            ad = os.path.basename(q.get("ad", ""))
+            yolu = os.path.join(TEST_DIR, ad)
+            if not re.fullmatch(r"[\w.-]{1,120}\.json", ad) or not os.path.isfile(yolu):
+                return self.err("Dosya bulunamadı", 404)
+            with open(yolu, "rb") as f:
+                return self.send_dosya(f.read(), "application/json", ad)
+        if yol == "veri_paketi":
+            return self.send_dosya(veri_paketi(), "application/zip", time.strftime("dersnabzi_veri_%Y%m%d_%H%M.zip"))
+        if yol not in ("dersler", "ders", "ogrenci", "karsilastirma", "katilimcilar", "csv", "ogretmenler", "kalibrasyonlar"):
             return self.err("Bulunamadı", 404)
         # Yönetim okumaları LOCK almaz: istek başına salt okunur bağlantı (WAL), canlı dersi dondurmaz
         try:
@@ -857,7 +1035,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _admin_oku(self, con, yol, q):
         if yol == "dersler":
-            return self.send_json(yonetim.dersler(con, q.get("ara") or None, q.get("bas") or None, q.get("bit") or None))
+            return self.send_json(yonetim.dersler(con, q.get("ara") or None, q.get("bas") or None, q.get("bit") or None,
+                                                  q.get("ogretmen") or None))
+        if yol == "ogretmenler":
+            return self.send_json(kayit.ogretmenler(con))
+        if yol == "kalibrasyonlar":
+            return self.send_json(yonetim.kalibrasyonlar(con, q.get("ogretmen") or None))
         if yol == "ders":
             r = yonetim.ders(con, q.get("code", "").upper())
             return self.send_json(r) if r is not None else self.err("Ders bulunamadı", 404)
@@ -889,6 +1072,20 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return self.wfile.write(veri)
         return self.err("Bulunamadı", 404)
+
+    def admin_ogretmen(self, b):
+        """Öğretmen ekle (id yoksa) ya da güncelle (ad, e-posta, kurum, not, aktif)."""
+        if not self.admin_ok({}):
+            return self.err("Yetkisiz", 403)
+        try:
+            if b.get("id"):
+                kayit.ogretmen_guncelle(KAYIT, str(b["id"]), b)
+                return self.send_json({"id": b["id"]})
+            return self.send_json({"id": kayit.ogretmen_ekle(KAYIT, b)})
+        except KeyError:
+            return self.err("Öğretmen bulunamadı", 404)
+        except ValueError as e:
+            return self.err(str(e), 400)
 
     def admin_katilimci(self, b):
         if not self.admin_ok({}):
@@ -994,6 +1191,17 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.teacher_ok(cls, q.get("key")):
                     return self.err("Yetkisiz", 403)
                 return self.send_json(build_report(cls))
+        if u.path == "/api/student":
+            with LOCK:
+                cls = load_class(q.get("code", "").upper())
+                if not cls:
+                    return self.err("Sınıf bulunamadı", 404)
+                if not self.teacher_ok(cls, q.get("key")):
+                    return self.err("Yetkisiz", 403)
+                s = cls["students"].get(q.get("id", ""))
+                if not s:
+                    return self.err("Öğrenci bulunamadı", 404)
+                return self.send_json(ogrenci_ayrinti(s, now()))
         if u.path.startswith("/api/admin/"):
             return self.admin_get(u.path[len("/api/admin/"):], q)
         if u.path == "/api/testlog/export.csv":
@@ -1016,6 +1224,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.materials_list(q)
         if u.path == "/api/material/image":
             return self.material_image(q)
+        if u.path == "/api/teachers":
+            # Öğretmen girişi henüz yok: ders başlatma formundaki seçim için yalnız aktif öğretmenlerin adı
+            with LOCK:
+                return self.send_json([{"id": t["id"], "name": t["name"]} for t in kayit.ogretmenler(KAYIT, yalniz_aktif=True)])
         if u.path == "/api/class":
             with LOCK:
                 cls = load_class(q.get("code", "").upper())
@@ -1121,7 +1333,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.err("Geçersiz JSON")
         routes = {"/api/class": self.create_class, "/api/join": self.join,
                   "/api/metrics": self.metrics, "/api/event": self.event,
-                  "/api/admin/katilimci": self.admin_katilimci}
+                  "/api/admin/katilimci": self.admin_katilimci, "/api/admin/ogretmen": self.admin_ogretmen}
         fn = routes.get(u.path)
         if not fn:
             return self.err("Bulunamadı", 404)
@@ -1135,15 +1347,17 @@ class Handler(BaseHTTPRequestHandler):
     def create_class(self, b):
         name = str(b.get("name") or "").strip()[:80] or "Adsız ders"
         topic = str(b.get("topic") or "").strip()[:120]
+        tid = str(b.get("teacher_id") or "")[:20]
+        tid = tid if kayit.ogretmen_aktif(KAYIT, tid) else None   # öğretmen girişi yok: seçilen öğretmen yalnız etiket
         code = new_code()
         t = now()
-        CLASSES[code] = {"code": code, "name": name, "topic": topic, "teacher_key": secrets.token_urlsafe(18),
+        CLASSES[code] = {"code": code, "name": name, "topic": topic, "teacher_key": secrets.token_urlsafe(18), "teacher_id": tid,
                          "created": t, "ended": None, "students": {}, "timeline": [], "chat": [],
                          "alerts": [], "alert_marks": {}, "clients": [], "announce": None,
                          "reaction_counts": {}, "topic_log": [{"t": t, "topic": topic}] if topic else []}
         ensure_gaze_fields(CLASSES[code])
         persist(CLASSES[code])
-        kayit.ders_ekle(KAYIT, code, name, topic, t)
+        kayit.ders_ekle(KAYIT, code, name, topic, t, tid)
         self.send_json({"code": code, "key": CLASSES[code]["teacher_key"]})
 
     def join(self, b):
@@ -1188,6 +1402,9 @@ class Handler(BaseHTTPRequestHandler):
         m = {"attention": clamp(b.get("attention")), "energy": clamp(b.get("energy")), "emotion": emotion,
              "face": bool(b.get("face")), "lookingAway": bool(b.get("lookingAway")),
              "eyesClosed": bool(b.get("eyesClosed")), "tabHidden": bool(b.get("tabHidden"))}
+        hse = temiz_hse(b.get("hse"))
+        if hse:
+            m["hse"] = hse
         e = b.get("ekran")
         if isinstance(e, dict):   # tarayıcı/ekran boyutu (yalnızca sayılar, sınırlı)
             s["ekran"] = {k: int(clamp(e.get(k) or 0, 0, 20000)) for k in ("sw", "sh", "vw", "vh")}
@@ -1202,10 +1419,12 @@ class Handler(BaseHTTPRequestHandler):
         kur = temiz_kurulum(b.get("kurulum"))
         if kur:
             kayit.kurulum_ekle(KAYIT, cls["code"], s["id"], t, kur)
+            s["kurulum"] = kur
         kal = b.get("kal")
         if isinstance(kal, dict) and len(json.dumps(kal)) <= 20000 and (
                 kal.get("at") is None or (isinstance(kal["at"], (int, float)) and not isinstance(kal["at"], bool))):
             kayit.kalibrasyon_ekle(KAYIT, cls["code"], s["id"], t, kal)
+            s["kal"] = kal_ozet(kal, t)
         self.send_json({"ok": True})
 
     def event(self, b):

@@ -2,7 +2,7 @@
 //  1) standartlaştırma + grup ağırlığı: her grup çekirdeğe toplam varyans 1 katar (boyutu ne olursa olsun); ağırlıksız hâl değişmedi
 //  2) bilinen doğrusal ilişkiyi geri bulur (gruplu, ölçekleri çok farklı sütunlar; λ gruplu CV ile)
 //  3) grup ağırlığı boyut farkını dengeler: bilgi küçük grupta, büyük grup gürültü iken ağırlıklı model ağırlıksızdan iyi
-//  4) eksik grup olan kare atlanır ve sayılır; satır üst sınırı ve tekrar (w)
+//  4) eksik grup (3B baş dahil) olan kare atlanır ve sayılır; 5 ağırlık grubu; satır üst sınırı ve tekrar (w)
 import fs from "node:fs";
 import vm from "node:vm";
 import assert from "node:assert/strict";
@@ -76,30 +76,36 @@ const med = (A) => { const s = [...A].sort((a, b) => a - b), k = s.length >> 1; 
     const raw = [gx + 0.01 * gauss(), gy + 0.01 * gauss(), gx, gy, 0.3, 0.3, 0.01 * gauss(), 0.01 * gauss()];
     const wgp = Array.from({ length: 120 }, (_, k) => 128 + 40 * (k % 2 ? gx : gy) + 5 * gauss());
     const re = new Float32Array(REY.BOY).map((_, k) => 0.5 + 0.2 * (k % 3 ? gx : gy) + 0.02 * gauss());
-    return { raw, wgp: eksik === "wgp" ? null : wgp, re: eksik === "re" ? null : re };
+    const pose3 = { yaw: 3 * gauss(), pitch: -8 + 3 * gauss(), roll: gauss(), tx: gauss(), ty: gauss(), tz: -45 + 2 * gauss() };
+    return { raw, wgp: eksik === "wgp" ? null : wgp, re: eksik === "re" ? null : re, pose3: eksik === "pose3" ? null : pose3 };
   };
   assert.equal(karmaOznitelik(kare(0, 0, "wgp"), bizOz), null);
   assert.equal(karmaOznitelik(kare(0, 0, "re"), bizOz), null);
+  assert.equal(karmaOznitelik(kare(0, 0, "pose3"), bizOz), null);
+  assert.equal(karmaOznitelik({ ...kare(0, 0), pose3: { yaw: NaN, pitch: 0, roll: 0, tx: 0, ty: 0, tz: 0 } }, bizOz), null);
   assert.equal(karmaOznitelik({ wgp: [1], re: new Float32Array(REY.BOY) }, bizOz), null);
-  const o = karmaOznitelik(kare(0.1, 0.2), bizOz);
-  assert.equal(o.v.length, 7 + 120 + REY.BOY); assert.deepEqual([...o.boy], [7, 120]);
+  const k0 = kare(0.1, 0.2), o = karmaOznitelik(k0, bizOz), bas0 = 7 + 120 + REY.BOY;
+  assert.equal(o.v.length, bas0 + 6); assert.deepEqual([...o.boy], [7, 120]);
+  assert.ok(Math.abs(o.v[bas0] - k0.pose3.yaw) < 1e-4 && Math.abs(o.v[bas0 + 5] - k0.pose3.tz) < 1e-4);   // sıra: yaw, pitch, roll, tx, ty, tz
   const sg = karmaSutunGrup(7, 120);
-  assert.equal(sg[6], 0); assert.equal(sg[7], 1); assert.equal(sg[126], 1); assert.equal(sg[127], 2); assert.equal(sg[127 + 51], 2); assert.equal(sg[127 + 52], 3); assert.equal(sg[sg.length - 1], 3);
+  assert.equal(sg.length, o.v.length);
+  assert.equal(sg[6], 0); assert.equal(sg[7], 1); assert.equal(sg[126], 1); assert.equal(sg[127], 2); assert.equal(sg[127 + 51], 2); assert.equal(sg[127 + 52], 3);
+  assert.equal(sg[bas0 - 1], 3); assert.equal(sg[bas0], 4); assert.equal(sg[sg.length - 1], 4);
 
   const depo = { kareler: [] };
   let atla = 0;
   for (let g = 0; g < 12; g++) {
     const gx = (g % 4) / 3, gy = Math.floor(g / 4) / 2;
-    const win = [kare(gx, gy), kare(gx, gy), kare(gx, gy, g % 3 === 0 ? "re" : null), kare(gx, gy, g === 5 ? "wgp" : null)];
+    const win = [kare(gx, gy), kare(gx, gy, g === 7 ? "pose3" : null), kare(gx, gy, g % 3 === 0 ? "re" : null), kare(gx, gy, g === 5 ? "wgp" : null)];
     atla += karmaEkle(depo, win, 100 + 1000 * gx, 100 + 600 * gy, `n${g}`, g >= 8 ? 3 : 1, bizOz);
   }
-  assert.equal(atla, 5); assert.equal(depo.atlanan, 5); assert.equal(depo.kareler.length, 48 - 5);
+  assert.equal(atla, 6); assert.equal(depo.atlanan, 6); assert.equal(depo.kareler.length, 48 - 6);
   const S = karmaSatirlar(depo.kareler, 1000);
-  assert.equal(S.kare, 43); assert.equal(S.F.length, depo.kareler.reduce((s, k) => s + k.w, 0));
+  assert.equal(S.kare, 42); assert.equal(S.F.length, depo.kareler.reduce((s, k) => s + k.w, 0));
   const S2 = karmaSatirlar(depo.kareler, 30);
   assert.ok(S2.F.length <= 30 && S2.kare >= 10, `üst sınır: ${S2.F.length} satır, ${S2.kare} kare`);
   const { model, S: S3 } = await karmaKurSaf(depo.kareler, { enCokSatir: 600 });
-  assert.equal(model.secim.iz, 4); assert.equal(S3.F.length, model.n);
+  assert.equal(model.secim.iz, 5); assert.equal(S3.F.length, model.n);
   const q = karmaTahmin(model, kare(1 / 3, 0.5), bizOz), y = [100 + 1000 / 3, 400];
   assert.ok(Math.hypot(q[0] - y[0], q[1] - y[1]) < 60, `uçtan uca tahmin ${q.map(Math.round)} ↔ ${y.map(Math.round)}`);
   assert.equal(karmaTahmin(model, kare(0, 0, "re"), bizOz), null);

@@ -71,6 +71,10 @@
   <form class="card form-card" id="createForm">
     <h2>Yeni ders başlat</h2>
     <p class="muted">Öğrencilerinizle paylaşacağınız bir katılım kodu oluşturulacak.</p>
+    <div id="cTeacherBox" class="hidden">
+      <label for="cTeacher">Öğretmen</label>
+      <select id="cTeacher"><option value="">— seçilmedi —</option></select>
+    </div>
     <label for="cName">Ders adı</label>
     <input id="cName" required maxlength="80" placeholder="ör. Matematik 9-A">
     <label for="cTopic">Güncel konu (isteğe bağlı)</label>
