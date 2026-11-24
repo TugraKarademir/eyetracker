@@ -70,7 +70,8 @@ function drawLineChart(canvas, points, series) {
   }
   const pts = points.filter((p) => p.attention != null);
   if (pts.length < 2) {
-    ctx.fillText("Veri toplanıyor…", pad.l + 8, pad.t + ih / 2); return;
+    ctx.textAlign = "center";
+    ctx.fillText(pts.length ? "Veri toplanıyor…" : "Henüz veri yok", pad.l + iw / 2, pad.t + ih / 2); return;
   }
   const t0 = pts[0].t, t1 = pts[pts.length - 1].t, span = Math.max(1, t1 - t0);
   const X = (t) => pad.l + ((t - t0) / span) * iw, Y = (v) => pad.t + ih - (v / 100) * ih;

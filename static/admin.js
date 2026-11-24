@@ -556,7 +556,7 @@ async function viewDers([code], live) {
           ${Object.values(OLAY).map((s) => `<span style="--c:${s.color}">${s.label}</span>`).join("")}</div></div>
       <canvas id="tl"></canvas>
       <div class="legend" style="margin-top:6px">Duygu şeridi: ${Object.values(EMO).map((e) => `<span style="--c:${e.color}">${e.label}</span>`).join("")}</div>
-      ${d.zaman.length ? "" : '<div class="note">Bu derste örnek yok: çizgiler veri yok.</div>'}
+      ${d.zaman.length ? "" : '<div class="note">Bu derste örnek yok (çizgiler: veri yok).</div>'}
     </div>
     <div class="card"><h3>Materyaller</h3><div class="tbl"><table>
       <tr><th>Tür</th><th>Materyal</th><th>Ekranda</th><th title="Kalibreli öğrencilerin bakışının materyal bölgesindeki payı">Materyale bakma</th><th>Ort. dikkat</th><th>Baskın duygu</th>
@@ -997,7 +997,7 @@ function sekmeIsi(el, G, _e, live) {
   APP.querySelectorAll("input[name=omod]").forEach((r) => (r.onchange = () => { OGR.mod = r.value; ciz(); }));
 }
 
-const KUR_ALAN = [["kamera", "Kamera"], ["fps", "Kamera fps"], ["ekran", "Ekran"], ["pencere", "Pencere"], ["dpr", "DPR"], ["fs", "Tam ekran"],
+const KUR_ALAN = [["kamera", "Kamera"], ["fps", "Kamera fps (ayar)"], ["ekran", "Ekran"], ["pencere", "Pencere"], ["dpr", "DPR"], ["fs", "Tam ekran"],
                   ["tarayici", "Tarayıcı"], ["uzaklikCm", "Uzaklık (tahmin)"], ["islemeFps", "İşlenen kare/sn"],
                   ["isci", "İşleme yeri"], ["gecikmeMs", "İşçi gecikmesi ms"]];
 function sekmeKurulum(el, G) {
@@ -1018,7 +1018,7 @@ function sekmeKurulum(el, G) {
 
 const CIHAZ_ETIKET = [["tarayici", "Tarayıcı"], ["tarayiciSurum", "Tarayıcı sürümü"], ["isletimSistemi", "İşletim sistemi"], ["cekirdek", "Mantıksal çekirdek"],
   ["bellekGB", "RAM (tarayıcı bildirimi, GB)"], ["gpu", "GPU"], ["gpuVendor", "GPU üreticisi"], ["kamera", "Kamera"], ["kameraCozunurluk", "Kamera çözünürlüğü"],
-  ["kameraFpsAyar", "Kamera fps (AYAR)"], ["kameraFpsOlculen", "Kamera fps (ÖLÇÜLEN)"], ["islemeFps", "İşlenen fps"], ["delegate", "MediaPipe delegate"], ["isci", "Yüz bulucu işçide"]];
+  ["kameraFpsAyar", "Kamera fps (ayar)"], ["kameraFpsOlculen", "Kamera fps (ölçülen)"], ["islemeFps", "İşlenen fps (ölçülen)"], ["delegate", "MediaPipe delegate"], ["isci", "Yüz bulucu işçide"]];
 const dAd = (a, v) => (a === "isci" ? (v ? "evet" : "hayır") : esc(v));
 function sekmeCihaz(el, G) {
   const o = G.o, c = o.cihaz, den = o.bakis_denemeleri || [], tam = o.cihaz_tam;
@@ -1037,7 +1037,7 @@ function sekmeCihaz(el, G) {
       ${tam ? `<div class="note">Kaynak: ${tam.kaynak === "cihazTam" ? "tam cihaz bilgisi (cihazTam)" : "eski kurulum alanları (cihaz2)"}.</div>` : ""}`
       : `<p>${YOK} <span class="muted small">— kurulum kaydı yok.</span></p>`}
       <div class="note">RAM tarayıcı tarafından en çok 8 GB'a yuvarlanır (≤8 GB); gerçek bellek bundan fazla olabilir. İşlemci modeli tarayıcıdan alınamaz; yalnız mantıksal çekirdek sayısı bilinir.
-        Kamera fps için AYAR (getSettings) ile ÖLÇÜLEN değer ayrıdır; işlenen fps yüz bulucunun gerçekten işlediği kare hızıdır.${notlar.map((n) => " " + esc(n)).join("")}</div></div>`;
+        Kamera fps için ayar (getSettings) ile ölçülen değer ayrıdır; işlenen fps yüz bulucunun gerçekten işlediği kare hızıdır.${notlar.map((n) => " " + esc(n)).join("")}</div></div>`;
   el.querySelectorAll("a[data-dosya]").forEach((a) => (a.onclick = (e) => { e.preventDefault();
     dosyaIndir(`bakis_dosya?ad=${enc(a.dataset.dosya)}`, a.dataset.dosya).catch((x) => { if (!(x instanceof Yetkisiz)) toast(x.message); }); }));
 }
@@ -1121,7 +1121,7 @@ async function viewKatilimcilar(_p, live) {
   const liste = await aapi("katilimcilar");
   if (!live()) return;
   APP.innerHTML = `
-    <div class="head"><h1>Katılımcılar</h1><div class="muted small">Kalıcı katılımcı kodları. Öğrenci derse girerken adının yanında bu kodu yazar; kod dersler arasında aynı kalır.</div></div>
+    <div class="head"><h1>Katılımcılar</h1><div class="muted small">Kalıcı katılımcı kodları. Öğrenci giriş formunda artık kod alanı yok: yeni kayıtlar kodsuz olur ve insan/YZ eşleştirmesine girmez; bu liste önceki (kodlu) kayıtlar içindir.</div></div>
     <form class="card filters" id="kpF"><div class="grow"><label for="kpKod">Yeni kod</label><input id="kpKod" maxlength="20" placeholder="ör. P03" autocomplete="off" required></div>
       <div><button class="btn primary">Ekle</button></div><div class="error" id="kpErr" style="flex-basis:100%"></div></form>
     <div class="card"><h3>Kodlar (${liste.length})</h3>${liste.length ? `<div class="tbl"><table><tr><th>Kod</th><th>Oluşturma</th></tr>
@@ -1232,10 +1232,10 @@ async function viewKalibrasyon(_p, live) {
     <div class="card"><h3>Bakış testi oturumları</h3><div class="tbl"><table>
       <tr><th>Tarih</th><th>Durum</th><th>Ekran</th><th>Kamera · yakınlaştırma</th><th>Uzaklık</th><th>En iyi GazeLab</th><th>Aktarılan model</th><th>Ham kayıt</th></tr>
       ${testler.map((s) => `<tr class="click" data-s="${esc(s.id)}">
-        <td class="num">${tarih(s.created)}</td><td>${s.status === "completed" ? "tamamlandı" : esc(s.status || "—")}</td>
-        <td class="num">${esc(s.ekran || "—")}</td><td class="num">${esc(s.kamera || "—")}${s.zoom ? ` · ${s.zoom}×` : ""}</td><td class="num">${s.uzaklik ? s.uzaklik + " cm" : "—"}</td>
+        <td class="num">${tarih(s.created)}</td><td>${s.status === "completed" ? "tamamlandı" : s.status ? esc(s.status) : YOK}</td>
+        <td class="num">${s.ekran ? esc(s.ekran) : YOK}</td><td class="num">${s.kamera ? esc(s.kamera) : YOK}${s.zoom ? ` · ${s.zoom}×` : ""}</td><td class="num">${s.uzaklik ? s.uzaklik + " cm" : YOK}</td>
         <td>${s.en_iyi ? `${esc(s.en_iyi.ad)} <b>${Math.round(s.en_iyi.gl)} px</b>` : YOK}</td>
-        <td>${s.aktarim ? `${esc(s.aktarim.ad || s.aktarim.kod)}<div class="muted small">${esc(s.aktarim.gerekce || "")}</div>` : '<span class="yok">kayıt yok</span>'}</td>
+        <td>${s.aktarim ? `${esc(s.aktarim.ad || s.aktarim.kod)}<div class="muted small">${esc(s.aktarim.gerekce || "")}</div>` : YOK}</td>
         <td>${s.dosya ? `<button class="btn sm" data-dosya="${esc(s.dosya)}">JSON</button>` : "—"}</td></tr>
         ${KAL.acik === s.id ? `<tr><td colspan="8" style="background:var(--surface-2)"><table>
           <tr><th>Yöntem</th><th>GL doğruluk</th><th>GL kesinlik</th><th>GL düzeltmeli</th><th>Kontrol medyan</th><th>Kontrol ≤150</th><th>3×3</th><th>Hz</th></tr>
@@ -1254,8 +1254,8 @@ async function viewKalibrasyon(_p, live) {
         <td>${esc(GIZLE ? k.pcode || "kodsuz" : k.ogrenci || "—")}</td>
         <td>${esc(k.model)}${k.gerekce ? `<div class="muted small">${esc(k.gerekce)}</div>` : ""}</td>
         <td class="num">${px(k.acc)}</td><td class="num">${k.hit3 == null ? YOK : "%" + k.hit3}</td><td class="num">${px(k.gl_acc)}</td>
-        <td class="num">${esc(k.kamera || "—")}${k.zoom ? ` · ${k.zoom}×` : ""}</td><td class="num">${esc(k.ekran || "—")}${k.pencere ? ` · ${esc(k.pencere)}` : ""}</td>
-        <td class="num">${k.uzaklik ? Math.round(k.uzaklik) + " cm" : "—"}</td></tr>`).join("") || `<tr><td colspan="11" class="yok">Ders sayfasından gelen kalibrasyon yok</td></tr>`}
+        <td class="num">${k.kamera ? esc(k.kamera) : YOK}${k.zoom ? ` · ${k.zoom}×` : ""}</td><td class="num">${k.ekran ? esc(k.ekran) : YOK}${k.pencere ? ` · ${esc(k.pencere)}` : ""}</td>
+        <td class="num">${k.uzaklik ? Math.round(k.uzaklik) + " cm" : YOK}</td></tr>`).join("") || `<tr><td colspan="11" class="yok">Ders sayfasından gelen kalibrasyon yok</td></tr>`}
     </table></div><div class="note">Hata ve 3×3: ders sayfasına aktarılan yöntemin kontrol noktalarındaki ölçüsü. GazeLab: aynı yöntemin tıklamasız doğrulaması. Satıra tıklayınca öğrencinin ders verisi açılır.</div></div>`;
   $("#kalOgr").value = KAL.ogretmen;
   $("#kalOgr").onchange = (e) => { KAL.ogretmen = e.target.value; route(); };

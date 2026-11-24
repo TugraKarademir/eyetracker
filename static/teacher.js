@@ -100,7 +100,7 @@ function renderState(s) {
   const domKey = a.present ? Object.entries(a.emotions).sort((x, y) => y[1] - x[1])[0][0] : null;
   $("#kEmo").textContent = domKey ? `${EMO[domKey].icon} ${EMO[domKey].label}` : "–";
   $("#kEmoS").textContent = domKey ? `${a.emotions[domKey]} / ${a.present} öğrenci` : " ";
-  emotionBars($("#emoBars"), a.emotions);
+  if (a.present) emotionBars($("#emoBars"), a.emotions); else $("#emoBars").innerHTML = '<span class="muted small">veri yok (çevrim içi öğrenci yok)</span>';
   const rc = Object.entries(s.reactions || {});
   $("#reacts").innerHTML = rc.length ? rc.map(([e, n]) => `<span>${e} <b>${n}</b></span>`).join("") : '<span class="muted small">Henüz tepki yok</span>';
   drawLineChart($("#chart"), s.timeline, CHART_SERIES);
@@ -142,7 +142,7 @@ function cihazMetin(c) {
 function btSatiri(st) {
   if (st.demo) return "";
   return `<div class="muted" style="font-size:11px">🎯 Bakış testi: ${btMetin(st.bakisTesti)}</div>` +
-    `<div class="muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(st.cihazOz?.gpu || "")}">💻 ${cihazMetin(st.cihazOz)}</div>`;
+    `<div class="muted" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(st.cihazOz?.gpu || "")}">💻 ${st.cihazOz ? cihazMetin(st.cihazOz) : "Cihaz: veri yok"}</div>`;
 }
 function renderStudents(list) {
   const el = $("#students");
@@ -249,15 +249,16 @@ function ayrintiCiz(d) {
           ? `${satir("En olası", `${HSE_AD[h.top] || esc(h.top)} %${Math.round(100 * h.p)}`)}${satir("Valence (olumsuz → olumlu)", h.valence.toFixed(2))}${satir("Arousal (sakin → uyarılmış)", h.arousal.toFixed(2))}`
           : `<span class="muted small">${d.online ? "Öğrenci HSEmotion paylaşımını açmamış ya da yüzü görünmüyor" : "Çevrim dışı"}</span>`)}
         ${kutu("Bakış kalibrasyonu", kal
-          ? `${satir("Model", esc(kal.model || "bizim (ana model)"))}${satir("Hata", kal.acc != null ? `~${kal.acc} px` : "–")}${satir("3×3 isabet", yuzde(kal.hit3))}${satir("Zaman", fmtTime(kal.t))}`
+          ? `${satir("Model", esc(kal.model || "ana model"))}${satir("Hata", kal.acc != null ? `~${kal.acc} px` : "–")}${satir("3×3 isabet", yuzde(kal.hit3))}${satir("Zaman", fmtTime(kal.t))}`
           : `<span class="muted small">${d.gazeCal ? "Kalibre (bu derste rapor gelmedi)" : "Bakış takibi kapalı"}</span>`)}
         ${d.demo ? "" : kutu("Bakış testi (ders başı)", `${satir("Durum", btMetin(d.bakisTesti))}${d.bakisTesti?.t ? satir("Son kayıt", fmtTime(d.bakisTesti.t)) : ""}${d.bakisTesti?.dosya ? `<div class="muted" style="font-size:11px;word-break:break-all">${esc(d.bakisTesti.dosya)}</div>` : ""}`)}
-        ${kutu("Cihaz ve kurulum", `${d.cihazOz ? `<div class="muted" style="font-size:12px;margin-bottom:4px">${cihazMetin(d.cihazOz)}</div>` : ""}${k.cihaz2 ? satir("İşlemci çekirdeği", k.cihaz2.cekirdek ?? "veri yok") + satir("Bellek", k.cihaz2.bellekGB != null ? `${k.cihaz2.bellekGB} GB` : "veri yok") + satir("GPU", esc(k.cihaz2.gpu || "veri yok")) : ""}${e ? satir("Tarayıcı", `${e.vw}×${e.vh}${e.fs ? " · tam ekran" : ""}${e.mobil ? " · mobil" : ""}`) + satir("Ekran", `${e.sw}×${e.sh} @${e.dpr}`) : ""}${k.kamera ? satir("Kamera", esc(k.kamera)) : ""}${k.fps != null ? satir("Kamera kare/sn", k.fps) : ""}${k.islemeFps != null ? satir("İşlenen kare/sn", k.islemeFps) : ""}${k.uzaklikCm != null ? satir("Uzaklık", `${Math.round(k.uzaklikCm)} cm`) : ""}${k.tarayici ? satir("Tarayıcı türü", esc(k.tarayici)) : ""}` || '<span class="muted small">Bilgi yok</span>')}
+        ${kutu("Cihaz ve kurulum", `${d.cihazOz ? `<div class="muted" style="font-size:12px;margin-bottom:4px">${cihazMetin(d.cihazOz)}</div>` : ""}${k.cihaz2 ? satir("İşlemci çekirdeği", k.cihaz2.cekirdek ?? "veri yok") + satir("Bellek", k.cihaz2.bellekGB != null ? `${k.cihaz2.bellekGB} GB` : "veri yok") + satir("GPU", esc(k.cihaz2.gpu || "veri yok")) : ""}${e ? satir("Tarayıcı", `${e.vw}×${e.vh}${e.fs ? " · tam ekran" : ""}${e.mobil ? " · mobil" : ""}`) + satir("Ekran", `${e.sw}×${e.sh} @${e.dpr}`) : ""}${k.kamera ? satir("Kamera", esc(k.kamera)) : ""}${k.fps != null ? satir("Kamera kare/sn (ayar)", k.fps) : ""}${k.islemeFps != null ? satir("İşlenen kare/sn (ölçülen)", k.islemeFps) : ""}${k.uzaklikCm != null ? satir("Uzaklık", `${Math.round(k.uzaklikCm)} cm`) : ""}${k.tarayici ? satir("Tarayıcı türü", esc(k.tarayici)) : ""}` || '<span class="muted small">veri yok</span>')}
       </div>
       <div class="muted" style="font-size:11px">Kamera görüntüsü gönderilmez; tüm ölçümler öğrencinin cihazında yapılır, buraya yalnız sayılar gelir.</div>
     </div>`;
   drawLineChart($("#ayChart"), smp.map((x) => ({ t: x[0], attention: x[1], energy: x[2], material: x[4] == null ? null : Math.round(100 * x[4]) })), CHART_SERIES);
-  aoiBars($("#ayAoi"), d.gazeRegions, true);
+  if (Object.values(d.gazeRegions || {}).some((v) => v > 0)) aoiBars($("#ayAoi"), d.gazeRegions, true);
+  else $("#ayAoi").innerHTML = '<span class="muted small">veri yok</span>';
   sayfaIsiCiz($("#aySayfa"), d);
   drawHeat($("#ayMat"), d.heat, { bg: window.LIVE?.on ? $("#myVideo") : null, empty: d.gazeCal ? "Materyale düşen bakış yok" : "Bakış takibi kapalı" });
 }
@@ -381,11 +382,11 @@ function renderGaze(s) {
   lastHeat = s.heat;
   $("#gazeCal").textContent = g.calibrated
     ? `${g.calibrated} / ${s.agg.present} çevrim içi öğrencide bakış takibi açık`
-    : "Bakış takibi açık öğrenci yok (öğrenciler kendi ekranlarında kalibre etmeli)";
+    : "Bakış takibi açık öğrenci yok (bakış kalibrasyonu öğrenci derse girince kendiliğinden başlar)";
   const k = $("#kMat");
   k.textContent = g.onMaterial == null ? "–" : "%" + g.onMaterial;
   k.style.color = levelColor(g.onMaterial);
-  aoiBars($("#aoiBars"), g.regions);
+  if (g.calibrated) aoiBars($("#aoiBars"), g.regions); else $("#aoiBars").innerHTML = '<span class="muted small">veri yok</span>';
 }
 
 // Isı haritası arka planı: öğretmenin şu an yayınladığı kare (kamera ya da paylaşılan ekran)
