@@ -5,9 +5,11 @@
 //  4) sakkad ölçülemez eşiği (13 Hz)
 //  5) AOI: TTFF, kalma süresi (boşluk kesimi dahil), bakış payı, fiksasyon ve ziyaret sayısı; bakılmayan bölge
 //  6) zaman aralığı süzgeci, Hz, CSV formül koruması
+//  7) hızlı yoğunluk (ayrılabilir Gauss) = doğrudan nokta başı Gauss (kayan nokta toleransı)
 import fs from "node:fs";
 import vm from "node:vm";
 import assert from "node:assert/strict";
+let tohum = 3; const rnd = () => ((tohum = (tohum * 16807) % 2147483647) / 2147483647);
 
 const ctx = vm.createContext({ Math, Number, Array, Object, Set, Float32Array, String, Infinity });
 for (const f of ["gazelab_stats.js", "isi_testi.js"]) vm.runInContext(fs.readFileSync(new URL(`../static/${f}`, import.meta.url), "utf8"), ctx);
@@ -114,5 +116,33 @@ function ikiKume(adim) {
   const d = ISIT.duygular({ bas: 1000, duygu: [{ t: 900 }, { t: 1500, va: [0.1, 0.2] }, { t: 3000 }] }, 0, 1000);
   assert.equal(d.length, 1); assert.equal(d[0].t, 500);
   console.log("6) aralık, Hz, CSV koruması, duygu süzgeci: tamam");
+}
+// 7) hızlı yoğunluk (ayrılabilir Gauss) = doğrudan nokta başı Gauss (eski yöntem), kayan nokta toleransı içinde
+{
+  function dogrudan(P, gw, gh, sigma) {   // eski ISIT.yogunluk (6022a9d) aynen
+    const G = new Float32Array(gw * gh), R = Math.ceil(3 * sigma), k2 = 2 * sigma * sigma;
+    for (const p of P) {
+      const cx = p.u * gw, cy = p.v * gh, w = p.w ?? 1;
+      for (let y = Math.max(0, Math.floor(cy - R)); y <= Math.min(gh - 1, Math.ceil(cy + R)); y++)
+        for (let x = Math.max(0, Math.floor(cx - R)); x <= Math.min(gw - 1, Math.ceil(cx + R)); x++) {
+          const d = (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2; if (d <= R * R) G[y * gw + x] += w * Math.exp(-d / k2);
+        }
+    }
+    let max = 0; for (const v of G) if (v > max) max = v;
+    return { G, max };
+  }
+  let enKotu = 0;
+  for (const [gw, gh, sigma] of [[40, 30, 0.5], [40, 30, 2], [40, 30, 4], [64, 36, 6], [25, 50, 3], [100, 60, 8]]) {
+    const P = Array.from({ length: 60 }, () => ({ u: rnd(), v: rnd(), w: 0.5 + rnd() }));
+    P.push({ u: 0, v: 0, w: 1 }, { u: 1, v: 1, w: 2 }, { u: 0.5, v: 1, w: 1 });   // kenar ve köşe
+    const A = dogrudan(P, gw, gh, sigma), Bq = ISIT.yogunluk(P, gw, gh, sigma);
+    assert.equal(Bq.G.length, A.G.length);
+    let f = 0; for (let i = 0; i < A.G.length; i++) f = Math.max(f, Math.abs(A.G[i] - Bq.G[i]));
+    const goreli = f / A.max; enKotu = Math.max(enKotu, goreli);
+    assert.ok(goreli < 1e-5, `yoğunluk farkı ${gw}x${gh} σ${sigma}: ${goreli.toExponential(2)}`);
+    assert.ok(Math.abs(Bq.max - A.max) / A.max < 1e-5);
+  }
+  assert.equal(ISIT.yogunluk([], 10, 10, 2).max, 0);
+  console.log(`7) hızlı yoğunluk = doğrudan Gauss: tamam (en büyük göreli fark ${enKotu.toExponential(2)})`);
 }
 console.log("isi_testi: tüm denetimler geçti");

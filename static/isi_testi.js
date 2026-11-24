@@ -85,15 +85,23 @@ const ISIT = (() => {
              fixN: fIc.filter(Boolean).length, fixToplam: F.length, ziyaret: F.length ? ziyaret : null,
              ttffMs: ilk ? ilk.start - a : null, ttffDurum: !F.length ? "fiksasyon yok" : ilk ? "tamam" : "bakılmadı" };
   }
-  // Isı haritası yoğunluğu: noktalar [{u, v, w}] (görsel içi), gw×gh ızgara, Gauss çekirdeği (sigma hücre). Float32Array, en büyük değer
+  // Isı haritası yoğunluğu: noktalar [{u, v, w}] (görsel içi), gw×gh ızgara, Gauss çekirdeği (sigma hücre). Float32Array, en büyük değer.
+  // Gauss ayrılabilir: exp(−(dx²+dy²)/2σ²) = gx(dx)·gy(dy). Nokta başına yalnız 2(2R+1) exp (R = ⌈3σ⌉), iç döngü çarpma-toplama;
+  // hücre merkezinde değer ve dairesel kesim (dx²+dy² ≤ R²) önceki doğrudan yöntemle aynı (birim testi: kayan nokta farkı).
+  // Maliyet nokta × (2R+1)²; çağıran (isiCiz) σ'yı hücre cinsinden sınırlar (ızgarayı kabalaştırır).
   function yogunluk(P, gw, gh, sigma) {
-    const G = new Float32Array(gw * gh), R = Math.ceil(3 * sigma), k2 = 2 * sigma * sigma;
+    const G = new Float32Array(gw * gh), R = Math.ceil(3 * sigma), k2 = 2 * sigma * sigma, R2 = R * R, n = 2 * R + 2;
+    const gx = new Float64Array(n), gy = new Float64Array(n), dx2 = new Float64Array(n), dy2 = new Float64Array(n);
     for (const p of P) {
       const cx = p.u * gw, cy = p.v * gh, w = p.w ?? 1;
-      for (let y = Math.max(0, Math.floor(cy - R)); y <= Math.min(gh - 1, Math.ceil(cy + R)); y++)
-        for (let x = Math.max(0, Math.floor(cx - R)); x <= Math.min(gw - 1, Math.ceil(cx + R)); x++) {
-          const d = (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2; if (d <= R * R) G[y * gw + x] += w * Math.exp(-d / k2);
-        }
+      const xa = Math.max(0, Math.floor(cx - R)), xb = Math.min(gw - 1, Math.ceil(cx + R)), ya = Math.max(0, Math.floor(cy - R)), yb = Math.min(gh - 1, Math.ceil(cy + R));
+      if (xa > xb || ya > yb) continue;
+      for (let x = xa; x <= xb; x++) { const d = (x + 0.5 - cx) ** 2; dx2[x - xa] = d; gx[x - xa] = Math.exp(-d / k2); }
+      for (let y = ya; y <= yb; y++) { const d = (y + 0.5 - cy) ** 2; dy2[y - ya] = d; gy[y - ya] = w * Math.exp(-d / k2); }
+      for (let y = ya; y <= yb; y++) {
+        const ey = gy[y - ya], dy = dy2[y - ya], o = y * gw;
+        for (let x = xa; x <= xb; x++) if (dx2[x - xa] + dy <= R2) G[o + x] += ey * gx[x - xa];
+      }
     }
     let max = 0; for (const v of G) if (v > max) max = v;
     return { G, max };

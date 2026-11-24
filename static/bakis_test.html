@@ -1669,6 +1669,7 @@ function glTahmin(b, o) {
 function glReset() {
   glFazBitir(); GLK.recs = []; GLK.bazOrnek = []; GLK.headBase = null; GLK.dog = null; GLK.bitti = false; ISI.veri = null; ISI.kimlik = null; ISI.gonderilen = null; ISI.anaDosya = null;
   $("#isiGorunum")?.remove(); $("#isiBtn").style.display = "none";
+  Object.assign(ISIG, { gi: 0, a: 0, b: null, degisti: false, durum: "" });   // görünüm durumu yeni oturuma taşınmaz
   GLK.sure = { basla: simdi() }; GLK.basEpoch = Date.now() / 1000;
   GLK.oturumId = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[b % 62]).join("").slice(0, 8);
 }
@@ -2180,6 +2181,7 @@ function csvIndir(rows, ad) {
   const s = "﻿" + [cols.map(q).join(";"), ...rows.map((r) => cols.map((c) => q(r[c])).join(";"))].join("\r\n");
   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([s], { type: "text/csv;charset=utf-8" }));
   a.download = `bakis_testi_${ad}_${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")}.csv`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);   // indirme başladıktan sonra Blob bellekten bırakılır
 }
 function glRaporGoster() {
   const Y = glYontemTablosu(), O = glOturumTablosu(), A = glFazTablosu();
@@ -2267,10 +2269,14 @@ function isiRenk(t) {   // 0 → mavi, 1 → kırmızı (HSL 240° → 0°)
   const h = (1 - t) * 240 / 60, x = 1 - Math.abs((h % 2) - 1), c = [[1, x, 0], [x, 1, 0], [0, 1, x], [0, x, 1], [x, 0, 1], [1, 0, x]][Math.min(5, Math.floor(h))];
   return c.map((z) => Math.round(255 * z));
 }
+// Yoğunluk ızgarası: hücre en az 4 px; nokta büyüdükçe kabalaşır (σ en çok 8 hücre: nokta başı maliyet sınırlı, alan zaten düzgün).
+// Sonuç tuvalde önbellekte: saydamlık/mod değişince yalnız yeniden renklendirilir.
 function isiCiz(cv, P, mod, boyutYuzde, saydam) {   // P: [{u, v, w}] görsel içi
   const W = cv.width, H = cv.height, ctx = cv.getContext("2d"); ctx.clearRect(0, 0, W, H);
-  const gw = Math.max(1, Math.round(W / 4)), gh = Math.max(1, Math.round(H / 4));
-  const { G, max } = ISIT.yogunluk(P, gw, gh, Math.max(0.5, (boyutYuzde / 100) * gw));
+  const hucre = Math.max(4, (boyutYuzde / 100) * W / 8), gw = Math.max(1, Math.round(W / hucre)), gh = Math.max(1, Math.round(H / hucre));
+  const sig = Math.max(0.5, (boyutYuzde / 100) * gw), anah = `${gw}x${gh}:${sig}`;
+  if (!cv._yog || cv._yog.P !== P || cv._yog.anah !== anah) cv._yog = { P, anah, ...ISIT.yogunluk(P, gw, gh, sig) };
+  const { G, max } = cv._yog;
   const k = document.createElement("canvas"); k.width = gw; k.height = gh;
   const kc = k.getContext("2d"), im = kc.createImageData(gw, gh);
   for (let i = 0; i < G.length; i++) {
@@ -2377,8 +2383,12 @@ function isiSekmeCiz(ic, yenile) {
         <span style="opacity:.85">${kAd}: ${ISIG.kaynak === "fix" ? `${P.length} fiksasyon görselde (toplam n = ${F.fix.length}; ${fDis} görsel dışı)` : `${P.length} örnek görselde`} · ${disMetin}</span></div>${kutu.html}
       ${P.length ? "" : `<div style="margin-top:6px;opacity:.8">veri yok: bu aralıkta görsel içinde ${ISIG.kaynak === "fix" ? "fiksasyon" : "bakış"} yok</div>`}`;
     const cv = ic.querySelector("canvas"), yeniden = () => isiCiz(cv, P, ISIG.mod, ISIG.boyut, ISIG.saydam);
+    let kareBek = 0;
     ic.querySelectorAll("[data-k]").forEach((el) => {
-      el.oninput = el.onchange = () => { const k2 = el.dataset.k; ISIG[k2] = el.type === "range" ? +el.value : el.value; if (k2 === "kaynak") yenile(); else yeniden(); }; });
+      const k2 = el.dataset.k;
+      if (el.tagName === "SELECT") el.onchange = () => { ISIG[k2] = el.value; if (k2 === "kaynak") yenile(); else yeniden(); };
+      else el.oninput = () => { ISIG[k2] = +el.value; if (!kareBek) kareBek = requestAnimationFrame(() => { kareBek = 0; yeniden(); }); };   // kaydırıcı: kare başına en çok bir çizim
+    });
     yeniden();
     return;
   }
@@ -2463,6 +2473,7 @@ function isiSekmeCiz(ic, yenile) {
     svg.addEventListener("pointermove", (e) => { if (!bas) return; const [u, v] = nokta(e);
       yeni.setAttribute("x", Math.min(u, bas[0]) * w); yeni.setAttribute("y", Math.min(v, bas[1]) * h);
       yeni.setAttribute("width", Math.abs(u - bas[0]) * w); yeni.setAttribute("height", Math.abs(v - bas[1]) * h); });
+    svg.addEventListener("pointercancel", () => { bas = null; yeni.setAttribute("width", 0); yeni.setAttribute("height", 0); });
     svg.addEventListener("pointerup", (e) => { if (!bas) return; const [u, v] = nokta(e), p = bas; bas = null;
       if (Math.abs(u - p[0]) < 0.01 || Math.abs(v - p[1]) < 0.01) { yeni.setAttribute("width", 0); return; }   // tık/çok küçük: bölge değil
       const r4 = (z) => +z.toFixed(4);
@@ -2473,8 +2484,10 @@ function isiSekmeCiz(ic, yenile) {
     const kb = ic.querySelector("[data-kaydet]");
     kb.onclick = async () => { kb.disabled = true; ic.querySelector("#igKayit").textContent = "gönderiliyor…";
       const d = await isiTestiGonder(ISI.anaDosya);
-      if (d) { ISIG.degisti = false; tlog(`ısı testi bölgeleri kaydedildi: ${V.gorseller.map((x) => `${x.ad} ${(x.aoi || []).length}`).join(", ")}`); }
-      const s = ic.querySelector("#igKayit"); if (s) s.textContent = d ? `kaydedildi: ${d}` : "gönderilemedi (alttaki uyarıya bakın); bölgeler bellekte duruyor";
+      // Ana kayıt (glPaket → isiTesti özeti) ısı verisinden önce, bir kez gönderilir ve yeniden gönderilmez: bölgeleri ve sonraki gönderimi görmez.
+      const anaNot = d ? `ana kayıt${ISI.anaDosya ? ` (${ISI.anaDosya})` : ""} içindeki ısı testi özeti eski durumu gösterir (ayriGonderildi: false olabilir, bölgeler yok); güncel veri ${ISI.kimlik}_isi.json içinde` : "";
+      if (d) { ISIG.degisti = false; tlog(`ısı testi bölgeleri kaydedildi: ${V.gorseller.map((x) => `${x.ad} ${(x.aoi || []).length}`).join(", ")} · ${anaNot}`); }
+      const s = ic.querySelector("#igKayit"); if (s) s.textContent = d ? `kaydedildi: ${d} · ${anaNot}` : "gönderilemedi (alttaki uyarıya bakın); bölgeler bellekte duruyor";
       kb.disabled = false; };
     return;
   }
