@@ -32,10 +32,15 @@ from urllib.parse import parse_qs, urlparse
 import kayit
 import yonetim
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# PyInstaller paketinde (frozen) dosyalar sys._MEIPASS altında; geliştirmede bu dosyanın klasörü.
+ROOT = getattr(sys, "_MEIPASS", None) if getattr(sys, "frozen", False) else None
+ROOT = ROOT or os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
 # Veri klasörü: DERSNABZI_DATA (masaüstü uygulaması verir) -> yoksa ROOT/data. Her şey (ders kaydı, bakış testi kayıtları) orada durur.
 _VERI_ENV = os.environ.get("DERSNABZI_DATA", "").strip()
+if getattr(sys, "frozen", False) and not _VERI_ENV:
+    # Paket klasörüne asla veri yazılmaz: paketli sunucu veri klasörünü ortamdan almak zorunda.
+    sys.exit("DERSNABZI_DATA ortam değişkeni gerekli (paketli sunucu kendi klasörüne veri yazmaz).")
 DATA = os.path.abspath(_VERI_ENV) if _VERI_ENV else os.path.join(ROOT, "data")
 TEST_DIR = os.path.join(DATA, "test_kayitlari") if _VERI_ENV else os.path.join(ROOT, "test_kayitlari")   # bakış testi kayıtları (telefondan da gelir)
 os.makedirs(DATA, exist_ok=True)
@@ -948,7 +953,11 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         if u.path == "/api/saglik":
-            return self.send_json({"ok": True, "surum": 1})
+            yanit = {"ok": True, "surum": 1}
+            oturum = os.environ.get("DERSNABZI_OTURUM", "")
+            if oturum:
+                yanit["oturum"] = oturum   # masaüstü uygulaması kendi başlattığı süreci tanısın diye (yalnız yankı)
+            return self.send_json(yanit)
         if u.path == "/api/stream":
             return self.stream(q)
         if u.path == "/api/report":

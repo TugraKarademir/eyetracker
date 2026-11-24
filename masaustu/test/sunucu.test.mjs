@@ -7,7 +7,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const http = require("http");
-const { bosPortBul, baslat, varsayilanKomut } = require("../sunucu.js");
+const { bosPortBul, baslat, varsayilanKomut, saglikVar } = require("../sunucu.js");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dn-sunucu-"));
 const calisanlar = [];
@@ -96,7 +96,7 @@ test("sunucu hemen çökerse hata çıktıyı taşır", async () => {
 // Sahte sunucu: --port dinler; ortam değişkenleriyle bind hatası / torun süreç taklit eder.
 const sahte = path.join(tmp, "sahte_sunucu.py");
 fs.writeFileSync(sahte, [
-  "import sys, os, time, subprocess",
+  "import sys, os, time, subprocess, json",
   "from http.server import HTTPServer, BaseHTTPRequestHandler",
   "port = int(sys.argv[sys.argv.index('--port') + 1])",
   "bad = os.environ.get('FAKE_BAD_PORT')",
@@ -108,7 +108,7 @@ fs.writeFileSync(sahte, [
   "    open(os.environ['FAKE_PIDFILE'], 'w').write(str(g.pid))",
   "class H(BaseHTTPRequestHandler):",
   "    def do_GET(self):",
-  "        b = b'{\"ok\":true}'",
+  "        b = json.dumps({'ok': True, 'oturum': os.environ.get('DERSNABZI_OTURUM', '')}).encode()",
   "        self.send_response(200); self.send_header('Content-Length', str(len(b))); self.end_headers(); self.wfile.write(b)",
   "    def log_message(self, *a): pass",
   "HTTPServer(('127.0.0.1', port), H).serve_forever()",
@@ -167,4 +167,34 @@ test("başka sunucu sağlık verse bile çocuk ölürse o yanıt kabul edilmez (
   } finally {
     await new Promise((r) => yabanci.close(r));
   }
+});
+
+test("sağlık yanıtı yalnız kendi oturum kimliğiyle kabul edilir (yabancı sunucu ok:true dese bile)", async () => {
+  const veri = fs.mkdtempSync(path.join(tmp, "veri-"));
+  const p0 = await bosPortBul(18800);
+  // Yabancı sunucu portu tutar ve ok:true + başka bir oturum yanıtlar; çocuk dinlemez ama ölmez (uyur).
+  const yabanci = http.createServer((q, r) => { r.setHeader("Content-Type", "application/json"); r.end('{"ok":true,"oturum":"baskasi"}'); });
+  await new Promise((r) => yabanci.listen(p0, "127.0.0.1", r));
+  try {
+    await assert.rejects(
+      baslat({ komut: "python", argumanlar: ["-c", "import time; time.sleep(60)"], port: p0, veri, zamanAsimiMs: 2500 }),
+      /hazır olmadı/,
+    );
+  } finally {
+    await new Promise((r) => yabanci.close(r));
+  }
+});
+
+test("gerçek server.py oturum kimliğini yankılar", async () => {
+  const veri = fs.mkdtempSync(path.join(tmp, "veri-"));
+  const port = await bosPortBul(18900);
+  const { komut, argumanlar } = varsayilanKomut(veri);
+  const s = await baslat({ komut, argumanlar, port, veri, zamanAsimiMs: 30000 });
+  calisanlar.push(s);
+  assert.match(s.oturum, /^[0-9a-f]{32}$/);
+  const j = await (await fetch(`http://127.0.0.1:${port}/api/saglik`)).json();
+  assert.equal(j.oturum, s.oturum);
+  assert.equal(await saglikVar(port, s.oturum), true);
+  assert.equal(await saglikVar(port, "yanlis"), false);
+  await s.durdur();
 });

@@ -1,6 +1,7 @@
 "use strict";
 // Python sunucu sürecini başlatır/durdurur. Veri klasörü DERSNABZI_DATA ile verilir.
 const childProcess = require("child_process");
+const crypto = require("crypto");
 const http = require("http");
 const net = require("net");
 const path = require("path");
@@ -32,13 +33,17 @@ function varsayilanKomut(veri, paketYolu) {
   };
 }
 
-function saglikVar(port) {
+// oturum verilirse yanıttaki "oturum" ona eşit olmalı (yanıt bizim başlattığımız süreçten mi?).
+function saglikVar(port, oturum = null) {
   return new Promise((coz) => {
     const istek = http.get({ host: "127.0.0.1", port, path: "/api/saglik", timeout: 1000 }, (yanit) => {
       let govde = "";
       yanit.on("data", (d) => { govde += d; });
       yanit.on("end", () => {
-        try { coz(yanit.statusCode === 200 && JSON.parse(govde).ok === true); } catch (_) { coz(false); }
+        try {
+          const j = JSON.parse(govde);
+          coz(yanit.statusCode === 200 && j.ok === true && (oturum === null || j.oturum === oturum));
+        } catch (_) { coz(false); }
       });
     });
     istek.on("timeout", () => { istek.destroy(); coz(false); });
@@ -77,8 +82,10 @@ const SAGLIK_SONRASI_BEKLEME_MS = 1000;
 
 async function baslatTek({ komut, argumanlar, port, veri, zamanAsimiMs, ortam }) {
   const args = typeof argumanlar === "function" ? argumanlar(port) : argumanlar;
+  // Her başlatmada yeni rastgele kimlik: sağlık yanıtı yalnız bu kimliği yankılayan süreçten kabul edilir.
+  const oturum = crypto.randomBytes(16).toString("hex");
   const surec = childProcess.spawn(komut, args, {
-    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8", ...ortam, DERSNABZI_DATA: veri },
+    env: { ...process.env, PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8", ...ortam, DERSNABZI_DATA: veri, DERSNABZI_OTURUM: oturum },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
     detached: process.platform !== "win32",
@@ -117,13 +124,13 @@ async function baslatTek({ komut, argumanlar, port, veri, zamanAsimiMs, ortam })
     if (bitti) {
       throw await hata(`Sunucu başlamadan kapandı (kod ${bitti.kod}).`, { bindHatasi: BIND_HATASI.test(sonCikti()) });
     }
-    if (await saglikVar(port)) {
-      // Yanıt başka bir sunucudan gelmiş olabilir (port yarışı): çocuk hâlâ yaşıyor mu?
+    if (await saglikVar(port, oturum)) {
+      // Kimlik eşleşti; yine de çocuk hemen kapanmadı mı (ör. ikinci dinleyici bind hatası)?
       await Promise.race([cikis, bekle(SAGLIK_SONRASI_BEKLEME_MS)]);
       if (bitti) {
         throw await hata(`Sunucu sağlık yanıtından sonra kapandı (kod ${bitti.kod}).`, { bindHatasi: true });
       }
-      return { port, surec, durdur };
+      return { port, surec, durdur, oturum };
     }
     await bekle(200);
   }

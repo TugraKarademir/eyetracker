@@ -486,6 +486,13 @@ class SaglikVeVeriKlasoru(unittest.TestCase):
             self.assertEqual(f.status, 200)
             self.assertEqual(json.loads(f.read()), {"ok": True, "surum": 1})
 
+    def test_saglik_oturum_yankisi(self):
+        base, kapat = basla()
+        self.addCleanup(kapat)
+        with unittest.mock.patch.dict(os.environ, {"DERSNABZI_OTURUM": "abc123-oturum"}):
+            with urllib.request.urlopen(base + "/api/saglik") as f:
+                self.assertEqual(json.loads(f.read()), {"ok": True, "surum": 1, "oturum": "abc123-oturum"})
+
     def test_data_argumani(self):
         eski = (server.DATA, server.KAYIT, server._ADMIN_KEY)
         gecici = tempfile.mkdtemp()

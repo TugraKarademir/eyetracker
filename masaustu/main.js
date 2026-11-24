@@ -421,7 +421,7 @@ async function smokeKos() {
     );
     yaz(`başlangıç ekranı: ${JSON.stringify(ekran)}`);
     if (ekran.dugme !== 4 || ekran.api !== "object" || ekran.node !== "undefined") throw new Error("başlangıç ekranı beklenen gibi değil");
-    if (!(await sunucu.saglikVar(durum.port))) throw new Error("/api/saglik yanıt vermiyor");
+    if (!(await sunucu.saglikVar(durum.port, calisan.oturum))) throw new Error("/api/saglik yanıt vermiyor");
     yaz("/api/saglik ok");
     const anahtar = yoneticiAnahtariOku();
     yaz(`yönetici anahtarı dosyası: ${anahtar ? "okundu" : "YOK"}`);
@@ -488,7 +488,7 @@ async function smokeKos() {
     }
     await sunucuyuYenidenBaslat();
     yaz(`yeniden dene: durum=${durum.asama}, port=${durum.port}`);
-    if (durum.asama !== "hazir" || !(await sunucu.saglikVar(durum.port))) throw new Error("yeniden başlatma başarısız");
+    if (durum.asama !== "hazir" || !(await sunucu.saglikVar(durum.port, calisan.oturum))) throw new Error("yeniden başlatma başarısız");
     clearTimeout(zaman);
     yaz("tamam");
     await cikisYap(0);
