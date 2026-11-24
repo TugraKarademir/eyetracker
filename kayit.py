@@ -139,13 +139,21 @@ def ornek_ekle(con, lesson, sid, t, row):
                     (lesson, sid, t, mid, *v, gecis))
 
 
+_DEGISKEN_KURULUM = ("islemeFps", "gecikmeMs")   # her pakette oynar; tek başına yeni satır açmaz
+
+
+def _kurulum_anahtar(setup):
+    return json.dumps({k: v for k, v in setup.items() if k not in _DEGISKEN_KURULUM},
+                      ensure_ascii=False, sort_keys=True)
+
+
 def kurulum_ekle(con, lesson, sid, t, setup):
     if not _kayitli(con, lesson, sid):
         return False
     s = json.dumps(setup, ensure_ascii=False, sort_keys=True)
     son = con.execute("SELECT setup FROM setups WHERE lesson_code=? AND sid=?"
                       " ORDER BY rowid DESC LIMIT 1", (lesson, sid)).fetchone()
-    if son and json.dumps(json.loads(son[0]), ensure_ascii=False, sort_keys=True) == s:
+    if son and _kurulum_anahtar(json.loads(son[0])) == _kurulum_anahtar(setup):
         return False
     with con:
         con.execute("INSERT INTO setups VALUES(?,?,?,?)", (lesson, sid, t, s))

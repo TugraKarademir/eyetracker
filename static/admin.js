@@ -968,7 +968,7 @@ function sekmeKurulum(el, G) {
       ${k.map((r, i) => { const s = r.setup || {}, p = i ? k[i - 1].setup || {} : null;
         return `<tr><td class="num">${G.rel(r.t)}</td>${KUR_ALAN.map(([a]) => `<td class="num${p && JSON.stringify(p[a]) !== JSON.stringify(s[a]) ? " degisti" : ""}">${bic(a, s[a], s)}</td>`).join("")}</tr>`; }).join("")}
     </table></div>` : `<p>${YOK} <span class="muted small">— kurulum kaydı yok.</span></p>`}
-    <div class="note">Her satır bir değişiklik (aynı kurulum tekrar yazılmaz); değişen hücre vurgulu. Uzaklık: MediaPipe yüz ölçüsünden tahmin.
+    <div class="note">Her satır bir değişiklik (aynı kurulum tekrar yazılmaz); değişen hücre vurgulu. İşlenen kare/sn ve işçi gecikmesi yalnız diğer ayarlar değiştiğinde kaydedilir. Uzaklık: MediaPipe yüz ölçüsünden tahmin.
       İşlenen kare/sn: iki gönderim (~2 sn) arasında gerçekten işlenen kare sayısı / geçen süre, 5'in katına yuvarlı.
       İşleme yeri: yüz bulucu Web Worker'da (İşçi) mı ana iş parçacığında (Ana) mı; İşçi gecikmesi: işçi yolunda kare yakalama → sonuç
       ortalaması (10 ms'ye yuvarlı; ana yolda boş). Eski kayıtlarda bu iki alan yoktur ve oradaki değer "eski tanım"

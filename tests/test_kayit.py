@@ -1,4 +1,5 @@
 """kayit.py testleri."""
+import json
 import os
 import shutil
 import sqlite3
@@ -117,6 +118,16 @@ class KayitTest(unittest.TestCase):
         self.assertEqual(say(con, "setups"), 1)
         self.assertTrue(kurulum_ekle(con, "D1", "s1", 3, {"a": 2}))
         self.assertEqual(say(con, "setups"), 2)
+
+    def test_kurulum_degisken_hiz_alanlari_satir_acmaz(self):
+        con = kur()
+        self.assertTrue(kurulum_ekle(con, "D1", "s1", 1, {"kamera": "A", "islemeFps": 15, "gecikmeMs": 40}))
+        self.assertFalse(kurulum_ekle(con, "D1", "s1", 2, {"kamera": "A", "islemeFps": 20, "gecikmeMs": 60}))
+        self.assertEqual(say(con, "setups"), 1)
+        self.assertTrue(kurulum_ekle(con, "D1", "s1", 3, {"kamera": "B", "islemeFps": 25, "gecikmeMs": 80}))
+        self.assertEqual(say(con, "setups"), 2)
+        son = json.loads(con.execute("SELECT setup FROM setups ORDER BY rowid DESC LIMIT 1").fetchone()[0])
+        self.assertEqual(son, {"kamera": "B", "islemeFps": 25, "gecikmeMs": 80})
 
     def test_kalibrasyon_ayni_at_tekrar_yazilmaz(self):
         con = kur()
