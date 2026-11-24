@@ -442,9 +442,9 @@ def add_demo_students(cls, count):
 
 # ------------------------------------------------------------- mantık ----
 
-def make_student(sid, name, demo=False):
+def make_student(sid, name, demo=False, pcode=None):
     t = now()
-    return {"id": sid, "name": name, "demo": demo, "joined": t, "last_seen": t,
+    return {"id": sid, "name": name, "demo": demo, "pcode": pcode, "joined": t, "last_seen": t,
             "metrics": {"attention": 0, "energy": 0, "emotion": "notr"},
             "hand": False, "hand_count": 0, "chat_count": 0, "reactions": 0,
             "samples": [], "low_since": None, "low_alerted": False, "gaze_time": {}}
@@ -583,7 +583,8 @@ def restore_active():
         CLASSES[cls["code"]] = cls
         kayit.ders_ekle(KAYIT, cls["code"], cls.get("name"), cls.get("topic"), cls.get("created"))
         for sid, st in cls["students"].items():
-            kayit.ogrenci_ekle(KAYIT, cls["code"], sid, st.get("name"), None,
+            # pcode None ise (eski JSON) kayıttaki kod korunur (ogrenci_ekle COALESCE)
+            kayit.ogrenci_ekle(KAYIT, cls["code"], sid, st.get("name"), st.get("pcode"),
                                st.get("joined"), bool(st.get("demo")))
         restored.append(f"{cls['code']} ({cls['name']})")
     if restored:
@@ -1102,10 +1103,18 @@ class Handler(BaseHTTPRequestHandler):
             return self.err("Katılımcı kodu yalnız harf, rakam, - ve _ içerebilir (en çok 20).")
         sid = b.get("sid")
         if sid in cls["students"] and cls["students"][sid]["name"] == name:
-            return self.send_json({"sid": sid, "name": cls["students"][sid]["name"]})
+            st = cls["students"][sid]
+            out = {"sid": sid, "name": st["name"]}
+            if pcode:   # yeniden katılımda verilen kod eksik kodu doldurur (joined değişmez)
+                st["pcode"] = pcode
+                kayit.ogrenci_ekle(KAYIT, cls["code"], sid, st["name"], pcode, st.get("joined"),
+                                   bool(st.get("demo")))
+                if not kayit.katilimci_var(KAYIT, pcode):
+                    out["kodBilinmiyor"] = True
+            return self.send_json(out)
         sid = "s_" + secrets.token_hex(6)
-        cls["students"][sid] = make_student(sid, name)
-        kayit.ogrenci_ekle(KAYIT, cls["code"], sid, name, pcode, now(), False)
+        cls["students"][sid] = make_student(sid, name, pcode=pcode)
+        kayit.ogrenci_ekle(KAYIT, cls["code"], sid, name, pcode, cls["students"][sid]["joined"], False)
         out = {"sid": sid, "name": name}
         if pcode and not kayit.katilimci_var(KAYIT, pcode):
             out["kodBilinmiyor"] = True

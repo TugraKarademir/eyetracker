@@ -87,6 +87,52 @@ class SunucuKayit(unittest.TestCase):
         self.assertEqual(server.KAYIT.execute(
             "SELECT COUNT(*) FROM students").fetchone()[0], 1)
 
+    def test_restore_katilimci_kodunu_korur(self):
+        kayit.katilimci_ekle(server.KAYIT, "P01")
+        kod, _ = self.ders()
+        _, r = post(self.base, "/api/join", {"code": kod, "name": "Ali", "pcode": "P01"})
+        joined = server.KAYIT.execute("SELECT joined FROM students WHERE sid=?", (r["sid"],)).fetchone()[0]
+        with server.LOCK:
+            server.persist(server.CLASSES[kod])
+        server.CLASSES.pop(kod)
+        self.addCleanup(server.CLASSES.pop, kod, None)
+        server.restore_active()
+        row = server.KAYIT.execute("SELECT participant_code, joined FROM students WHERE sid=?",
+                                   (r["sid"],)).fetchone()
+        self.assertEqual(tuple(row), ("P01", joined))
+
+    def test_restore_eski_json_kodu_silmez(self):
+        # pcode alanı olmayan (düzeltmeden önceki) JSON: kayıttaki kod korunur
+        kod, _ = self.ders()
+        _, r = post(self.base, "/api/join", {"code": kod, "name": "Ali", "pcode": "P02"})
+        with server.LOCK:
+            del server.CLASSES[kod]["students"][r["sid"]]["pcode"]
+            server.persist(server.CLASSES[kod])
+        server.CLASSES.pop(kod)
+        self.addCleanup(server.CLASSES.pop, kod, None)
+        server.restore_active()
+        self.assertEqual(server.KAYIT.execute("SELECT participant_code FROM students WHERE sid=?",
+                                              (r["sid"],)).fetchone()[0], "P02")
+
+    def test_yeniden_katilim_eksik_kodu_doldurur(self):
+        kayit.katilimci_ekle(server.KAYIT, "P05")
+        kod, _ = self.ders()
+        _, r = post(self.base, "/api/join", {"code": kod, "name": "Ali"})
+        joined = server.KAYIT.execute("SELECT joined FROM students WHERE sid=?", (r["sid"],)).fetchone()[0]
+        _, r2 = post(self.base, "/api/join", {"code": kod, "name": "Ali", "sid": r["sid"], "pcode": "p05"})
+        self.assertEqual(r2["sid"], r["sid"])
+        self.assertNotIn("kodBilinmiyor", r2)
+        row = server.KAYIT.execute("SELECT participant_code, joined FROM students WHERE sid=?",
+                                   (r["sid"],)).fetchone()
+        self.assertEqual(tuple(row), ("P05", joined))
+        self.assertEqual(server.CLASSES[kod]["students"][r["sid"]]["pcode"], "P05")
+        # kodsuz yeniden katılım kodu silmez; bilinmeyen kod uyarı verir
+        post(self.base, "/api/join", {"code": kod, "name": "Ali", "sid": r["sid"]})
+        self.assertEqual(server.KAYIT.execute("SELECT participant_code FROM students WHERE sid=?",
+                                              (r["sid"],)).fetchone()[0], "P05")
+        _, r3 = post(self.base, "/api/join", {"code": kod, "name": "Ali", "sid": r["sid"], "pcode": "ZZ9"})
+        self.assertTrue(r3["kodBilinmiyor"])
+
     def test_ders_bitince_ended(self):
         kod, key = self.ders()
         post(self.base, "/api/event", {"code": kod, "key": key, "type": "end"})

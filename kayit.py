@@ -56,7 +56,12 @@ def ogrenci_ekle(con, lesson, sid, name, pcode, joined, demo):
     if demo:
         return False
     with con:
-        con.execute("INSERT OR REPLACE INTO students VALUES(?,?,?,?,?)",
+        # Yeniden ekleme (yeniden katılım, sunucu yeniden başlatma) katılımcı kodunu ve
+        # ilk katılım zamanını silmez: kod yalnız yeni bir kod verildiyse değişir.
+        con.execute("INSERT INTO students(lesson_code,sid,name,participant_code,joined)"
+                    " VALUES(?,?,?,?,?) ON CONFLICT(lesson_code,sid) DO UPDATE SET"
+                    " name=excluded.name, participant_code="
+                    "COALESCE(excluded.participant_code, students.participant_code)",
                     (lesson, sid, name, pcode, joined))
     return True
 
