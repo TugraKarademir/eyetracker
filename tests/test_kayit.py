@@ -84,6 +84,25 @@ class KayitTest(unittest.TestCase):
         self.assertEqual(say(con, "samples"), 2)
         ac(yol).close()   # ikinci açılış göçü tekrarlamaz
 
+    def test_eski_students_tablosuna_onay_sutunlari_eklenir(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        yol = os.path.join(d, "eski.db")
+        eski = sqlite3.connect(yol)
+        eski.execute("CREATE TABLE students(lesson_code TEXT, sid TEXT, name TEXT,"
+                     " participant_code TEXT, joined REAL, PRIMARY KEY(lesson_code, sid))")
+        eski.execute("INSERT INTO students VALUES('D0','s0','Eski',NULL,1)")
+        eski.commit()
+        eski.close()
+        con = ac(yol)
+        self.addCleanup(con.close)
+        self.assertEqual(tuple(con.execute("SELECT onay_t, onay_surum FROM students").fetchone()), (None, None))
+        ogrenci_ekle(con, "D1", "s1", "Ali", None, 2, False, 3.0, "2026-11-25")
+        ogrenci_ekle(con, "D1", "s1", "Ali", None, 2, False)   # onaysız yeniden ekleme onayı silmez
+        self.assertEqual(tuple(con.execute("SELECT onay_t, onay_surum FROM students WHERE sid='s1'").fetchone()),
+                         (3.0, "2026-11-25"))
+        ac(yol).close()
+
     def test_materyal_sec_onceki_spani_kapatir(self):
         con = kur()
         m1 = materyal_ekle(con, "D1", "A", "insan")

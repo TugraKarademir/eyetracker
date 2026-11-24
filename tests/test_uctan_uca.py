@@ -7,7 +7,7 @@ import unittest.mock
 import urllib.request
 
 import server
-from tests.test_sunucu import PNG1, basla, ham, post
+from tests.test_sunucu import ONAY, PNG1, basla, ham, post
 
 ANAHTAR = "uctan-uca-anahtar"
 
@@ -57,7 +57,7 @@ class UctanUca(unittest.TestCase):
         with urllib.request.urlopen(rq) as f:
             self.assertEqual(json.loads(f.read()), {"kod": "P01"})
 
-        _, r = post(b, "/api/join", {"code": kod, "name": "Ali", "pcode": "P01"})
+        _, r = post(b, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali", "pcode": "P01"})
         self.assertNotIn("kodBilinmiyor", r)
         sid = r["sid"]
 

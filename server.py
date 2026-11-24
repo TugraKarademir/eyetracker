@@ -383,7 +383,17 @@ def public_student(s, t):
         "materialPct": material_pct(s["samples"][-30:]),
         "ekran": s.get("ekran"),
         "hse": m.get("hse"),
+        "bakisTesti": s.get("bakis"),
+        "cihazOz": cihaz_ozet(s.get("kurulum")),
     }
+
+
+def cihaz_ozet(k):
+    """Öğretmen paneli için cihaz özeti (kurulumdan): tarayıcı, çekirdek, GPU. Bilinmeyen None."""
+    if not isinstance(k, dict):
+        return None
+    c = k.get("cihaz2") if isinstance(k.get("cihaz2"), dict) else {}
+    return {"tarayici": k.get("tarayici") or None, "cekirdek": c.get("cekirdek"), "gpu": c.get("gpu")}
 
 
 HSE_SINIF = ("Anger", "Contempt", "Disgust", "Fear", "Happiness", "Neutral", "Sadness", "Surprise")
@@ -801,7 +811,43 @@ def temiz_kurulum(k):
         out[a] = None if isinstance(v, bool) or not isinstance(v, (int, float)) else round(clamp(v, lo, hi), 2)
     out["fs"] = bool(k.get("fs"))
     out["isci"] = k["isci"] if isinstance(k.get("isci"), bool) else None   # işleme yeri; bilinmiyorsa None
+    if "cihaz2" in k:
+        out["cihaz2"] = temiz_cihaz2(k.get("cihaz2"))
     return out
+
+
+def temiz_onay(o):
+    """KVKK onayı: {surum, t}. Geçersizse None; geçerliyse (onay_t, onay_surum).
+    t istemcinin saati (sn); bir günden çok sapıyorsa sunucu saati yazılır."""
+    if not isinstance(o, dict) or not isinstance(o.get("surum"), str) or not o["surum"].strip():
+        return None
+    t, simdi = o.get("t"), now()
+    if isinstance(t, bool) or not isinstance(t, (int, float)) or not math.isfinite(t) or abs(t - simdi) > 86400:
+        t = simdi
+    return float(t), o["surum"].strip()[:20]
+
+
+def _metin(v, n):
+    return v[:n] if isinstance(v, str) else None
+
+
+def temiz_cihaz2(c):
+    """Öğrenci cihazı (tarayıcının verdiği kadarı; verilmeyen None): çekirdek, bellek, GPU adı, UA, UA-CH."""
+    if not isinstance(c, dict):
+        return None
+
+    def sayi(v, lo, hi):
+        return None if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) else round(clamp(v, lo, hi), 2)
+    u = c.get("uaVeri")
+    uv = None
+    if isinstance(u, dict):
+        br = u.get("brands") if isinstance(u.get("brands"), list) else []
+        uv = {"brands": [{"brand": _metin(x.get("brand"), 40), "version": _metin(x.get("version"), 20)}
+                         for x in br[:6] if isinstance(x, dict)],
+              "platform": _metin(u.get("platform"), 40),
+              "mobile": u["mobile"] if isinstance(u.get("mobile"), bool) else None}
+    return {"cekirdek": sayi(c.get("cekirdek"), 0, 1024), "bellekGB": sayi(c.get("bellekGB"), 0, 1024),
+            "gpu": _metin(c.get("gpu"), 120), "ua": _metin(c.get("ua"), 300), "uaVeri": uv}
 
 
 def kayit_bakis(g, parsed):
@@ -950,11 +996,32 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(b, dict) or not isinstance(b.get("log"), list):
             return self.err("log listesi bekleniyor")
         cihaz = re.sub(r"[^A-Za-z0-9]+", "-", str(b.get("cihaz") or "bilinmiyor"))[:30].strip("-") or "bilinmiyor"
+        # kimlik: aynı test oturumunun ara kayıtları ve son kaydı tek dosyanın üzerine yazılır (<zaman>_<rastgele>)
+        kimlik = b.get("kimlik")
+        if kimlik is not None:
+            km = re.fullmatch(r"(\d{8}_\d{6})_([A-Za-z0-9-]{4,40})", kimlik) if isinstance(kimlik, str) else None
+            if not km:
+                return self.err("geçersiz kimlik")
+            zaman, son = km.groups()
+        else:
+            zaman, son = time.strftime('%Y%m%d_%H%M%S'), secrets.token_hex(2)
+        # Ders etiketi (gömülü test): ders kodu + öğrenci kayıtlıysa dosya adına girer ve dersler.db'de öğrenciye bağlanır;
+        # değilse kayıt yine yazılır ama etiketlenmez
+        ders = str(b.get("ders") or "").strip().upper()
+        sid = b.get("sid") if isinstance(b.get("sid"), str) else ""
+        etiket = False
+        if re.fullmatch(r"[A-Z0-9]{1,20}", ders) and re.fullmatch(r"s_[0-9a-f]{4,40}", sid):
+            with LOCK:
+                etiket = kayit.ogrenci_var(KAYIT, ders, sid)
+        b["dersBagli"] = etiket
+        on = f"{ders}_{sid[2:8]}_" if etiket else ""
         os.makedirs(TEST_DIR, exist_ok=True)
-        ad = f"{time.strftime('%Y%m%d_%H%M%S')}_{cihaz}_{secrets.token_hex(2)}.json"
+        ad = f"{zaman}_{on}{cihaz}_{son}.json"
         with open(os.path.join(TEST_DIR, ad), "w", encoding="utf-8") as f:
             json.dump(b, f, ensure_ascii=False, indent=1)
         print(f"[testlog] {ad} ({len(b['log'])} satır)")
+        if etiket:
+            self.bakis_testi_bagla(b, ders, sid, ad)
         oturum = None
         if isinstance(b.get("gazelab"), dict):
             try:
@@ -963,6 +1030,21 @@ class Handler(BaseHTTPRequestHandler):
             except (sqlite3.Error, TypeError, ValueError) as e:
                 print(f"[testlog] GazeLab kaydı yazılamadı: {e}")
         self.send_json({"ok": True, "dosya": ad, "oturum": oturum})
+
+    def bakis_testi_bagla(self, b, ders, sid, ad):
+        """Bakış testi kaydını dersler.db'de öğrenciye bağlar; öğretmen paneli için öğrencinin test durumunu günceller.
+        durum: 'bitti' (test sonuç ekranına ulaştı) ya da 'ara'. Bitti ama model aktarılmadıysa panelde 'bitmedi'."""
+        bitti = b.get("durum") == "bitti"
+        g = b.get("glAcc")
+        gl_acc = None if isinstance(g, bool) or not isinstance(g, (int, float)) or not math.isfinite(g) else round(clamp(g, 0, 100000), 1)
+        model = _metin(b.get("model"), 60) if bitti else None
+        t = now()
+        with LOCK:
+            kayit.bakis_testi_yaz(KAYIT, ders, sid, t, ad, "bitti" if bitti else "ara", gl_acc, model)
+            s = CLASSES.get(ders, {}).get("students", {}).get(sid)
+            if s is not None:
+                s["bakis"] = {"durum": ("bitti" if model else "bitmedi") if bitti else "suruyor",
+                              "glAcc": gl_acc, "model": model, "t": round(t), "dosya": ad}
 
     def test_log_isi(self):
         """Isı testi ham verisini ana test kaydından AYRI dosyaya yazar: test_kayitlari/<isiKimlik>_isi.json.
@@ -1369,6 +1451,9 @@ class Handler(BaseHTTPRequestHandler):
         name = str(b.get("name") or "").strip()[:40]
         if not name:
             return self.err("İsim gerekli.")
+        onay = temiz_onay(b.get("onay"))
+        if not onay:
+            return self.err("Katılım için bilgilendirme metnini okuyup onaylamanız gerekir.")
         pcode = str(b.get("pcode") or "").strip().upper() or None
         if pcode and not re.match(r"^[A-Z0-9_-]{1,20}$", pcode):
             return self.err("Katılımcı kodu yalnız harf, rakam, - ve _ içerebilir (en çok 20).")
@@ -1378,14 +1463,14 @@ class Handler(BaseHTTPRequestHandler):
             out = {"sid": sid, "name": st["name"]}
             if pcode:   # yeniden katılımda verilen kod eksik kodu doldurur (joined değişmez)
                 st["pcode"] = pcode
-                kayit.ogrenci_ekle(KAYIT, cls["code"], sid, st["name"], pcode, st.get("joined"),
-                                   bool(st.get("demo")))
                 if not kayit.katilimci_var(KAYIT, pcode):
                     out["kodBilinmiyor"] = True
+            kayit.ogrenci_ekle(KAYIT, cls["code"], sid, st["name"], pcode, st.get("joined"),
+                               bool(st.get("demo")), *onay)
             return self.send_json(out)
         sid = "s_" + secrets.token_hex(6)
         cls["students"][sid] = make_student(sid, name, pcode=pcode)
-        kayit.ogrenci_ekle(KAYIT, cls["code"], sid, name, pcode, cls["students"][sid]["joined"], False)
+        kayit.ogrenci_ekle(KAYIT, cls["code"], sid, name, pcode, cls["students"][sid]["joined"], False, *onay)
         out = {"sid": sid, "name": name}
         if pcode and not kayit.katilimci_var(KAYIT, pcode):
             out["kodBilinmiyor"] = True

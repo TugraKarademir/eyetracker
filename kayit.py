@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS events(lesson_code TEXT, sid TEXT, t REAL,
   kind TEXT, data TEXT);
 CREATE TABLE IF NOT EXISTS teachers(id TEXT PRIMARY KEY, name TEXT, email TEXT,
   kurum TEXT, note TEXT, created REAL, aktif INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS bakis_testleri(lesson_code TEXT, sid TEXT, t REAL,
+  dosya TEXT PRIMARY KEY, durum TEXT, gl_acc REAL, model TEXT);
 """
 _KOD = re.compile(r"^[A-Z0-9_-]{1,20}$")
 _TUR = ("insan", "yz", "diger")
@@ -52,6 +54,12 @@ def ac(yol):
     if "teacher_id" not in {r[1] for r in con.execute("PRAGMA table_info(lessons)")}:
         with con:
             con.execute("ALTER TABLE lessons ADD COLUMN teacher_id TEXT")
+    # Göç: KVKK onayı (sınıf testi 25.11): onay zamanı ve onay metninin sürümü
+    ogr = {r[1] for r in con.execute("PRAGMA table_info(students)")}
+    for sut, tur in (("onay_t", "REAL"), ("onay_surum", "TEXT")):
+        if sut not in ogr:
+            with con:
+                con.execute(f"ALTER TABLE students ADD COLUMN {sut} {tur}")
     return con
 
 
@@ -118,18 +126,33 @@ def ders_bitir(con, code, ended):
         con.execute("UPDATE lessons SET ended=? WHERE code=?", (ended, code))
 
 
-def ogrenci_ekle(con, lesson, sid, name, pcode, joined, demo):
+def ogrenci_ekle(con, lesson, sid, name, pcode, joined, demo, onay_t=None, onay_surum=None):
     if demo:
         return False
     with con:
-        # Yeniden ekleme (yeniden katılım, sunucu yeniden başlatma) katılımcı kodunu ve
-        # ilk katılım zamanını silmez: kod yalnız yeni bir kod verildiyse değişir.
-        con.execute("INSERT INTO students(lesson_code,sid,name,participant_code,joined)"
-                    " VALUES(?,?,?,?,?) ON CONFLICT(lesson_code,sid) DO UPDATE SET"
+        # Yeniden ekleme (yeniden katılım, sunucu yeniden başlatma) katılımcı kodunu,
+        # ilk katılım zamanını ve onayı silmez: yalnız yeni bir değer verildiyse değişir.
+        con.execute("INSERT INTO students(lesson_code,sid,name,participant_code,joined,onay_t,onay_surum)"
+                    " VALUES(?,?,?,?,?,?,?) ON CONFLICT(lesson_code,sid) DO UPDATE SET"
                     " name=excluded.name, participant_code="
-                    "COALESCE(excluded.participant_code, students.participant_code)",
-                    (lesson, sid, name, pcode, joined))
+                    "COALESCE(excluded.participant_code, students.participant_code),"
+                    " onay_t=COALESCE(excluded.onay_t, students.onay_t),"
+                    " onay_surum=COALESCE(excluded.onay_surum, students.onay_surum)",
+                    (lesson, sid, name, pcode, joined, onay_t, onay_surum))
     return True
+
+
+def ogrenci_var(con, lesson, sid):
+    return _kayitli(con, lesson, sid)
+
+
+def bakis_testi_yaz(con, lesson, sid, t, dosya, durum, gl_acc=None, model=None):
+    """Bakış testi kaydını öğrenciye bağlar. Aynı dosya (ara kayıtların üzerine yazılan oturum dosyası) tek satırdır."""
+    with con:
+        con.execute("INSERT INTO bakis_testleri(lesson_code,sid,t,dosya,durum,gl_acc,model) VALUES(?,?,?,?,?,?,?)"
+                    " ON CONFLICT(dosya) DO UPDATE SET t=excluded.t, durum=excluded.durum,"
+                    " gl_acc=excluded.gl_acc, model=excluded.model",
+                    (lesson, sid, t, dosya, durum, gl_acc, model))
 
 
 def _kayitli(con, lesson, sid):

@@ -38,6 +38,9 @@ def basla():
     return "http://127.0.0.1:%d" % httpd.server_address[1], kapat
 
 
+ONAY = {"surum": "2026-11-25", "t": 0}   # KVKK onayı: /api/join onaysız 400 döner
+
+
 def post(base, yol, govde):
     r = urllib.request.Request(base + yol, json.dumps(govde).encode(),
                                {"Content-Type": "application/json"})
@@ -65,7 +68,7 @@ class SunucuKayit(unittest.TestCase):
     def test_join_pcode_saklanir(self):
         kayit.katilimci_ekle(server.KAYIT, "P01")
         kod, _ = self.ders()
-        _, r = post(self.base, "/api/join", {"code": kod, "name": "Ali", "pcode": "p01"})
+        _, r = post(self.base, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali", "pcode": "p01"})
         self.assertNotIn("kodBilinmiyor", r)
         row = server.KAYIT.execute("SELECT participant_code FROM students WHERE sid=?",
                                    (r["sid"],)).fetchone()
@@ -73,27 +76,27 @@ class SunucuKayit(unittest.TestCase):
 
     def test_join_bilinmeyen_kod_uyari(self):
         kod, _ = self.ders()
-        _, r = post(self.base, "/api/join", {"code": kod, "name": "Ali", "pcode": "X9"})
+        _, r = post(self.base, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali", "pcode": "X9"})
         self.assertTrue(r["kodBilinmiyor"])
         self.assertEqual(server.KAYIT.execute(
             "SELECT COUNT(*) FROM students").fetchone()[0], 1)
 
     def test_gecersiz_kod_400(self):
         kod, _ = self.ders()
-        st, _ = post(self.base, "/api/join", {"code": kod, "name": "Ali", "pcode": "a b!"})
+        st, _ = post(self.base, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali", "pcode": "a b!"})
         self.assertEqual(st, 400)
 
     def test_yeniden_katilim_tek_satir(self):
         kod, _ = self.ders()
-        _, r = post(self.base, "/api/join", {"code": kod, "name": "Ali", "pcode": "X9"})
-        post(self.base, "/api/join", {"code": kod, "name": "Ali", "sid": r["sid"], "pcode": "X9"})
+        _, r = post(self.base, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali", "pcode": "X9"})
+        post(self.base, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali", "sid": r["sid"], "pcode": "X9"})
         self.assertEqual(server.KAYIT.execute(
             "SELECT COUNT(*) FROM students").fetchone()[0], 1)
 
     def test_restore_katilimci_kodunu_korur(self):
         kayit.katilimci_ekle(server.KAYIT, "P01")
         kod, _ = self.ders()
-        _, r = post(self.base, "/api/join", {"code": kod, "name": "Ali", "pcode": "P01"})
+        _, r = post(self.base, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali", "pcode": "P01"})
         joined = server.KAYIT.execute("SELECT joined FROM students WHERE sid=?", (r["sid"],)).fetchone()[0]
         with server.LOCK:
             server.persist(server.CLASSES[kod])
@@ -107,7 +110,7 @@ class SunucuKayit(unittest.TestCase):
     def test_restore_eski_json_kodu_silmez(self):
         # pcode alanı olmayan (düzeltmeden önceki) JSON: kayıttaki kod korunur
         kod, _ = self.ders()
-        _, r = post(self.base, "/api/join", {"code": kod, "name": "Ali", "pcode": "P02"})
+        _, r = post(self.base, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali", "pcode": "P02"})
         with server.LOCK:
             del server.CLASSES[kod]["students"][r["sid"]]["pcode"]
             server.persist(server.CLASSES[kod])
@@ -120,9 +123,9 @@ class SunucuKayit(unittest.TestCase):
     def test_yeniden_katilim_eksik_kodu_doldurur(self):
         kayit.katilimci_ekle(server.KAYIT, "P05")
         kod, _ = self.ders()
-        _, r = post(self.base, "/api/join", {"code": kod, "name": "Ali"})
+        _, r = post(self.base, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali"})
         joined = server.KAYIT.execute("SELECT joined FROM students WHERE sid=?", (r["sid"],)).fetchone()[0]
-        _, r2 = post(self.base, "/api/join", {"code": kod, "name": "Ali", "sid": r["sid"], "pcode": "p05"})
+        _, r2 = post(self.base, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali", "sid": r["sid"], "pcode": "p05"})
         self.assertEqual(r2["sid"], r["sid"])
         self.assertNotIn("kodBilinmiyor", r2)
         row = server.KAYIT.execute("SELECT participant_code, joined FROM students WHERE sid=?",
@@ -130,10 +133,10 @@ class SunucuKayit(unittest.TestCase):
         self.assertEqual(tuple(row), ("P05", joined))
         self.assertEqual(server.CLASSES[kod]["students"][r["sid"]]["pcode"], "P05")
         # kodsuz yeniden katılım kodu silmez; bilinmeyen kod uyarı verir
-        post(self.base, "/api/join", {"code": kod, "name": "Ali", "sid": r["sid"]})
+        post(self.base, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali", "sid": r["sid"]})
         self.assertEqual(server.KAYIT.execute("SELECT participant_code FROM students WHERE sid=?",
                                               (r["sid"],)).fetchone()[0], "P05")
-        _, r3 = post(self.base, "/api/join", {"code": kod, "name": "Ali", "sid": r["sid"], "pcode": "ZZ9"})
+        _, r3 = post(self.base, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali", "sid": r["sid"], "pcode": "ZZ9"})
         self.assertTrue(r3["kodBilinmiyor"])
 
     def test_ders_bitince_ended(self):
@@ -229,7 +232,7 @@ class SunucuOrnek(unittest.TestCase):
 
     def ogrenci(self):
         kod, key = self.ders()
-        _, r = post(self.base, "/api/join", {"code": kod, "name": "Ali"})
+        _, r = post(self.base, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali"})
         return kod, key, r["sid"]
 
     def metrik(self, kod, sid, **ek):
@@ -483,7 +486,7 @@ class SunucuYonetim(unittest.TestCase):
     def test_kalibrasyonlar_ve_veri_paketi(self):
         _, r = self.admin_post("/api/admin/ogretmen", {"name": "Can"})
         _, d = post(self.base, "/api/class", {"name": "D", "teacher_id": r["id"]})
-        _, j = post(self.base, "/api/join", {"code": d["code"], "name": "Öğr"})
+        _, j = post(self.base, "/api/join", {"onay": ONAY, "code": d["code"], "name": "Öğr"})
         post(self.base, "/api/metrics", {"code": d["code"], "sid": j["sid"], "attention": 50, "energy": 50,
                                          "kal": {"at": 5, "acc": 61, "hit3": 100, "gazelab": {"acc": 48.2},
                                                  "aktarim": {"kod": "karmaH", "ad": "karma + baş turu", "gerekce": "g"}}})
@@ -797,6 +800,108 @@ os._exit(0)
         self.assertFalse(yasiyor(), "sunucu yetim kaldı")
         with socket.socket() as s:
             s.bind(("127.0.0.1", port))   # port serbest
+
+
+class SinifTesti(unittest.TestCase):
+    """Sınıf testi (25.11): KVKK onayı, bakış testi kaydının derse bağlanması, ara kaydın üzerine yazılması, cihaz bilgisi."""
+    def setUp(self):
+        self.base, self.kapat = basla()
+        self.addCleanup(self.kapat)
+        self.td = tempfile.mkdtemp()
+        eski_td, eski_gl = server.TEST_DIR, server.GL_DB
+        server.TEST_DIR, server.GL_DB = self.td, os.path.join(self.td, "gazelab.db")
+        self.addCleanup(lambda: (setattr(server, "TEST_DIR", eski_td), setattr(server, "GL_DB", eski_gl),
+                                 shutil.rmtree(self.td, ignore_errors=True)))
+
+    def ogrenci(self):
+        _, r = post(self.base, "/api/class", {"name": "T"})
+        kod = r["code"]
+        _, j = post(self.base, "/api/join", {"onay": ONAY, "code": kod, "name": "Ali"})
+        return kod, j["sid"]
+
+    def test_join_onaysiz_400_onayli_200_db(self):
+        _, r = post(self.base, "/api/class", {"name": "T"})
+        kod = r["code"]
+        for onay in (None, {}, {"surum": ""}, "evet", {"t": 5}):
+            st, _ = post(self.base, "/api/join", {"code": kod, "name": "Ali", "onay": onay})
+            self.assertEqual(st, 400, onay)
+        self.assertEqual(server.KAYIT.execute("SELECT COUNT(*) FROM students").fetchone()[0], 0)
+        t = server.now() - 5
+        st, j = post(self.base, "/api/join", {"code": kod, "name": "Ali", "onay": {"surum": "2026-11-25", "t": t}})
+        self.assertEqual(st, 200)
+        row = server.KAYIT.execute("SELECT onay_t, onay_surum FROM students WHERE sid=?", (j["sid"],)).fetchone()
+        self.assertAlmostEqual(row["onay_t"], t, places=3)
+        self.assertEqual(row["onay_surum"], "2026-11-25")
+        # saçma istemci saati: sunucu saati yazılır
+        st, j2 = post(self.base, "/api/join", {"code": kod, "name": "Veli", "onay": {"surum": "2026-11-25", "t": 12}})
+        onay_t = server.KAYIT.execute("SELECT onay_t FROM students WHERE sid=?", (j2["sid"],)).fetchone()[0]
+        self.assertLess(abs(onay_t - server.now()), 60)
+
+    def test_testlog_kimlikle_uzerine_yazar(self):
+        g = {"kimlik": "20261125_093000_ab12cd", "cihaz": "Windows NT 10.0", "log": [{"msg": "ara"}]}
+        _, r1 = post(self.base, "/api/testlog", g)
+        _, r2 = post(self.base, "/api/testlog", {**g, "log": [{"msg": "ara"}, {"msg": "son"}], "durum": "bitti"})
+        self.assertEqual(r1["dosya"], r2["dosya"])
+        self.assertEqual(r1["dosya"], "20261125_093000_Windows-NT-10-0_ab12cd.json")
+        dosyalar = [f for f in os.listdir(self.td) if f.endswith(".json")]
+        self.assertEqual(dosyalar, [r1["dosya"]])
+        with open(os.path.join(self.td, r1["dosya"]), encoding="utf-8") as f:
+            self.assertEqual(len(json.load(f)["log"]), 2)
+        for kotu in ("../../x", "abc", "20261125_093000_a/b", 5):
+            st, _ = post(self.base, "/api/testlog", {**g, "kimlik": kotu})
+            self.assertEqual(st, 400, kotu)
+
+    def test_testlog_ders_sid_ile_bakis_testleri_satiri(self):
+        kod, sid = self.ogrenci()
+        g = {"kimlik": "20261125_093000_ab12cd", "cihaz": "Win", "log": [], "ders": kod, "sid": sid, "ad": "Ali"}
+        _, r = post(self.base, "/api/testlog", g)
+        self.assertEqual(r["dosya"], f"20261125_093000_{kod}_{sid[2:8]}_Win_ab12cd.json")
+        rows = server.KAYIT.execute("SELECT * FROM bakis_testleri").fetchall()
+        self.assertEqual([(x["lesson_code"], x["sid"], x["dosya"], x["durum"]) for x in rows], [(kod, sid, r["dosya"], "ara")])
+        s = server.public_student(server.CLASSES[kod]["students"][sid], server.now())
+        self.assertEqual(s["bakisTesti"]["durum"], "suruyor")
+        post(self.base, "/api/testlog", {**g, "durum": "bitti", "glAcc": 84.26, "model": "karma + baş turu"})
+        rows = server.KAYIT.execute("SELECT * FROM bakis_testleri").fetchall()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]["durum"], rows[0]["gl_acc"], rows[0]["model"]), ("bitti", 84.3, "karma + baş turu"))
+        s = server.public_student(server.CLASSES[kod]["students"][sid], server.now())
+        self.assertEqual((s["bakisTesti"]["durum"], s["bakisTesti"]["glAcc"]), ("bitti", 84.3))
+        # bitti ama model aktarılamadı (yetersiz ölçüm): panelde "bitmedi"
+        post(self.base, "/api/testlog", {**g, "kimlik": "20261125_094000_ffff01", "durum": "bitti", "model": None})
+        s = server.public_student(server.CLASSES[kod]["students"][sid], server.now())
+        self.assertEqual(s["bakisTesti"]["durum"], "bitmedi")
+
+    def test_gecersiz_ders_etiketlenmez_ama_kaydedilir(self):
+        kod, sid = self.ogrenci()
+        for ders, s in (("YOKKOD", sid), (kod, "s_000000000000"), ("../x", sid), (kod, "../../a")):
+            st, r = post(self.base, "/api/testlog", {"cihaz": "Win", "log": [], "ders": ders, "sid": s})
+            self.assertEqual(st, 200)
+            self.assertNotIn(kod, r["dosya"])
+            with open(os.path.join(self.td, r["dosya"]), encoding="utf-8") as f:
+                self.assertFalse(json.load(f)["dersBagli"])
+        self.assertEqual(server.KAYIT.execute("SELECT COUNT(*) FROM bakis_testleri").fetchone()[0], 0)
+
+    def test_kurulum_cihaz2_sinirlanir(self):
+        k = server.temiz_kurulum({"tarayici": "Chrome 131", "cihaz2": {
+            "cekirdek": 99999, "bellekGB": True, "gpu": "G" * 500, "ua": "U" * 900,
+            "uaVeri": {"brands": [{"brand": "B" * 99, "version": "1"}] * 20, "platform": "Windows", "mobile": "x"}}})
+        c = k["cihaz2"]
+        self.assertEqual(c["cekirdek"], 1024)
+        self.assertIsNone(c["bellekGB"])
+        self.assertEqual((len(c["gpu"]), len(c["ua"])), (120, 300))
+        self.assertEqual(len(c["uaVeri"]["brands"]), 6)
+        self.assertEqual(len(c["uaVeri"]["brands"][0]["brand"]), 40)
+        self.assertIsNone(c["uaVeri"]["mobile"])
+        self.assertEqual(server.cihaz_ozet(k), {"tarayici": "Chrome 131", "cekirdek": 1024, "gpu": "G" * 120})
+        bos = server.temiz_kurulum({"cihaz2": {"cekirdek": None, "bellekGB": None, "gpu": None, "ua": None, "uaVeri": None}})["cihaz2"]
+        self.assertEqual(bos, {"cekirdek": None, "bellekGB": None, "gpu": None, "ua": None, "uaVeri": None})
+        self.assertNotIn("cihaz2", server.temiz_kurulum({"tarayici": "x"}))
+        # metrics yoluyla da kurulum kaydına girer
+        kod, sid = self.ogrenci()
+        post(self.base, "/api/metrics", {"code": kod, "sid": sid, "attention": 50, "energy": 50, "face": True,
+                                         "kurulum": {"tarayici": "Edge 131", "cihaz2": {"cekirdek": 8, "gpu": "ANGLE (Intel)"}}})
+        setup = json.loads(server.KAYIT.execute("SELECT setup FROM setups").fetchone()[0])
+        self.assertEqual((setup["cihaz2"]["cekirdek"], setup["cihaz2"]["gpu"]), (8, "ANGLE (Intel)"))
 
 
 if __name__ == "__main__":
