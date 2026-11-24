@@ -53,7 +53,7 @@ Hız beklentisi dürüst olmalı: aynı Chromium motoru, aynı kamera (30 fps ta
 | 2 | Tauri (WebView2) + gömülü sunucu | Küçük | Kamera/GPU/izin davranışı Chrome testlerinden farklı olabilir; Rust araç zinciri |
 | 3 | Chrome "uygulama olarak yükle" (PWA) | Neredeyse sıfır iş | Sunucuyu taşımaz (A'yı karşılamaz), kiosk/izin denetimi yok |
 
-**Seçilen: 1** (tasarımcı kararı; kullanıcı "karar ver" dedi). Gerekçe: bakış ölçümleri Chrome'da doğrulandı; aynı motor sonuçların karşılaştırılabilirliğini korur.
+**Seçilen: 1 — kullanıcı onayladı (2026-11-24).** Gerekçe: bakış ölçümleri Chrome'da doğrulandı; aynı motor sonuçların karşılaştırılabilirliğini korur.
 
 ## Yapı
 
@@ -75,6 +75,15 @@ Sunucu tarafında küçük değişiklik: `server.py` → `--data <klasör>` arg�
 Sunucu başlatma: geliştirmede `python server.py --port <p> --data <d>`; pakette `dersnabzi-sunucu.exe --port <p> --data <d>`.
 Port: 8030'dan başlayıp boş olanı bul. Sağlık 15 sn içinde gelmezse hata ekranı (sunucu çıktısının son satırlarıyla).
 Uygulama kapanınca çocuk süreç sonlandırılır; sunucu çökerse pencerede uyarı ve "yeniden başlat".
+
+## Kullanıcının onayladığı kararlar (2026-11-24)
+
+- Altyapı: Electron.
+- Kiosk: yalnız öğrenci ve bakış testi pencereleri; öğretmen ve yönetim normal pencere.
+- Veri: tek, seçilebilir veri klasörü; ders kayıtları **ve bakış testi kayıtları** (bugünkü `test_kayitlari/` + `gazelab.db`) bu klasöre gider
+  (`<veri>/test_kayitlari/`). Kurulum klasörüne hiçbir şey yazılmaz. Varsayılan: tarayıcı sürümüyle aynı `data/` klasörü.
+- Yönetim ekranı uygulamadan açılınca anahtarı uygulama verir (ekrana/adrese yazılmaz).
+- Sorulmadan kalan öneriler (başlangıç ekranı düzeni, yalnız Windows paketi, hedef dışı maddeler) bu belgede öneri olarak durur; kullanıcı itiraz ederse değişir.
 
 ## Kurucuya bırakılanlar
 
