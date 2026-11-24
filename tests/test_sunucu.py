@@ -273,6 +273,19 @@ class SunucuOrnek(unittest.TestCase):
         self.assertLessEqual(s["dpr"], 8)
         self.assertNotIn("ayrik", s)
 
+    def test_kurulum_isci_ve_gecikme(self):
+        k = server.temiz_kurulum({"isci": True, "gecikmeMs": 99999, "islemeFps": 27.5})
+        self.assertEqual((k["isci"], k["gecikmeMs"], k["islemeFps"]), (True, 60000, 27.5))
+        k = server.temiz_kurulum({"isci": "evet", "gecikmeMs": True})
+        self.assertEqual((k["isci"], k["gecikmeMs"]), (None, None))   # bool değilse / sayı değilse yok
+        k = server.temiz_kurulum({"isci": False, "gecikmeMs": -5})
+        self.assertEqual((k["isci"], k["gecikmeMs"]), (False, 0))
+        self.assertIsNone(server.temiz_kurulum({})["isci"])
+        kod, _, sid = self.ogrenci()
+        self.metrik(kod, sid, kurulum={"isci": True, "gecikmeMs": 40})
+        s = json.loads(server.KAYIT.execute("SELECT setup FROM setups").fetchone()[0])
+        self.assertEqual((s["isci"], s["gecikmeMs"]), (True, 40))
+
     def test_olaylar_kaydedilir(self):
         kod, key, sid = self.ogrenci()
         post(self.base, "/api/event", {"code": kod, "sid": sid, "type": "chat", "text": "merhaba"})

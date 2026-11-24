@@ -61,15 +61,18 @@ function renderMe(s) {
 }
 
 async function sendMetrics() {
+  if (paused) kareOnceki = null;   // duraklatma süresi işlenen kare/sn'yi düşürmesin
   if (paused || !analyzer) return;
   const s = analyzer.state;
   if (s.calibrating && s.face) return;   // kalibrasyon bitmeden gönderme
   const g = gaze ? gaze.flush() : null;
   // Bakış kalibre ise "ekran dışı" kararı baş yönünden daha güvenilirdir
   const away = s.lookingAway || !!(g && (g.cal || g.coarse) && (g.share?.disari || 0) >= 0.6);
+  const kal = kalYeni();
   try {
     await api("/api/metrics", { code: CODE, sid: SID, attention: s.attention, energy: s.energy, emotion: s.emotion,
-      face: s.face, lookingAway: away, eyesClosed: s.eyesClosed, tabHidden: document.hidden, gaze: g, ekran: ekranBilgi(), kurulum: kurulumBilgi(), ...kalYeni() });
+      face: s.face, lookingAway: away, eyesClosed: s.eyesClosed, tabHidden: document.hidden, gaze: g, ekran: ekranBilgi(), kurulum: kurulumBilgi(), ...kal });
+    if (kal.kal) sonKalAt = kal.kal.at;   // yalnız başarılı gönderimden sonra: başarısızsa rapor bir sonrakinde yeniden gider
   } catch (err) { if (/aktif değil/.test(err.message)) finish(); }
 }
 // Kalıcı kayıt için kurulum özeti (sunucu doğrular/kırpar) ve yalnız yeni kalibrasyon raporu
@@ -77,18 +80,29 @@ let sonKalAt = null;
 function kalYeni() {
   const r = gaze?.report;
   if (!r || r.at == null || r.at === sonKalAt) return {};
-  sonKalAt = r.at;
   return { kal: r };
+}
+// Gerçek işlenen kare/sn: iki gönderim arasında işlenen kare (diag.kare) / geçen duvar saati.
+// İşçi gecikmesi: aynı aralıkta kare yakalama → işçi sonucu ortalaması (yalnız işçi yolunda).
+let kareOnceki = null;
+function islemeOlcu(d) {
+  const t = performance.now(), o = kareOnceki;
+  kareOnceki = d ? { t, kare: d.kare, gMs: d.gecikmeMs, gN: d.gecikmeN } : null;
+  if (!d || !o || t - o.t < 500) return { fps: null, gecikmeMs: null };
+  const dN = d.gecikmeN - o.gN;
+  return { fps: (1000 * (d.kare - o.kare)) / (t - o.t),
+           gecikmeMs: d.isci && dN > 0 ? Math.round((d.gecikmeMs - o.gMs) / dN / 10) * 10 : null };
 }
 function kurulumBilgi() {
   const st = $("#video").srcObject?.getVideoTracks?.()[0]?.getSettings?.() || {};
   const m = (navigator.userAgent.match(/(Edg|OPR|Firefox|Chrome|Version)\/(\d+)/) || []);
   const ad = { Edg: "Edge", OPR: "Opera", Version: "Safari" }[m[1]] || m[1];
-  const d = gaze?.diag, fps = d?.islemeN && d.toplamMs ? Math.round(1000 * d.islemeN / d.toplamMs) : null;
+  const d = gaze?.diag, { fps, gecikmeMs } = islemeOlcu(d);
   const dist = gaze?.latest?.pose3?.dist;
   return { kamera: st.width ? `${st.width}x${st.height}` : null, fps: st.frameRate ? Math.round(st.frameRate) : null,
     ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, dpr: +(devicePixelRatio || 1).toFixed(2),
-    fs: !!document.fullscreenElement, tarayici: ad ? `${ad} ${m[2]}` : "", uzaklikCm: Number.isFinite(dist) ? Math.round(dist) : null, islemeFps: fps != null ? Math.round(fps / 5) * 5 : null };
+    fs: !!document.fullscreenElement, tarayici: ad ? `${ad} ${m[2]}` : "", uzaklikCm: Number.isFinite(dist) ? Math.round(dist) : null, islemeFps: fps != null ? Math.round(fps / 5) * 5 : null,
+    isci: d ? !!d.isci : null, gecikmeMs };
 }
 // Tarayıcı / ekran boyutu: öğretmene gider ve değiştikçe konsola yazılır ([PENCERE ...], window.pencereLog)
 function ekranBilgi() {

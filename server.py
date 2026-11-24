@@ -627,7 +627,9 @@ def parse_gaze(g):
     return {"region": region, "share": share, "pts": pts, "wgShare": wg_share, "scr": scr}
 
 
-_KURULUM_SAYI = {"fps": (0, 1000), "dpr": (0.25, 8), "uzaklikCm": (0, 1000), "islemeFps": (0, 1000)}
+# islemeFps: iki gönderim arasında gerçekten işlenen kare / geçen süre; gecikmeMs: işçi yolunda kare → sonuç ortalaması
+_KURULUM_SAYI = {"fps": (0, 1000), "dpr": (0.25, 8), "uzaklikCm": (0, 1000), "islemeFps": (0, 1000),
+                 "gecikmeMs": (0, 60000)}
 _KURULUM_METIN = ("kamera", "ekran", "pencere", "tarayici")
 
 
@@ -643,6 +645,7 @@ def temiz_kurulum(k):
         v = k.get(a)
         out[a] = None if isinstance(v, bool) or not isinstance(v, (int, float)) else round(clamp(v, lo, hi), 2)
     out["fs"] = bool(k.get("fs"))
+    out["isci"] = k["isci"] if isinstance(k.get("isci"), bool) else None   # işleme yeri; bilinmiyorsa None
     return out
 
 

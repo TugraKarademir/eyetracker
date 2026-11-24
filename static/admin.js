@@ -957,17 +957,22 @@ function sekmeIsi(el, G, _e, live) {
 }
 
 const KUR_ALAN = [["kamera", "Kamera"], ["fps", "Kamera fps"], ["ekran", "Ekran"], ["pencere", "Pencere"], ["dpr", "DPR"], ["fs", "Tam ekran"],
-                  ["tarayici", "Tarayıcı"], ["uzaklikCm", "Uzaklık (tahmin)"], ["islemeFps", "İşleme fps"]];
+                  ["tarayici", "Tarayıcı"], ["uzaklikCm", "Uzaklık (tahmin)"], ["islemeFps", "İşlenen kare/sn"],
+                  ["isci", "İşleme yeri"], ["gecikmeMs", "İşçi gecikmesi ms"]];
 function sekmeKurulum(el, G) {
   const k = G.o.kurulumlar;
-  const bic = (a, v) => (v == null || v === "" ? YOK : a === "fs" ? (v ? "evet" : "hayır") : a === "uzaklikCm" ? `~${esc(v)} cm` : esc(v));
+  // "isci" anahtarı olmayan eski kayıtta islemeFps başka bir ölçüdür (1 / işleme süresi): öyle işaretlenir
+  const bic = (a, v, s) => (v == null || v === "" ? YOK : a === "islemeFps" && !("isci" in s) ? `${esc(v)} <span class="muted small">(eski tanım)</span>` : a === "fs" ? (v ? "evet" : "hayır") : a === "isci" ? (v ? "İşçi" : "Ana") : a === "uzaklikCm" ? `~${esc(v)} cm` : esc(v));
   el.innerHTML = `<div class="card"><h3>Kurulum (zaman içinde)</h3>${k.length ? `<div class="tbl"><table>
       <tr><th>Zaman</th>${KUR_ALAN.map(([, t]) => `<th>${t}</th>`).join("")}</tr>
       ${k.map((r, i) => { const s = r.setup || {}, p = i ? k[i - 1].setup || {} : null;
-        return `<tr><td class="num">${G.rel(r.t)}</td>${KUR_ALAN.map(([a]) => `<td class="num${p && JSON.stringify(p[a]) !== JSON.stringify(s[a]) ? " degisti" : ""}">${bic(a, s[a])}</td>`).join("")}</tr>`; }).join("")}
+        return `<tr><td class="num">${G.rel(r.t)}</td>${KUR_ALAN.map(([a]) => `<td class="num${p && JSON.stringify(p[a]) !== JSON.stringify(s[a]) ? " degisti" : ""}">${bic(a, s[a], s)}</td>`).join("")}</tr>`; }).join("")}
     </table></div>` : `<p>${YOK} <span class="muted small">— kurulum kaydı yok.</span></p>`}
     <div class="note">Her satır bir değişiklik (aynı kurulum tekrar yazılmaz); değişen hücre vurgulu. Uzaklık: MediaPipe yüz ölçüsünden tahmin.
-      İşleme fps 5'in katına yuvarlı. Cihaz türü kaydedilmiyor.</div></div>`;
+      İşlenen kare/sn: iki gönderim (~2 sn) arasında gerçekten işlenen kare sayısı / geçen süre, 5'in katına yuvarlı.
+      İşleme yeri: yüz bulucu Web Worker'da (İşçi) mı ana iş parçacığında (Ana) mı; İşçi gecikmesi: işçi yolunda kare yakalama → sonuç
+      ortalaması (10 ms'ye yuvarlı; ana yolda boş). Eski kayıtlarda bu iki alan yoktur ve oradaki değer "eski tanım"
+      (1 / kare başına işleme süresi; işçi yolunda şişkin) olarak işaretlidir. Cihaz türü kaydedilmiyor.</div></div>`;
 }
 
 function sekmeOlaylar(el, G) {
