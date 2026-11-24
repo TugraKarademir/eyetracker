@@ -91,6 +91,19 @@ cd E:\eyetracker\masaustu; npx electron . --smoke
 
 **Uyarı:** sınıf testi için sunucuyu `python server.py` ile başlat; paketlenmiş masaüstü `.exe` kullanma, içinde hâlâ eski kod var.
 
+**Ders öncesi kontrol listesi**
+
+- [ ] Yalnız bir sunucu çalışıyor. Aynı portta iki sunucu varsa eski kod sessizce sunulur; kontrol (listede tek `server.py` olmalı):
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object { $_.CommandLine -like '*server.py*' } | Select-Object ProcessId, CommandLine
+```
+
+- [ ] Sunucu son `git pull`'dan sonra ve `labtest` dalında başlatıldı.
+- [ ] Sertifika her lab bilgisayarına kuruldu (f).
+- [ ] Her lab bilgisayarında indirmelere izin verildi (f).
+- [ ] Lab bilgisayarlarının saatleri doğru.
+
 **a. Öğretmen bilgisayarının IP adresini öğren** (öğrencilerle aynı ağdaki adresi seç):
 
 ```powershell
@@ -132,6 +145,12 @@ certutil -user -addstore Root DersNabzi-sertifika.crt
 ```
 
 Windows "güvenilir kök" uyarısı sorarsa Evet de. Firefox Windows deposunu kullanmaz: Ayarlar > Gizlilik ve Güvenlik > Sertifikalar > Sertifikaları Görüntüle > Yetkililer > İçe Aktar ile aynı dosyayı ekle ("Bu CA web sitelerini tanımlamak için güvenilsin" kutusu işaretli). Mümkünse lab'da Chrome/Edge kullan.
+
+Sertifikadan sonra, otomatik yedek indirmeleri hiç engellenmesin diye her lab bilgisayarında Chrome/Edge'i ayarla:
+
+- `https://<IP>:8443` adresini aç, kilit simgesi > Site ayarları > "Otomatik indirmeler" > İzin ver.
+- Chrome: Ayarlar > İndirilenler > "Her dosyanın nereye kaydedileceğini sor" kapalı olsun. Edge'de aynı seçenek Ayarlar > İndirmeler altındadır.
+- Ders sırasında "birden fazla dosya indirilsin mi?" çubuğu çıkarsa her zaman **İzin ver** seç. Engelle seçilirse o bilgisayarda sitenin otomatik indirmeleri engellenir.
 
 **g. Öğrenci adresi** (öğrenciler tarayıcıya yazar; `<IP>` = a'daki adres):
 
