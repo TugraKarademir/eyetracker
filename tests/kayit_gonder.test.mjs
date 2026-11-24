@@ -11,7 +11,10 @@ const html = fs.readFileSync(new URL("../static/bakis_test.html", import.meta.ur
 const bas = html.indexOf("const KAYIT_SURE");
 const son = html.indexOf("} finally { clearTimeout(zaman); }\n}", bas);
 assert.ok(bas > 0 && son > bas, "gönderim kodu sayfada bulunamadı");
-const kod = html.slice(bas, son + "} finally { clearTimeout(zaman); }\n}".length);
+const SON = "} finally { clearTimeout(zaman); }\n}";
+const isiBas = html.indexOf("async function isiTestiGonder"), isiSon = html.indexOf(SON, isiBas);
+assert.ok(isiBas > 0 && isiSon > isiBas, "ısı gönderim kodu sayfada bulunamadı");
+const kod = html.slice(bas, son + SON.length) + "\n" + html.slice(isiBas, isiSon + SON.length);
 
 function kur(fetchSahte) {
   const olay = { log: [], hata: [], kaldir: 0, govde: [] };
@@ -20,7 +23,8 @@ function kur(fetchSahte) {
     screen: { width: 1920, height: 1080 }, innerWidth: 1900, innerHeight: 1000,
     KAYIT_KIMLIK: "20261125_100000_abcdef", BAGLAM: null, KAYIT_SONUC: {}, testLog: [], tiklamaOz: [],
     cihaz2: () => ({}), glPaket: () => null,
-    tlog: (m) => olay.log.push(m), kayitHataGoster: (n) => olay.hata.push(n), kayitHataKaldir: () => olay.kaldir++,
+    ISI: { veri: { gorseller: [] }, kimlik: "20261125_100000_isi1", anaDosya: null }, isiTestiOzet: () => ({}), glKayitlar: () => [],
+    tlog: (m) => olay.log.push(m), kayitHataGoster: (n, tur = "Kayıt") => olay.hata.push(tur === "Kayıt" ? n : `${tur}: ${n}`), kayitHataKaldir: () => olay.kaldir++,
     fetch: (url, o) => { olay.govde.push(JSON.parse(o.body)); return fetchSahte(o); },
   });
   vm.runInContext(kod.replace("const KAYIT_SURE = { ara: 60000, son: 120000 };", "const KAYIT_SURE = { ara: 50, son: 100 };"), ctx);
@@ -65,5 +69,15 @@ const askida = (o) => new Promise((_, red) => o.signal.addEventListener("abort",
   assert.equal(await gonder(), "y.json");
   assert.equal(olay.kaldir, 1);
   console.log("3) sunucu hatası gösterilir, sonraki gönderim düzeltir: tamam");
+}
+// 4) askıda ısı verisi gönderimi de süre dolunca biter (sonuç ekranı beklemesin)
+{
+  const { ctx, olay } = kur(askida);
+  const t0 = Date.now();
+  assert.equal(await vm.runInContext("isiTestiGonder(null)", ctx), null);
+  assert.ok(Date.now() - t0 < 1000, "ısı gönderiminde süre sınırı çalışmadı");
+  assert.equal(olay.hata.length, 1);
+  assert.match(olay.hata[0], /^Isı testi verisi: .*yanıt gelmedi/);
+  console.log("4) askıda ısı verisi gönderimi iptal edildi: tamam");
 }
 console.log("kayit_gonder: TAMAM");

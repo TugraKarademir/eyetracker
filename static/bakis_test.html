@@ -1545,7 +1545,7 @@ function kayitHataCiz() {
     b.onclick = async (e) => {
       e.stopPropagation(); b.disabled = true; b.textContent = "Gönderiliyor…";
       const d = await testKaydiGonder(KAYIT_SURE.son);
-      if (d && GLK.bitti) $("#resTxt").insertAdjacentHTML("beforeend", `<br><span class="muted" style="font-size:12px">Kayıt bilgisayara gönderildi: ${d}</span>`);
+      if (d && KAYIT_SONUC.durum === "bitti") $("#resTxt").insertAdjacentHTML("beforeend", `<br><span class="muted" style="font-size:12px">Kayıt bilgisayara gönderildi: ${d}</span>`);
     };
     el.append(b);
   }
@@ -1578,13 +1578,17 @@ async function isiTestiGonder(anaDosya) {
   const v = ISI.veri;
   if (!v || !ISI.kimlik || v.atlandi) return null;
   ISI.anaDosya = anaDosya || ISI.anaDosya || null;
+  const sureMs = KAYIT_SURE.son, ac = new AbortController(), zaman = setTimeout(() => ac.abort(), sureMs);   // yanıtsız bağlantı sonucu bekletmesin
   try {
-    const r = await fetch("/api/testlog-isi", { method: "POST", headers: { "Content-Type": "application/json" },
+    const r = await fetch("/api/testlog-isi", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
       body: JSON.stringify({ ...BAGLAM, isiKimlik: ISI.kimlik, ana: ISI.anaDosya, ozet: isiTestiOzet(true), veri: v, recordings: glKayitlar().filter((x) => x.stimulus_id === "isi_testi") }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || r.status);
     tlog(`ısı testi verisi bilgisayara gönderildi: test_kayitlari/${j.dosya} (${j.bayt} bayt)`); kayitHataKaldir("Isı testi verisi"); ISI.gonderilen = j.dosya; return j.dosya;
-  } catch (e) { tlog(`ısı testi verisi gönderilemedi: ${e.message}`); kayitHataGoster(e.message, "Isı testi verisi"); return null; }
+  } catch (e) {
+    const neden = e.name === "AbortError" ? `${Math.round(sureMs / 1000)} sn içinde yanıt gelmedi` : e.message;
+    tlog(`ısı testi verisi gönderilemedi: ${neden}`); kayitHataGoster(neden, "Isı testi verisi"); return null;
+  } finally { clearTimeout(zaman); }
 }
 function guideStop() {
   guide = null; document.querySelectorAll(".tgt").forEach((n) => n.remove()); noktaEtiketSil();
