@@ -1,5 +1,5 @@
 """Uçtan uca akış: gerçek HTTP ile ders -> materyal -> öğrenci -> yönetim ekranı API'leri.
-Bellek içi kayıt ve geçici DATA kullanır; gerçek veriye dokunmaz."""
+Geçici DATA (içinde geçici dersler.db) kullanır; gerçek veriye dokunmaz."""
 import json
 import os
 import unittest

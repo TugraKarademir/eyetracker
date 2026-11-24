@@ -6,6 +6,7 @@ import sys
 import os
 import struct
 import shutil
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -19,17 +20,19 @@ import server
 
 
 def basla():
-    """Test sunucusu: bellek içi kayıt, geçici DATA. (base_url, kapat) döner."""
+    """Test sunucusu: geçici DATA ve içinde dersler.db (yönetim okumaları dosyayı salt okunur açar).
+    Gerçek data/ klasörüne dokunmaz. (base_url, kapat) döner."""
     eski_data = server.DATA
     gecici = tempfile.mkdtemp()
     server.DATA = gecici
-    server.KAYIT = kayit.ac(":memory:")
+    server.KAYIT = kayit.ac(os.path.join(gecici, "dersler.db"))
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
 
     def kapat():
         httpd.shutdown()
         httpd.server_close()
+        server.KAYIT.close()
         server.DATA = eski_data
         shutil.rmtree(gecici, ignore_errors=True)
     return "http://127.0.0.1:%d" % httpd.server_address[1], kapat
@@ -400,6 +403,28 @@ class SunucuYonetim(unittest.TestCase):
         self.assertTrue(b.startswith("﻿".encode("utf-8")))
         self.assertEqual(h["Content-Type"], "text/csv; charset=utf-8")
         self.assertIn('filename="dersnabzi_uzun.csv"', h["Content-Disposition"])
+
+    def test_admin_okuma_lock_beklemez(self):
+        _, r = post(self.base, "/api/class", {"name": "T"})
+        sonuc = {}
+
+        def oku():
+            sonuc["st"] = self.get("/api/admin/dersler")[0]
+            sonuc["ders"] = self.get("/api/admin/ders?code=" + r["code"])[0]
+            sonuc["csv"] = self.get("/api/admin/csv?tur=uzun")[0]
+        with server.LOCK:   # canlı ders kilidi başka iş parçacığında tutuluyor
+            th = threading.Thread(target=oku)
+            th.start()
+            th.join(5)
+            self.assertFalse(th.is_alive(), "yönetim okuması LOCK'u bekledi")
+        self.assertEqual(sonuc, {"st": 200, "ders": 200, "csv": 200})
+
+    def test_admin_okuma_baglantisi_salt_okunur(self):
+        con = server.kayit_okuma()
+        self.addCleanup(con.close)
+        with self.assertRaises(sqlite3.OperationalError):
+            con.execute("INSERT INTO participants VALUES('X', 1)")
+        self.assertEqual(server.KAYIT.execute("PRAGMA journal_mode").fetchone()[0], "wal")
 
     def test_admin_kalite_esik(self):
         st, b, _ = self.get("/api/admin/kalite_esik")

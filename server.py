@@ -17,6 +17,7 @@ import io
 import json
 import math
 import os
+import pathlib
 import queue
 import random
 import re
@@ -806,41 +807,53 @@ class Handler(BaseHTTPRequestHandler):
     def admin_get(self, yol, q):
         if not self.admin_ok(q):
             return self.err("Yetkisiz", 403)
-        with LOCK:
-            if yol == "dersler":
-                return self.send_json(yonetim.dersler(KAYIT, q.get("ara") or None, q.get("bas") or None, q.get("bit") or None))
-            if yol == "ders":
-                r = yonetim.ders(KAYIT, q.get("code", "").upper())
-                return self.send_json(r) if r is not None else self.err("Ders bulunamadı", 404)
-            if yol == "ogrenci":
-                r = yonetim.ogrenci(KAYIT, q.get("code", "").upper(), q.get("sid", ""))
-                return self.send_json(r) if r is not None else self.err("Öğrenci bulunamadı", 404)
-            if yol == "karsilastirma":
-                d = [x.strip().upper() for x in q.get("dersler", "").split(",") if x.strip()]
-                return self.send_json(yonetim.karsilastirma(KAYIT, d or None))
-            if yol == "katilimcilar":
-                return self.send_json(kayit.katilimcilar(KAYIT))
-            if yol == "kalite_esik":
-                return self.send_json(yonetim.KALITE_ESIK)
-            if yol == "csv":
-                tur, code = q.get("tur", "uzun"), q.get("code", "").upper()
-                if tur == "ham":
-                    if not code:
-                        return self.err("ham CSV için code gerekli")
-                    metin = yonetim.csv_ham(KAYIT, code)
-                elif tur == "uzun":
-                    metin = yonetim.csv_uzun(KAYIT, [code] if code else None)
-                else:
-                    return self.err("Geçersiz tur")
-                veri = ("﻿" + metin).encode("utf-8")
-                ad = "dersnabzi_%s%s.csv" % (tur, "_" + re.sub(r"[^A-Z0-9_-]", "", code) if code else "")
-                self.send_response(200)
-                self.send_header("Content-Type", "text/csv; charset=utf-8")
-                self.send_header("Content-Disposition", 'attachment; filename="%s"' % ad)
-                self.send_header("Content-Length", str(len(veri)))
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                return self.wfile.write(veri)
+        if yol == "kalite_esik":
+            return self.send_json(yonetim.KALITE_ESIK)
+        if yol not in ("dersler", "ders", "ogrenci", "karsilastirma", "katilimcilar", "csv"):
+            return self.err("Bulunamadı", 404)
+        # Yönetim okumaları LOCK almaz: istek başına salt okunur bağlantı (WAL), canlı dersi dondurmaz
+        try:
+            con = kayit_okuma()
+        except sqlite3.Error:
+            return self.err("Kayıt okunamadı", 503)
+        try:
+            return self._admin_oku(con, yol, q)
+        finally:
+            con.close()
+
+    def _admin_oku(self, con, yol, q):
+        if yol == "dersler":
+            return self.send_json(yonetim.dersler(con, q.get("ara") or None, q.get("bas") or None, q.get("bit") or None))
+        if yol == "ders":
+            r = yonetim.ders(con, q.get("code", "").upper())
+            return self.send_json(r) if r is not None else self.err("Ders bulunamadı", 404)
+        if yol == "ogrenci":
+            r = yonetim.ogrenci(con, q.get("code", "").upper(), q.get("sid", ""))
+            return self.send_json(r) if r is not None else self.err("Öğrenci bulunamadı", 404)
+        if yol == "karsilastirma":
+            d = [x.strip().upper() for x in q.get("dersler", "").split(",") if x.strip()]
+            return self.send_json(yonetim.karsilastirma(con, d or None))
+        if yol == "katilimcilar":
+            return self.send_json(kayit.katilimcilar(con))
+        if yol == "csv":
+            tur, code = q.get("tur", "uzun"), q.get("code", "").upper()
+            if tur == "ham":
+                if not code:
+                    return self.err("ham CSV için code gerekli")
+                metin = yonetim.csv_ham(con, code)
+            elif tur == "uzun":
+                metin = yonetim.csv_uzun(con, [code] if code else None)
+            else:
+                return self.err("Geçersiz tur")
+            veri = ("﻿" + metin).encode("utf-8")
+            ad = "dersnabzi_%s%s.csv" % (tur, "_" + re.sub(r"[^A-Z0-9_-]", "", code) if code else "")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="%s"' % ad)
+            self.send_header("Content-Length", str(len(veri)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return self.wfile.write(veri)
         return self.err("Bulunamadı", 404)
 
     def admin_katilimci(self, b):
@@ -1239,6 +1252,15 @@ class Handler(BaseHTTPRequestHandler):
         else:
             return self.err("Bilinmeyen olay")
         self.send_json({"ok": True})
+
+
+def kayit_okuma():
+    """DATA/dersler.db'ye salt okunur bağlantı (yönetim okumaları; LOCK gerekmez).
+    Yazar bağlantı (KAYIT) WAL kipindedir: okuyucu yazmaları beklemez, yazmalar okuyucuyu beklemez."""
+    uri = pathlib.Path(os.path.join(DATA, "dersler.db")).resolve().as_uri() + "?mode=ro"
+    con = sqlite3.connect(uri, uri=True)
+    con.row_factory = sqlite3.Row
+    return con
 
 
 def veri_klasoru_ayarla(yol):
