@@ -5,6 +5,9 @@ const params = new URLSearchParams(location.search);
 // Öğrenci yalnız bakışı kalibre eder ve etkileşir; ekran alanı, bakış noktası, duygu paneli ve el hareketi ayarları
 // yalnız ?gelismis=1 ile görünür. Gizliyken el hareketi ve HSEmotion her zaman açık çalışır (onay metni kapsar).
 const GELISMIS = params.get("gelismis") === "1";
+// Test amaçlı (?nokta=1): bakış noktası, bakış testindeki gibi kırmızı halka olarak açık gelir; "Bakış noktamı göster" kutusu da görünür.
+// Normal öğrenci adresinde nokta yok (öğrenci kendi noktasını kovalamasın, ders verisi bozulmasın).
+const NOKTA = params.get("nokta") === "1";
 document.head.insertAdjacentHTML("beforeend", `<style>${GELISMIS ? ".basit" : ".gelismis"}{display:none!important}</style>`);
 $("#jCode").value = (params.get("code") || "").toUpperCase();
 const prev = store.get("dn_student") || {};
@@ -307,6 +310,10 @@ function gazeStatus(s) {
 
 async function startGaze() {
   gaze = new GazeTracker($("#video"), { getRegions: gazeRegions, onStatus: gazeStatus });
+  if (NOKTA) {
+    gaze.setShowDot(true); gaze.dot.classList.add("test-nokta"); gaze.dot.style.transform = "translate(-100px, -100px)";   // kalibrasyondan önce ekran dışında
+    const k = $("#gazeDotChk"); k.checked = true; k.closest("label")?.classList.remove("gelismis");
+  }
   try {
     await gaze.load();
     cihazTamBaslat();
