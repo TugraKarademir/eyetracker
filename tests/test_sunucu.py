@@ -702,6 +702,53 @@ class SaglikVeVeriKlasoru(unittest.TestCase):
                 self.assertEqual(f.read().strip(), anahtar)
 
 
+class DersOlcum(unittest.TestCase):
+    """/api/olcum: ders sırasındaki bakış ölçümleri öğrenci başına jsonl dosyasına eklenir (ders bitmiş olsa da)."""
+    def setUp(self):
+        self.base, self.kapat = basla()
+        self.addCleanup(self.kapat)
+        self.td = tempfile.mkdtemp()
+        eski = server.TEST_DIR
+        server.TEST_DIR = self.td
+        self.addCleanup(lambda: (setattr(server, "TEST_DIR", eski), shutil.rmtree(self.td, ignore_errors=True)))
+        _, r = post(self.base, "/api/class", {"name": "T"})
+        self.kod, self.key = r["code"], r["key"]
+        _, j = post(self.base, "/api/join", {"onay": ONAY, "code": self.kod, "name": "Ali"})
+        self.sid = j["sid"]
+
+    def satirlar(self):
+        with open(os.path.join(self.td, "ders_olcum", f"{self.kod}_{self.sid}.jsonl"), encoding="utf-8") as f:
+            return [json.loads(x) for x in f]
+
+    def test_eklenir_ve_sunucu_zamani_yazilir(self):
+        kod, r = post(self.base, "/api/olcum", {"code": self.kod, "sid": self.sid, "olcum": [{"tur": "tiklama", "hataAna": 80}]})
+        self.assertEqual((kod, r["n"]), (200, 1))
+        kod, _ = post(self.base, "/api/olcum", {"code": self.kod, "sid": self.sid, "olcum": [{"tur": "ders_ici"}, {"tur": "ders_sonu"}]})
+        self.assertEqual(kod, 200)
+        S = self.satirlar()
+        self.assertEqual([x["tur"] for x in S], ["tiklama", "ders_ici", "ders_sonu"])
+        self.assertTrue(all(isinstance(x["sunucuT"], float) for x in S))
+
+    def test_ders_bittikten_sonra_da_kabul(self):
+        kod, _ = post(self.base, "/api/event", {"code": self.kod, "key": self.key, "type": "end"})
+        self.assertEqual(kod, 200)
+        self.assertTrue(server.CLASSES[self.kod]["ended"])
+        kod, _ = post(self.base, "/api/olcum", {"code": self.kod, "sid": self.sid, "olcum": [{"tur": "ders_sonu"}]})
+        self.assertEqual(kod, 200)
+
+    def test_gecersiz_ve_kayitsiz_reddedilir(self):
+        for g, beklenen in (({"code": self.kod, "sid": "s_ffff", "olcum": [{}]}, 404),
+                            ({"code": "../x", "sid": self.sid, "olcum": [{}]}, 400),
+                            ({"code": self.kod, "sid": self.sid, "olcum": []}, 400),
+                            ({"code": self.kod, "sid": self.sid, "olcum": [1, 2]}, 400)):
+            kod, _ = post(self.base, "/api/olcum", g)
+            self.assertEqual(kod, beklenen, g)
+        with unittest.mock.patch.object(server, "OLCUM_MAX_BYTES", 100):
+            kod, _ = post(self.base, "/api/olcum", {"code": self.kod, "sid": self.sid, "olcum": [{"x": "y" * 200}]})
+        self.assertEqual(kod, 413)
+        self.assertFalse(os.path.exists(os.path.join(self.td, "ders_olcum")))
+
+
 class KareKaydi(unittest.TestCase):
     """/api/testlog-kare: bakış testi kare başına öznitelikleri ayrı dosyaya yazılır (ortak eğitim)."""
     def setUp(self):

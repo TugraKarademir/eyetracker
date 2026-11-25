@@ -104,7 +104,9 @@ async function sendMetrics() {
     // Ham ölçüler (yaw/pitch/EAR/MAR/kırpma/ifade/3B baş, ≈2 sn penceresi): analizör kare işlemediyse gönderilmez
     const ham = analyzer.hamAl ? analyzer.hamAl() : null;
     if (ham) { ham.islemeFps = sonIsleme.fps != null ? +sonIsleme.fps.toFixed(1) : null; ham.isciGecikmeMs = sonIsleme.gecikmeMs;
-      const k = gaze?.kaymaBilgi?.(); if (k) ham.bakisKayma = k; }   // seçilen modele uygulanan ders tıklaması kayma düzeltmesi (ekran px)
+      const k = gaze?.kaymaBilgi?.(); if (k) ham.bakisKayma = k;   // seçilen modele uygulanan ders tıklaması kayma düzeltmesi (ekran px)
+      const bf = window.BakisOlcum?.basFark(gaze?.report?.basRef, ham.pose3); if (bf) ham.basFark = bf; }   // kalibrasyondaki baş pozuna göre fark
+    tiklamaHatalariGonder(ham?.pose3 || null);
     const govde = { code: CODE, sid: SID, attention: s.attention, energy: s.energy, emotion: s.emotion,
       face: s.face, lookingAway: away, eyesClosed: s.eyesClosed, tabHidden: document.hidden, gaze: g, ekran: ekranBilgi(), kurulum, ...kal,
       hse: ht ? { top: ht.name, p: ht.p, valence: hse.valence, arousal: hse.arousal } : null, ...(ham ? { ham } : {}) };
@@ -252,7 +254,9 @@ function dersYedekIndir() {
   const tarih = new Date();
   let ok = true;
   try {
-    DNYedek.indir(DNYedek.csvMetni([{ baslik: `Ders ölçümleri (${CODE || "-"})`, rows: DNYedek.dersCsvSatirlari(DERS_YEDEK) }]),
+    const olcumSatir = BO ? DERS_YEDEK.filter((k) => k.olcum).flatMap((k) => k.olcum.map((o) => ({ sunucu: k.sunucu ?? "bekliyor", ...BO.duzlestir(o) }))) : [];
+    DNYedek.indir(DNYedek.csvMetni([{ baslik: `Ders ölçümleri (${CODE || "-"})`, rows: DNYedek.dersCsvSatirlari(DERS_YEDEK) },
+      ...(olcumSatir.length ? [{ baslik: "Bakış kontrolleri ve tıklama hataları", rows: olcumSatir }] : [])]),
       DNYedek.dosyaAdi(CODE, AD, tarih, "ders.csv"), "text/csv;charset=utf-8");
   } catch (e) { console.warn("ders yedeği (csv)", e); ok = false; }
   try {
@@ -261,12 +265,60 @@ function dersYedekIndir() {
   return ok;
 }
 $("#dersYedekBtn").onclick = () => dersYedekIndir();
-function finish() {
+let bitiyor = false;
+async function finish() {
+  if (bitiyor) return; bitiyor = true;
+  clearInterval(sendTimer); es?.close(); window.LIVE?.setLive(false); analyzer?.stop();
+  try { tiklamaHatalariGonder(null); await dersSonuKontrolu(); } catch (e) { console.warn("ders sonu kontrolü", e); }
   if (!dersYedekIndi && DERS_YEDEK.length) { dersYedekIndi = true; dersYedekIndir(); }
   gaze?.pause(true); gaze?.setShowDot(false);
-  analyzer?.stop(); clearInterval(sendTimer); es?.close(); window.LIVE?.setLive(false);
   stream?.getTracks().forEach((t) => t.stop());
   show("endView");
+}
+
+// ================================================================ ders sırasında bakış hatası ölçümü (static/bakis_olcum.js)
+// Kalibrasyondaki sonuçla karşılaştırmak için: ders içi kontrol noktası (her OLCUM_DK dakikada bir), ders sonu 5 nokta, tıklama hataları.
+// ?kontrol=<dakika> aralığı değiştirir, ?kontrol=0 ders içi noktayı kapatır. Sonuçlar sunucuda test_kayitlari/ders_olcum/ altında
+// ve yerel ders yedeğinde. Ölçüm modeli değiştirmez.
+const BO = window.BakisOlcum || null;   // eski önbellekte betik yoksa ölçüm kapalı, ders sayfası yine çalışır
+const OLCUM_DK = (() => { if (!BO) return 0; const v = params.get("kontrol"); return v == null ? BO.O.ARALIK_DK : Math.max(0, +v || 0); })();
+let olcumSuruyor = false, olcumSonraki = null, olcumSira = 0;
+const bakisHazir = () => !!(BO && gaze?.model && gaze.tracking && !gaze.stale && !gaze.calibrating);
+function olcumGonder(L) {
+  if (!L?.length) return;
+  const y = { t: Date.now(), olcum: L, sunucu: null };
+  DERS_YEDEK.push(y);
+  api("/api/olcum", { code: CODE, sid: SID, olcum: L }).then(() => { y.sunucu = "ok"; }, (e) => { y.sunucu = "hata: " + String(e?.message || e).slice(0, 200); });
+}
+function tiklamaHatalariGonder(poz) {
+  const L = gaze?.tikAl?.() || [];
+  if (!BO || !L.length) return;
+  const ref = gaze?.report?.basRef;
+  olcumGonder(L.map((o) => ({ tur: "tiklama", ...o, basFark: BO.basFark(ref, poz) })));
+}
+setInterval(async () => {
+  if (!OLCUM_DK || olcumSuruyor || bitiyor || !bakisHazir() || kalCerceve || paused || document.hidden) { if (!bakisHazir()) olcumSonraki = null; return; }
+  const now = Date.now();
+  if (olcumSonraki == null) { olcumSonraki = now + OLCUM_DK * 60000; return; }   // kalibrasyon yüklendikten sonra ilk aralık beklenir
+  if (now < olcumSonraki) return;
+  olcumSuruyor = true;
+  try {
+    const N = BO.O.NOKTA, q = N[olcumSira++ % N.length];
+    const L = await BO.kontrol(gaze, [q], "ders_ici", () => "👀 Kısa bakış kontrolü: bu noktaya bakın");
+    olcumGonder(L);
+  } catch (e) { console.warn("ders içi kontrol", e); }
+  finally { olcumSuruyor = false; olcumSonraki = Date.now() + OLCUM_DK * 60000; }
+}, 5000);
+async function dersSonuKontrolu() {
+  while (olcumSuruyor) await new Promise((r) => setTimeout(r, 200));   // süren ders içi nokta bitsin
+  if (!bakisHazir() || !stream || paused) return;
+  const N = BO.O.SON;
+  const basla = await BO.sonKart(`<b>Ders sona erdi.</b><br>Son olarak kısa bir bakış kontrolü: ekranda ${N.length} sarı nokta sırayla çıkacak.
+    Her birine <b>küçülene kadar bakın</b>. Tıklamayın. (yaklaşık ${Math.round(N.length * (BO.O.SETTLE + BO.O.COLLECT) / 1000)} sn)`);
+  if (!basla) { olcumGonder([{ tur: "ders_sonu_atlandi", t: Date.now() }]); return; }
+  const L = await BO.kontrol(gaze, N, "ders_sonu", (i, n) => `Sadece bakın, tıklamayın<br><span style="font-size:12px;opacity:.8">nokta ${i + 1}/${n}</span>`);
+  olcumGonder(L);
+  await new Promise((r) => setTimeout(r, 800));   // son gönderim yedeğe "ok" yazabilsin
 }
 
 // ================================================================ bakış takibi

@@ -164,6 +164,12 @@ Write-Output "https://<IP>:8443/student.html"
 Compress-Archive -Path E:\eyetracker\data, E:\eyetracker\test_kayitlari -DestinationPath "E:\ders_yedek_$(Get-Date -Format yyyyMMdd_HHmm).zip"
 ```
 
+**Ders sırasında bakış hatası ölçümü** (kalibrasyonla karşılaştırmak için; modeli değiştirmez):
+- Her 5 dakikada ekranda 2,4 sn bir sarı nokta çıkar ("Kısa bakış kontrolü"); öğrenci yalnız bakar. Aralık: öğrenci adresine `&kontrol=2` (dakika), kapatmak için `&kontrol=0`.
+- Ders bitince öğrenciye 5 noktalı son kontrol sorulur (Başla / Atla, ~12 sn). Bitirdikten sonra yedek dosyalar iner.
+- Ders boyunca her tıklamada tahmin ile tıklanan yer arasındaki fark ve kalibrasyondaki baş pozuna göre fark (ör. mesafe -15 cm) kaydedilir.
+- Sonuçlar: `E:\eyetracker\test_kayitlari\ders_olcum\<DERS>_<sid>.jsonl` (her satır bir ölçüm) ve öğrencinin `..._ders.json` / `..._ders.csv` yedeğinde ("Bakış kontrolleri ve tıklama hataları" tablosu).
+
 **i. Sorun giderme.**
 - Sayfa açılmıyor: öğrenci ve öğretmen bilgisayarı aynı ağda mı (öğretmen bilgisayarında c adımındaki kural var mı, ağ "Genel" mi)? Sunucu penceresi hâlâ açık mı?
 - Sertifika uyarısı çıkıyor: f adımı o bilgisayarda yapıldı mı, tarayıcı kapatılıp açıldı mı? Adres `https://<IP>:8443` biçiminde ve b'de verilen IP ile aynı mı?

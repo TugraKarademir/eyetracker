@@ -1707,6 +1707,14 @@ function kareBaslik() {
     bsAd: KARE.bsAd, ekran: [screen.width, screen.height], pencere: [innerWidth, innerHeight], dpr: devicePixelRatio, pencereKonum: [screenX, screenY],
     n: KARE.kareler.length, tasma: KARE.tasma, hata: KARE.hata };
 }
+// Kalibrasyon (bakarak) sırasındaki ortalama 3B baş pozu: ders sayfası bundan sapmayı (ör. 15 cm yaklaşma) kaydeder. Kare kaydından;
+// yoksa null (uydurma yok).
+function basReferansi() {
+  const P = KARE.kareler.filter((r) => r.a === "bakarak" && !r.b && Array.isArray(r.p3) && r.p3.slice(0, 4).every(Number.isFinite));
+  if (P.length < 10) return null;
+  const ort = (j) => +(P.reduce((s, r) => s + r.p3[j], 0) / P.length).toFixed(2);
+  return { yaw: ort(0), pitch: ort(1), roll: ort(2), dist: ort(3), n: P.length, kaynak: "bakarak" };
+}
 function kareOzet() { return { n: KARE.kareler.length, tasma: KARE.tasma, dosya: KARE.gonderilen, hata: KARE.hata }; }
 async function kareGonder() {
   if (!KARE.kareler.length) return null;
@@ -2814,7 +2822,7 @@ $("#saveBtn").onclick = () => {
   const acc = med(last.map((c) => c.err)), hit3 = Math.round(100 * last.filter((c) => c.cellOk).length / last.length);
   const report = { acc, prec: null, hit3, deg: +(Math.atan((acc * 0.0265) / 55) * 180 / Math.PI).toFixed(1), at: Date.now(),
                    kamera: `${video.videoWidth}x${video.videoHeight}`, kaynak: "tıklama testi", n: clicks.length, kameraKonumu: camPos, profil, yuz,
-                   zoom: gaze.zoom || 1, zoomC: gaze.zoomC || null, gazelab: GLK.dog?.yontem?.[sec.kod] ? { acc: r1(GLK.dog.yontem[sec.kod].acc), prec: r1(GLK.dog.yontem[sec.kod].prec) } : null,
+                   basRef: basReferansi(), zoom: gaze.zoom || 1, zoomC: gaze.zoomC || null, gazelab: GLK.dog?.yontem?.[sec.kod] ? { acc: r1(GLK.dog.yontem[sec.kod].acc), prec: r1(GLK.dog.yontem[sec.kod].prec) } : null,
                    aktarim: { kod: ak ? sec.kod : "biz", ad: YONTEM[ak ? sec.kod : "biz"], gerekce: ak || sec.kod === "biz" ? sec.gerekce : `${sec.kod} modeli yok, ana model` } };
   if (profil) tlog(`göz/yüz profili kaydedildi: ekrana bakarken en yüksek kırpma ${profil.kirpmaMax.toFixed(2)} (ders sayfasında göz kapalı eşiği buna göre ayarlanır)`, profil);
   gaze.model = model; gaze.wgModel = modelM; gaze.geom = gaze._curGeom(); gaze.report = report;

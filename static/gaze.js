@@ -261,7 +261,7 @@ class GazeTracker {
     // WebGazer yöntemi: aynı karelerden, aynı kalibrasyon noktalarıyla eğitilen ikinci model (ayrı kütüphane çalışmaz)
     this.wgModel = null; this.wgClickF = []; this.wgClickY = []; this.wgPoint = null;
     // secim: bakış testinden aktarılan model (gzSecimYukle); yoksa ana model. Tıklamayla öğrenme yalnız ana modeli günceller.
-    this.secim = null; this.secimSon = []; this.secimSay = { ok: 0, yok: 0 }; this.kayma = gzKaymaBos();
+    this.secim = null; this.secimSon = []; this.secimSay = { ok: 0, yok: 0 }; this.kayma = gzKaymaBos(); this.tikHatalar = [];
     this.wfx = new OneEuro(); this.wfy = new OneEuro(); this.wgAssigner = new RegionAssigner();
     this.point = null; this.region = null; this.stale = false;
     this.win = { n: 0, counts: {}, pts: [], scr: [], wgN: 0, wgCounts: {} };
@@ -654,13 +654,29 @@ class GazeTracker {
 
   // ---- tıklamayla öğrenme (webgaze learn_click)
   // Ham kayıt için: { x, y, n } (px, ekran) — düzeltme yoksa n 0
+  tikAl() { const L = this.tikHatalar; this.tikHatalar = []; return L; }
   kaymaBilgi() { return this.secim ? { x: Math.round(this.kayma.x), y: Math.round(this.kayma.y), n: this.kayma.n } : null; }
   learnClick(e) {
     this._learnOffset(e);
     if (!this.model || !this.model.F || this.calibrating || this.stale) return;
     const now = performance.now() / 1000;
+    // Tıklama hatası kaydı (ders ölçümü): tıklamadan hemen önceki karelerde gösterilen nokta, seçilen model (düzeltmesiz) ve ana model
+    // tahmini; ekran px. Hiçbir modeli değiştirmez. student.js tikAl() ile alıp sunucuya gönderir.
+    const W = this.hist.filter((h) => h.t >= now - GZ.CLICK_WINDOW[0] && h.t <= now - GZ.CLICK_WINDOW[1]);
+    const kay0 = this.kayma;
+    if (W.length >= 2) {
+      const ort = (L, f) => (L.length ? [0, 1].map((k) => Math.round(L.reduce((s, h) => s + f(h)[k], 0) / L.length)) : null);
+      const S = W.filter((h) => h.s), ana = ort(W, (h) => this.model.predict(h.f)), sec = ort(S, (h) => h.p);
+      const gos = sec ? [sec[0] + Math.round(kay0.x), sec[1] + Math.round(kay0.y)] : ana;
+      const hata = (q) => (q ? Math.round(Math.hypot(q[0] - e.screenX, q[1] - e.screenY)) : null);
+      const hedefEl = e.target?.closest?.("button,a,input,label,[id]");
+      this.tikHatalar.push({ t: Date.now(), tik: [Math.round(e.screenX), Math.round(e.screenY)], kare: W.length, model: this.secim?.kod || "biz",
+        gosterilen: gos, secim: sec, ana, hataGosterilen: hata(gos), hataSecim: hata(sec), hataAna: hata(ana), kayma: this.kaymaBilgi(),
+        hedef: hedefEl ? `${hedefEl.tagName.toLowerCase()}${hedefEl.id ? "#" + hedefEl.id : ""}`.slice(0, 40) : null });
+      if (this.tikHatalar.length > 200) this.tikHatalar.shift();
+    }
     if (this.secim) {   // seçilen modelin kayma düzeltmesi (ana modelin tıklamayla öğrenmesinden bağımsız)
-      const R = this.hist.filter((h) => h.s && h.t >= now - GZ.CLICK_WINDOW[0] && h.t <= now - GZ.CLICK_WINDOW[1]);
+      const R = W.filter((h) => h.s);
       if (R.length >= 2) {
         const p = [0, 1].map((k) => R.reduce((s, h) => s + h.p[k], 0) / R.length);
         this.kayma = gzKaymaGuncelle(this.kayma, e.screenX - p[0], e.screenY - p[1]);

@@ -52,6 +52,7 @@ KAYIT = kayit.ac(os.path.join(DATA, "dersler.db"))   # kalıcı ders kaydı; yaz
 
 # ---- Bakış testi verileri GazeLab biçiminde (gazelab/server.py şeması + yöntem sütunu + yöntem özeti)
 GL_DB = os.path.join(TEST_DIR, "gazelab.db")
+OLCUM_MAX_BYTES = 256_000   # ders bakış ölçümleri (kontrol noktaları, tıklama hataları) tek istekte
 KARE_MAX_BYTES = 64_000_000   # bakış testi kare başına öznitelik dosyası (ortak eğitim; ~1500 kare × göz kesiti ≈ 10-15 MB); aşılırsa hata
 ISI_MAX_BYTES = 64_000_000   # ısı testi ayrı dosyası (10 görsel × 60 sn ≈ 12 MB); aşılırsa hata, kırpma yok
 GL_LOCK = threading.Lock()
@@ -1350,6 +1351,35 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[testlog] kare verisi {ad} ({len(b['kareler'])} kare, {n} bayt)")
         self.send_json({"ok": True, "dosya": ad, "bayt": n, "kare": len(b["kareler"])})
 
+    def ders_olcum(self):
+        """Ders sırasındaki bakış hatası ölçümleri (ders içi / ders sonu kontrol noktası, tıklama hatası): her öğe bir satır olarak
+        test_kayitlari/ders_olcum/<DERS>_<sid>.jsonl dosyasına EKLENİR. Ders bitmiş olabilir (ders sonu kontrolü); öğrenci kayıtlı olmalı."""
+        n = int(self.headers.get("Content-Length") or 0)
+        if n <= 0 or n > OLCUM_MAX_BYTES:
+            return self.err(f"geçersiz uzunluk (sınır {OLCUM_MAX_BYTES})", 413 if n > 0 else 400)
+        try:
+            b = json.loads(self.rfile.read(n).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            return self.err("Geçersiz JSON")
+        if not isinstance(b, dict):
+            return self.err("nesne bekleniyor")
+        ders, sid, L = b.get("code"), b.get("sid"), b.get("olcum")
+        if not (isinstance(ders, str) and re.fullmatch(r"[A-Z0-9]{1,20}", ders) and isinstance(sid, str) and re.fullmatch(r"s_[0-9a-f]{4,40}", sid)):
+            return self.err("geçersiz ders/öğrenci")
+        if not isinstance(L, list) or not L or len(L) > 300 or not all(isinstance(o, dict) for o in L):
+            return self.err("olcum: nesne dizisi bekleniyor (1-300)")
+        with LOCK:
+            var = kayit.ogrenci_var(KAYIT, ders, sid)
+        if not var:
+            return self.err("öğrenci bulunamadı", 404)
+        klasor = os.path.join(TEST_DIR, "ders_olcum")
+        os.makedirs(klasor, exist_ok=True)
+        t = now()
+        with TESTLOG_LOCK, open(os.path.join(klasor, f"{ders}_{sid}.jsonl"), "a", encoding="utf-8") as f:
+            for o in L:
+                f.write(json.dumps({"sunucuT": t, **o}, ensure_ascii=False) + "\n")
+        self.send_json({"ok": True, "n": len(L)})
+
     def teacher_ok(self, cls, key):
         return bool(key) and secrets.compare_digest(str(key).encode("utf-8"), cls["teacher_key"].encode("utf-8"))
 
@@ -1691,6 +1721,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.test_log_isi()
         if u.path == "/api/testlog-kare":
             return self.test_log_kare()
+        if u.path == "/api/olcum":
+            return self.ders_olcum()
         if u.path == "/api/material":
             return self.material_upload(parse_qs(u.query))
         try:

@@ -119,7 +119,7 @@
         if (m === onceki) govde = { ...govde, kurulum: { ...govde.kurulum, cihazTam: "=onceki" } };
         else onceki = m;
       }
-      const o = { t: k.t, yerel: yerelIso(k.t), sunucu: k.sunucu ?? "bekliyor", govde };
+      const o = { t: k.t, yerel: yerelIso(k.t), sunucu: k.sunucu ?? "bekliyor", ...(k.olcum ? { olcum: k.olcum } : { govde }) };
       if (i === 0) return JSON.stringify({ not: 'govde.kurulum.cihazTam "=onceki" ise bir önceki satırdaki cihazTam ile aynıdır (yinelenmesin diye yazılmadı).', ...o });
       return JSON.stringify(o);
     });
