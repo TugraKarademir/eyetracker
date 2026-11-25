@@ -158,7 +158,7 @@ Sertifikadan sonra, otomatik yedek indirmeleri hiç engellenmesin diye her lab b
 Write-Output "https://<IP>:8443/student.html"
 ```
 
-**h. Veri nerede.** Tüm ders verisi yalnız öğretmen bilgisayarında: `E:\eyetracker\data` (ders/öğrenci kayıtları) ve `E:\eyetracker\test_kayitlari` (bakış testi kayıtları). Ders bitince yedekle:
+**h. Veri nerede.** Tüm ders verisi yalnız öğretmen bilgisayarında: `E:\eyetracker\data` (ders/öğrenci kayıtları) ve `E:\eyetracker\test_kayitlari` (bakış testi kayıtları; `<kimlik>_kare.json` = kare başına öznitelikler, ortak model eğitimi için). Ders bitince yedekle:
 
 ```powershell
 Compress-Archive -Path E:\eyetracker\data, E:\eyetracker\test_kayitlari -DestinationPath "E:\ders_yedek_$(Get-Date -Format yyyyMMdd_HHmm).zip"
@@ -184,7 +184,7 @@ Object.keys(localStorage).filter(k=>k.startsWith("dn_")).forEach(k=>localStorage
 ```
 
 - Sitenin yazdığı anahtarlar: `dn_student`, `dn_bakis_tamam_<DERSKODU>`, `dn_gaze_v2_<…>`, `dn_yuz_profili`, `dn_kamera_yeri`, `dn_kamera_zoom`, `dn_ls_base`, `dn_auto_hand`, `dn_hse`.
-- İndirilen yedek dosyalar: lab bilgisayarı Downloads klasörüne otomatik indirir: kalibrasyon sonunda `dersnabzi_<DERS>_<ad>_<tarih>_bakis.json` ve `..._bakis_ozet.csv`, ders sonunda `..._ders.csv` ve `..._ders.json` (öğrenci sayfasındaki "Ders verimi indir" düğmesi de aynısını indirir). Chrome ilk indirmede bir kez "birden fazla dosya indirilsin mi?" diye sorabilir: **İzin ver**. Silmeden önce isterseniz bu dosyaları USB belleğe ya da öğretmen bilgisayarına kopyalayın; sonra elle silin (önce listele, sonra sil):
+- İndirilen yedek dosyalar: lab bilgisayarı Downloads klasörüne otomatik indirir: kalibrasyon sonunda `dersnabzi_<DERS>_<ad>_<tarih>_bakis.json`, `..._bakis_ozet.csv` ve `..._bakis_kare.json` (kare başına öznitelikler, ortak eğitim için; birkaç MB), ders sonunda `..._ders.csv` ve `..._ders.json` (öğrenci sayfasındaki "Ders verimi indir" düğmesi de aynısını indirir). Chrome ilk indirmede bir kez "birden fazla dosya indirilsin mi?" diye sorabilir: **İzin ver**. Silmeden önce isterseniz bu dosyaları USB belleğe ya da öğretmen bilgisayarına kopyalayın; sonra elle silin (önce listele, sonra sil):
 
 ```powershell
 Get-ChildItem "$env:USERPROFILE\Downloads\dersnabzi_*"

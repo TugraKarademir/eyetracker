@@ -702,6 +702,41 @@ class SaglikVeVeriKlasoru(unittest.TestCase):
                 self.assertEqual(f.read().strip(), anahtar)
 
 
+class KareKaydi(unittest.TestCase):
+    """/api/testlog-kare: bakış testi kare başına öznitelikleri ayrı dosyaya yazılır (ortak eğitim)."""
+    def setUp(self):
+        self.base, self.kapat = basla()
+        self.addCleanup(self.kapat)
+        self.td = tempfile.mkdtemp()
+        eski = server.TEST_DIR
+        server.TEST_DIR = self.td
+        self.addCleanup(lambda: (setattr(server, "TEST_DIR", eski), shutil.rmtree(self.td, ignore_errors=True)))
+
+    def test_gecerli_yazilir_ve_ustune_yazilir(self):
+        govde = {"kareKimlik": "20261125_090000_ab12", "baslik": {"surum": 1}, "kareler": [{"a": "bakarak", "t": 5, "h": [100, 200, 1]}]}
+        kod, r = post(self.base, "/api/testlog-kare", govde)
+        self.assertEqual((kod, r["ok"], r["dosya"], r["kare"]), (200, True, "20261125_090000_ab12_kare.json", 1))
+        govde["kareler"].append({"a": "bakarak", "t": 70})
+        kod, r = post(self.base, "/api/testlog-kare", govde)
+        self.assertEqual((kod, r["kare"]), (200, 2))
+        with open(os.path.join(self.td, r["dosya"]), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), govde)
+        self.assertEqual(sorted(os.listdir(self.td)), ["20261125_090000_ab12_kare.json"])   # .tmp kalmaz
+
+    def test_gecersiz_reddedilir(self):
+        for g in ({"kareKimlik": "20261125_090000_ab12", "kareler": {}}, {"kareKimlik": "../../x", "kareler": []},
+                  {"kareKimlik": "20261125_090000_a/b", "kareler": []}, {"kareKimlik": None, "kareler": []}):
+            kod, _ = post(self.base, "/api/testlog-kare", g)
+            self.assertEqual(kod, 400, g)
+        self.assertEqual(os.listdir(self.td), [])
+
+    def test_fazla_boyut_reddedilir(self):
+        with unittest.mock.patch.object(server, "KARE_MAX_BYTES", 200):
+            kod, r = post(self.base, "/api/testlog-kare", {"kareKimlik": "20261125_090000_ab12", "kareler": ["y" * 500]})
+        self.assertEqual(kod, 413)
+        self.assertEqual(os.listdir(self.td), [])
+
+
 class IsiTestiKaydi(unittest.TestCase):
     """/api/testlog-isi: ısı testi ham verisi ana test kaydından ayrı dosyaya yazılır."""
     def setUp(self):

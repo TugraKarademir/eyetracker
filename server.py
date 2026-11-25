@@ -52,6 +52,7 @@ KAYIT = kayit.ac(os.path.join(DATA, "dersler.db"))   # kalıcı ders kaydı; yaz
 
 # ---- Bakış testi verileri GazeLab biçiminde (gazelab/server.py şeması + yöntem sütunu + yöntem özeti)
 GL_DB = os.path.join(TEST_DIR, "gazelab.db")
+KARE_MAX_BYTES = 64_000_000   # bakış testi kare başına öznitelik dosyası (ortak eğitim; ~1500 kare × göz kesiti ≈ 10-15 MB); aşılırsa hata
 ISI_MAX_BYTES = 64_000_000   # ısı testi ayrı dosyası (10 görsel × 60 sn ≈ 12 MB); aşılırsa hata, kırpma yok
 GL_LOCK = threading.Lock()
 # Bakış testi kaydı (kimlikli, aynı dosyanın üzerine yazılan): yazma sırası ve geri gitme koruması.
@@ -1322,6 +1323,33 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[testlog] ısı verisi {ad} ({n} bayt)")
         self.send_json({"ok": True, "dosya": ad, "bayt": n})
 
+    def test_log_kare(self):
+        """Bakış testi kare başına öznitelikleri (ortak eğitim için) ana kayıttan AYRI dosyaya yazar: test_kayitlari/<kimlik>_kare.json.
+        Aynı kimlik ikinci kez gelirse dosya üzerine yazılır (geçici dosya + os.replace). Sınır KARE_MAX_BYTES; aşılırsa kırpılmaz, hata döner."""
+        n = int(self.headers.get("Content-Length") or 0)
+        if n <= 0:
+            return self.err("geçersiz uzunluk")
+        if n > KARE_MAX_BYTES:
+            return self.err(f"kare verisi çok büyük ({n} bayt, sınır {KARE_MAX_BYTES}); kırpılmadı, yazılmadı", 413)
+        try:
+            b = json.loads(self.rfile.read(n).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            return self.err("Geçersiz JSON")
+        if not isinstance(b, dict) or not isinstance(b.get("kareler"), list):
+            return self.err("kareler dizisi bekleniyor")
+        kimlik = b.get("kareKimlik")
+        if not isinstance(kimlik, str) or not re.fullmatch(r"\d{8}_\d{6}_[A-Za-z0-9-]{4,40}", kimlik):
+            return self.err("geçersiz kareKimlik")
+        ad = f"{kimlik}_kare.json"
+        os.makedirs(TEST_DIR, exist_ok=True)
+        yol = os.path.join(TEST_DIR, ad)
+        with TESTLOG_LOCK:
+            with open(yol + ".tmp", "w", encoding="utf-8") as f:
+                json.dump(b, f, ensure_ascii=False)
+            os.replace(yol + ".tmp", yol)
+        print(f"[testlog] kare verisi {ad} ({len(b['kareler'])} kare, {n} bayt)")
+        self.send_json({"ok": True, "dosya": ad, "bayt": n, "kare": len(b["kareler"])})
+
     def teacher_ok(self, cls, key):
         return bool(key) and secrets.compare_digest(str(key).encode("utf-8"), cls["teacher_key"].encode("utf-8"))
 
@@ -1661,6 +1689,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.test_log()
         if u.path == "/api/testlog-isi":
             return self.test_log_isi()
+        if u.path == "/api/testlog-kare":
+            return self.test_log_kare()
         if u.path == "/api/material":
             return self.material_upload(parse_qs(u.query))
         try:

@@ -1428,6 +1428,7 @@ async function guideFinish(neden) {
   }
   // Önce ısı verisi: ana kayıttaki ısı testi özeti (ayriGonderildi, isiTestiDosya) gönderimin gerçek sonucunu göstersin. Biri başarısız olsa da diğeri gider.
   const isiDosya = await isiTestiGonder(null);
+  await kareGonder();   // kare başına öznitelikler (ortak eğitim): ana kayıttan önce, ana kayıttaki "kare" özeti sonucu göstersin
   KAYIT_SONUC = { durum: "bitti", glAcc: GLK.dog?.yontem?.biz?.acc ?? null, model: kayit ? SON_AKTARIM?.ad ?? YONTEM.biz : null };
   taniOzetYaz();
   const dosya = await testKaydiGonder(KAYIT_SURE.son);   // en çok KAYIT_SURE.son bekler; başarısızsa sonuç ekranı yine çizilir
@@ -1464,6 +1465,8 @@ function gomuluYedekIndir() {
     DNYedek.indir(DNYedek.csvMetni([{ baslik: "Yöntemler", rows: tablo(glYontemTablosu) }, { baslik: "Aşamalar", rows: tablo(glFazTablosu) },
       { baslik: "Oturum", rows: tablo(glOturumTablosu) }, { baslik: "Cihaz", rows: cihaz }]), kok("bakis_ozet.csv"), "text/csv;charset=utf-8"); n++;
   } catch (e) { console.warn("yedek CSV", e); }
+  try { if (KARE.kareler.length) { DNYedek.indir(JSON.stringify({ ...BAGLAM, kareKimlik: KAYIT_KIMLIK, baslik: kareBaslik(), kareler: KARE.kareler }), kok("bakis_kare.json"), "application/json"); n++; } }
+  catch (e) { console.warn("yedek kare", e); }
   return n > 0;
 }
 // Çerçeveden çıkış: önce yedek (eşzamanlı), sonra kısa bir an "indiriliyor" yazısı, sonra derse dönüş (çerçeve ancak o zaman kapanır)
@@ -1642,7 +1645,7 @@ async function testKaydiGonderNow(sureMs) {
   const ac = new AbortController(), zaman = setTimeout(() => ac.abort(), sureMs);
   try {
     const cihaz = navigator.userAgent.match(/Android[^;)]*|iPhone|Windows NT [\d.]+|Mac OS X/)?.[0] || "bilinmiyor";
-    const govde = JSON.stringify({ kimlik: KAYIT_KIMLIK, ...BAGLAM, ...KAYIT_SONUC, cihaz, ua: navigator.userAgent, cihaz2: cihaz2(), cihazTam: CIHAZ_TAM, ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, log: testLog, tiklamaOz: tiklamaOz, gazelab: glPaket() });
+    const govde = JSON.stringify({ kimlik: KAYIT_KIMLIK, ...BAGLAM, ...KAYIT_SONUC, cihaz, ua: navigator.userAgent, cihaz2: cihaz2(), cihazTam: CIHAZ_TAM, ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, log: testLog, tiklamaOz: tiklamaOz, kare: kareOzet(), gazelab: glPaket() });
     SON_GOVDE = govde;
     const r = await fetch("/api/testlog", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal, body: govde });
     const j = await r.json();
@@ -1671,6 +1674,52 @@ async function isiTestiGonder(anaDosya) {
   } catch (e) {
     const neden = e.name === "AbortError" ? `${Math.round(sureMs / 1000)} sn içinde yanıt gelmedi` : e.message;
     tlog(`ısı testi verisi gönderilemedi: ${neden}`); kayitHataGoster(neden, "Isı testi verisi"); return null;
+  } finally { clearTimeout(zaman); }
+}
+// ---- Kare başına öznitelik kaydı (ortak eğitim; eğitim sayfası tasarımı 4a). Her aşamada (ısı testi hariç) her MediaPipe karesi:
+// aşama, aşama içi zaman (gazelab recordings ile aynı saat), ekrandaki hedef nokta (pencere px; yoksa null), kırpma, bizim ham vektör,
+// 3B baş pozu, blendshape'ler, iris mm, 2B yüz, WebGazer göz yaması, göz küresi açıları, RealEye göz kesiti (hesaplandıysa).
+// Hiçbir modeli/akışı değiştirmez; yalnız okur. Ayrı dosyaya gönderilir (/api/testlog-kare) ve gömülü modda yerel yedekle de iner.
+const KARE = { kareler: [], tasma: 0, gonderilen: null, hata: null, bsAd: null, EN_COK: 20000, hedefNo: 0, hedefEl: null };
+const yuv = (v, d) => (v == null || !Number.isFinite(v) ? null : +v.toFixed(d));
+const dizi = (a, d) => (Array.isArray(a) || ArrayBuffer.isView(a) ? Array.from(a, (v) => yuv(v, d)) : null);
+function kareHedef() {   // ekrandaki ilk hedef noktası (.tgt); yeni nokta çıkınca numara artar
+  const el = document.querySelector(".tgt"); if (!el) return null;
+  if (el !== KARE.hedefEl) { KARE.hedefEl = el; KARE.hedefNo++; }
+  const x = parseFloat(el.style.left), y = parseFloat(el.style.top);
+  return Number.isFinite(x) && Number.isFinite(y) ? [Math.round(x), Math.round(y), KARE.hedefNo] : null;
+}
+function kareKaydet(l, t, c) {
+  try {
+    if (c.stimulus_id === "isi_testi") return;
+    if (KARE.kareler.length >= KARE.EN_COK) { KARE.tasma++; return; }
+    if (l.bs && !KARE.bsAd) KARE.bsAd = Object.keys(l.bs);
+    const o = gaze._off?.(), p3 = l.pose3;
+    KARE.kareler.push({ a: c.stimulus_id, t, kt: yuv(l.t, 4), h: kareHedef(), b: l.blink ? 1 : 0, ac: yuv(l.open, 4),
+      raw: dizi(l.raw, 5), p3: p3 ? ["yaw", "pitch", "roll", "dist", "tx", "ty", "tz"].map((k) => yuv(p3[k], 3)) : null,
+      bs: l.bs && KARE.bsAd ? KARE.bsAd.map((k) => yuv(l.bs[k], 4)) : null, ir: l.irisMm ? [yuv(l.irisMm.sag, 3), yuv(l.irisMm.sol, 3)] : null,
+      y2: l.yuz2d ? [yuv(l.yuz2d.nx, 1), yuv(l.yuz2d.ny, 1), yuv(l.yuz2d.size, 1)] : null, off: o ? [Math.round(o.x), Math.round(o.y)] : null,
+      wg: dizi(l.wgp, 1), ku: dizi(l.kure, 4), re: dizi(l.re, 3) });
+  } catch (e) { KARE.hata = String(e?.message || e); }
+}
+function kareBaslik() {
+  return { surum: 1, aciklama: "her satır bir MediaPipe karesi; a=aşama, t=aşama içi ms (gazelab recordings saati), kt=kare zamanı sn, h=[hedef x, hedef y, hedef no] pencere px (yoksa null), b=kırpma, ac=göz açıklığı, raw=bizim ham vektör, p3=[yaw,pitch,roll,dist,tx,ty,tz], bs=blendshape (bsAd sırası), ir=iris mm [sağ,sol], y2=[burun x,y, göz köşesi arası] video px, off=sayfa ofseti px, wg=WebGazer göz yaması, ku=göz küresi açıları, re=RealEye göz kesiti (yalnız hesaplandıysa)",
+    bsAd: KARE.bsAd, ekran: [screen.width, screen.height], pencere: [innerWidth, innerHeight], dpr: devicePixelRatio, pencereKonum: [screenX, screenY],
+    n: KARE.kareler.length, tasma: KARE.tasma, hata: KARE.hata };
+}
+function kareOzet() { return { n: KARE.kareler.length, tasma: KARE.tasma, dosya: KARE.gonderilen, hata: KARE.hata }; }
+async function kareGonder() {
+  if (!KARE.kareler.length) return null;
+  const sureMs = KAYIT_SURE.son, ac = new AbortController(), zaman = setTimeout(() => ac.abort(), sureMs);
+  try {
+    const r = await fetch("/api/testlog-kare", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
+      body: JSON.stringify({ ...BAGLAM, kareKimlik: KAYIT_KIMLIK, ana: KAYIT_KIMLIK, baslik: kareBaslik(), kareler: KARE.kareler }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || r.status);
+    tlog(`kare verisi bilgisayara gönderildi: test_kayitlari/${j.dosya} (${j.kare} kare, ${j.bayt} bayt)`); kayitHataKaldir("Kare verisi"); KARE.gonderilen = j.dosya; return j.dosya;
+  } catch (e) {
+    const neden = e.name === "AbortError" ? `${Math.round(sureMs / 1000)} sn içinde yanıt gelmedi` : e.message;
+    tlog(`kare verisi gönderilemedi: ${neden}`); kayitHataGoster(neden, "Kare verisi"); return null;
   } finally { clearTimeout(zaman); }
 }
 function guideStop() {
@@ -1840,6 +1889,7 @@ function glTahmin(b, o) {
 function glReset() {
   KAYIT_SONUC = {};   // yeniden kalibrasyon: öğretmen panelinde yeniden "sürüyor"
   glFazBitir(); GLK.recs = []; GLK.bazOrnek = []; GLK.headBase = null; GLK.dog = null; GLK.bitti = false; ISI.veri = null; ISI.kimlik = null; ISI.gonderilen = null; ISI.anaDosya = null;
+  KARE.kareler = []; KARE.tasma = 0; KARE.gonderilen = null; KARE.hata = null; KARE.bsAd = null;
   $("#isiGorunum")?.remove(); $("#isiBtn").style.display = "none";
   Object.assign(ISIG, { gi: 0, a: 0, b: null, degisti: false, durum: "" });   // görünüm durumu yeni oturuma taşınmaz
   GLK.sure = { basla: simdi() }; GLK.basEpoch = Date.now() / 1000;
@@ -1932,6 +1982,7 @@ function glKare(l) {   // her yeni MediaPipe karesinde (start() içindeki tampon
   const c = GLK.cur; if (!c) return;
   const t = Math.round(simdi() - c.t0);
   if (hs && t - c.lastHead >= 100) { c.lastHead = t; c.headRaw.push([t, hs]); }   // baş pozu ~10 Hz (gazelab)
+  kareKaydet(l, t, c);
   if (l.blink) { c.kirpma++; if (ISI.aktif) isiKare(t, l, null); return; }
   const P = glTahmin(l, gaze._off());
   for (const [k, q] of Object.entries(P)) (c.gaze[k] ||= []).push([t, Math.round(q[0]), Math.round(q[1])]);
