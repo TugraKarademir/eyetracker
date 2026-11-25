@@ -4,11 +4,13 @@
 //
 // Mesajlar:
 //   gelen  {tip:"kur", base, model}                → giden {tip:"hazir", delegate, gpuHata} | {tip:"kurHata", e}
-//   gelen  {tip:"kare", id, bmp: ImageBitmap} → giden {tip:"sonuc", id, res, ms, bmp} | {tip:"hata", id, e, bmp}
+//   gelen  {tip:"kare", id, bmp: ImageBitmap, kalite} → giden {tip:"sonuc", id, res, ms, bmp, q?, kaliteMs?} | {tip:"hata", id, e, bmp}
+//   kalite: true ise görüntü kalitesi (kalite.js gzKaliteKesit) burada hesaplanır (ana iş parçacığı görüntü okumaz); yüz yoksa q = null
 //   bmp her durumda ana iş parçacığına geri aktarılır (göz yamaları aynı kareden kesilir); id bayat yanıtı ayırmak için.
 // detectForVideo zaman damgası worker'ın kendi saatinden, kesin artan (ana yol da detect anının performance.now()'unu verir;
 // worker'ın saat başlangıcı ana iş parçacığınınkinden farklı olduğu için ana saatten gelen değer kullanılmaz).
-let isaretci = null, sonTs = 0;
+importScripts("kalite.js");   // gzKalite, gzKaliteKesit (worker betiğiyle aynı klasör)
+let isaretci = null, sonTs = 0, qCtx = null;
 const ts = () => (sonTs = Math.max(performance.now(), sonTs + 0.001));
 
 async function kur({ base, model }) {
@@ -48,7 +50,19 @@ onmessage = async (e) => {
     const t0 = performance.now();
     try {
       const r = isaretci.detectForVideo(m.bmp, ts()), ms = performance.now() - t0;   // ms: saf detect (ana yoldaki islemeMs ile aynı anlam)
-      postMessage({ tip: "sonuc", id: m.id, res: yalin(r), ms, bmp: m.bmp }, [m.bmp]);
+      const ek = {};
+      if (m.kalite) {
+        const k0 = performance.now(), lm = r.faceLandmarks?.[0];
+        try {
+          if (lm && lm.length >= 478) {
+            if (!qCtx) qCtx = new OffscreenCanvas(64, 64).getContext("2d", { willReadFrequently: true });
+            const w = m.bmp.width, h = m.bmp.height;
+            ek.q = gzKaliteKesit(qCtx, m.bmp, lm.map((q) => [q.x * w, q.y * h]), w, h);
+          } else ek.q = null;
+        } catch { ek.q = null; }
+        ek.kaliteMs = performance.now() - k0;
+      }
+      postMessage({ tip: "sonuc", id: m.id, res: yalin(r), ms, bmp: m.bmp, ...ek }, [m.bmp]);
     } catch (x) {
       postMessage({ tip: "hata", id: m.id, e: String(x?.message || x).slice(0, 160), bmp: m.bmp }, [m.bmp]);
     }

@@ -120,6 +120,7 @@ body.gomulu #adimCubuk { font-size: 14px; line-height: 22px; padding: 2px 14px; 
 <script src="/karma.js"></script>
 <script src="/bas_arindir.js"></script>
 <script src="/common.js"></script>
+<script src="/kalite.js"></script>
 <script src="/gaze.js"></script>
 <script src="/gazelab_stats.js"></script>
 <script src="/isi_testi.js"></script>
@@ -1943,7 +1944,7 @@ function glFazBasla(ad) {
   const d = gaze?.diag || {};
   GLK.cur = { stimulus_id: ad, order_idx: GLK.recs.length, started_at: Date.now() / 1000, t0: simdi(),
     rect: { left: 0, top: 0, scale: 1, viewW: innerWidth, viewH: innerHeight, width: innerWidth, height: innerHeight },
-    gaze: {}, headRaw: [], mouse: [], d0: { kare: d.kare || 0, yuz: d.yuz || 0, kameraKare: d.kameraKare ?? null, islemeMs: d.islemeMs || 0, toplamMs: d.toplamMs || 0, islemeN: d.islemeN || 0, gecikmeMs: d.gecikmeMs || 0, gecikmeN: d.gecikmeN || 0, isci: d.isci ?? null },
+    gaze: {}, headRaw: [], mouse: [], d0: { kare: d.kare || 0, yuz: d.yuz || 0, kameraKare: d.kameraKare ?? null, islemeMs: d.islemeMs || 0, toplamMs: d.toplamMs || 0, islemeN: d.islemeN || 0, gecikmeMs: d.gecikmeMs || 0, gecikmeN: d.gecikmeN || 0, isci: d.isci ?? null, kaliteMs: d.kaliteMs || 0, kaliteN: d.kaliteN || 0 },
     kirpma: 0, lastHead: -1e9, lastMove: -1e9, raf: 0, uzunN: 0, uzunMs: 0, uzunMax: 0, wgGecis: 0 };
   GLK.sure[ad + "Bas"] = simdi();
 }
@@ -1965,7 +1966,9 @@ function glFazBitir() {
     c.rect.islemeMs = n ? Math.round(((d.islemeMs || 0) - c.d0.islemeMs) / n) : null; c.rect.toplamMs = n ? Math.round(((d.toplamMs || 0) - c.d0.toplamMs) / n) : null;
     // İşleme yeri (aşama içinde işçi çökerse ana yola geçmiş olabilir) ve işçi gecikmesi (yalnız işçi yolunda ölçülür)
     c.rect.isci = c.d0.isci == null && d.isci == null ? null : c.d0.isci === d.isci ? !!d.isci : "gecis";
-    const gn = (d.gecikmeN || 0) - c.d0.gecikmeN; c.rect.gecikmeMs = gn ? Math.round(((d.gecikmeMs || 0) - c.d0.gecikmeMs) / gn) : null; }
+    const gn = (d.gecikmeN || 0) - c.d0.gecikmeN; c.rect.gecikmeMs = gn ? Math.round(((d.gecikmeMs || 0) - c.d0.gecikmeMs) / gn) : null;
+    // görüntü kalitesi hesabının kare başına süresi ve nerede yapıldığı (işçi: ana iş parçacığını yormaz)
+    const kn = (d.kaliteN || 0) - c.d0.kaliteN; c.rect.kaliteMs = kn ? +(((d.kaliteMs || 0) - c.d0.kaliteMs) / kn).toFixed(2) : null; c.rect.kaliteIsci = d.kaliteIsci ? 1 : 0; }
   c.head = c.headRaw.map(([t, s]) => { const h = GL.headDelta(s, GLK.headBase);
     return h ? [t, +h.yaw.toFixed(1), +h.pitch.toFixed(1), +h.roll.toFixed(1), +h.scale.toFixed(1), +h.shift.toFixed(1)] : null; }).filter(Boolean);
   for (const k of ["headRaw", "d0", "lastHead", "lastMove", "kirpma", "t0", "raf", "uzunN", "uzunMs", "uzunMax", "wgGecis"]) delete c[k];
@@ -2397,7 +2400,7 @@ function glFazTablosu() {
     const sn = r.rect.exposureMs / 1000, hs = GL.headSummary(r.head), biz = r.gaze.biz || [];
     const span = biz.length > 1 ? (biz.at(-1)[0] - biz[0][0]) / 1000 : 0;
     return { "Aşama": ad[r.stimulus_id] || r.stimulus_id, "Süre sn": r1(sn), "Kamera fps (gerçek)": sn && r.rect.kameraKare != null ? r1(r.rect.kameraKare / sn) : null,
-      "İşlenen kare": r.rect.kare, "İşleme fps": sn ? r1(r.rect.kare / sn) : null, "MediaPipe ms/kare": r.rect.islemeMs ?? null, "Toplam ms/kare": r.rect.toplamMs ?? null,
+      "İşlenen kare": r.rect.kare, "İşleme fps": sn ? r1(r.rect.kare / sn) : null, "MediaPipe ms/kare": r.rect.islemeMs ?? null, "Toplam ms/kare": r.rect.toplamMs ?? null, "Kalite ms/kare": r.rect.kaliteMs ?? null, "Kalite yeri": r.rect.kaliteMs == null ? null : r.rect.kaliteIsci ? "İşçi" : "Ana",
       "İşleme yeri": r.rect.isci === "gecis" ? "İşçi→Ana" : r.rect.isci == null ? null : r.rect.isci ? "İşçi" : "Ana",
       "İşçi gecikmesi ms/kare": r.rect.isci === false ? "veri yok" : r.rect.gecikmeMs ?? null,
       "Ekran çizim Hz (rAF)": r.rect.rafHz ?? null, "Uzun görev adet": r.rect.uzunGorevDestek ? r.rect.uzunGorev?.n ?? null : "ölçülemedi",

@@ -1,4 +1,4 @@
-// Kare kare kayıt satırı (static/kare_kayit.js), görüntü kalitesi (static/gaze.js gzKalite) ve olay günlüğü yardımcıları
+// Kare kare kayıt satırı (static/kare_kayit.js), görüntü kalitesi (static/kalite.js gzKalite, gzKaliteKesit) ve olay günlüğü yardımcıları
 // (static/olay_gunlugu.js). Çalıştırma: node tests/kare_olay.test.mjs
 //  1) gzKalite: düz gri görüntüde kontrast/netlik 0, sol-sağ fark ve aşırı/az pozlama oranları doğru; boşsa null
 //  2) satir: zaman (ep, ct, pf), kalite, iris mm dizileri (eskiden yanlışlıkla null yazılıyordu), yüzsüz kare yalnız zaman + yok=1;
@@ -9,13 +9,12 @@ import vm from "node:vm";
 import assert from "node:assert/strict";
 
 const oku = (f) => fs.readFileSync(new URL(`../static/${f}`, import.meta.url), "utf8");
-const g = oku("gaze.js");
-const ctx = vm.createContext({ Math, Number, JSON, Object, Array, Set, Float32Array, ArrayBuffer, globalThis: null });
+const ctx = vm.createContext({ Math, Number, JSON, Object, Array, Set, Float32Array, Uint8ClampedArray, ArrayBuffer, globalThis: null });
 ctx.globalThis = ctx;
-vm.runInContext(g.slice(g.indexOf("function gzKalite"), g.indexOf("// ham: [rx, ry, lx, ly, ro, lo, hy, hp]")) + "\nthis.gzKalite = gzKalite;", ctx);
+vm.runInContext(oku("kalite.js") + "\nthis.gzKalite = gzKalite; this.gzKaliteKesit = gzKaliteKesit;", ctx);
 vm.runInContext(oku("kare_kayit.js"), ctx);
 vm.runInContext(oku("olay_gunlugu.js"), ctx);
-const { gzKalite, KareKayit, OlayGunlugu } = ctx;
+const { gzKalite, gzKaliteKesit, KareKayit, OlayGunlugu } = ctx;
 
 // 1)
 const goruntu = (w, h, f) => { const d = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const v = f(x, y), i = 4 * (y * w + x); d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255; } return { data: d, width: w, height: h }; };
@@ -26,6 +25,21 @@ assert.equal(q[0], 127.5); assert.equal(q[1], 127.5); assert.equal(q[2], 255); a
 assert.ok(q[3] > 0);   // kenar var: netlik > 0
 assert.equal(gzKalite(null), null);
 assert.equal(gzKalite({ data: new Uint8ClampedArray(4), width: 1, height: 1 }), null);
+
+// 1b) gzKaliteKesit: yüz kutusu kare dışına taşsa da kırpılır (çizim kaynağı kare içinde kalır), 8 değer döner; küçük kutuda null
+{
+  const cizimler = [];
+  const sahte = { drawImage: (...a) => cizimler.push(a.slice(1, 5)), getImageData: () => goruntu(64, 64, (x, y) => (y < 32 ? 200 : 100)) };
+  const p = Array.from({ length: 478 }, () => [300, 200]);
+  p[10] = [250, -40]; p[152] = [350, 380]; p[234] = [-20, 200]; p[454] = [620, 200];   // alın kare üstünde, yanaklar kenar dışında
+  for (const i of [33, 133, 159, 145, 362, 263, 386, 374]) p[i] = [300 + (i % 7) * 5, 150 + (i % 3) * 4];
+  const q = gzKaliteKesit(sahte, null, p, 600, 360);
+  assert.equal(q.length, 8);
+  const [sx, sy, sw, sh] = cizimler[0];
+  assert.ok(sx >= 0 && sy >= 0 && sx + sw <= 600 && sy + sh <= 360, "kesit kare içinde kalmalı");
+  const kucuk = Array.from({ length: 478 }, () => [10, 10]);
+  assert.equal(gzKaliteKesit(sahte, null, kucuk, 600, 360), null);
+}
 
 // 2)
 const bsAd = ["eyeBlinkLeft", "jawOpen"];
