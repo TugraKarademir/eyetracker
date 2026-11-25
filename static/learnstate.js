@@ -42,13 +42,20 @@ class LearningStateEstimator {
     this.win = [];    // son WIN sn'nin gerçek örnekleri (karar girdisi)
     this.base = { valence: 0, arousal: 0, madV: null, madA: null, n: 0 }; this.baseReady = false;
     this.z = { v: null, a: null }; this.reason = "kalibre ediliyor"; this.stale = false;
-    this._restore();
+    this.anahtar = null;   // sahipAyarla çağrılana dek taban saklanmaz/yüklenmez (kişi bilinmiyor)
+  }
+  // Taban kişiye özgü: ders + öğrenci anahtarıyla saklanır (lab'da aynı tarayıcıyı farklı kişiler kullanır). Eski ortak anahtar silinir.
+  sahipAyarla(s) {
+    this.anahtar = s && s.ders && s.sid ? `dn_ls_base_${s.ders}_${s.sid}` : null;
+    try { localStorage.removeItem("dn_ls_base"); } catch {}
+    if (this.anahtar) this._restore();
   }
 
-  // Taban bu tarayıcıda saklanır (aynı kişi + kamera varsayımı). "Kalibre et" ile sıfırlanır.
+  // Taban bu tarayıcıda kişi anahtarıyla saklanır (sahipAyarla). "Kalibre et" ile sıfırlanır.
   _restore() {
     try {
-      const d = JSON.parse(localStorage.getItem("dn_ls_base") || "null");
+      if (!this.anahtar) return;
+      const d = JSON.parse(localStorage.getItem(this.anahtar) || "null");
       if (d && Array.isArray(d.hist) && d.hist.length >= LS_CFG.BASE_MIN) {
         this.hist = d.hist.slice(-LS_CFG.BASE_MAX).map((h) => ({ t: -1, v: h[0], a: h[1] }));
         this._recompute(); this.restored = d.at;
@@ -56,13 +63,13 @@ class LearningStateEstimator {
     } catch {}
   }
   _save() {
-    if (this.hist.length < LS_CFG.BASE_MIN || Date.now() - (this.savedAt || 0) < 10000) return;
+    if (!this.anahtar || this.hist.length < LS_CFG.BASE_MIN || Date.now() - (this.savedAt || 0) < 10000) return;
     this.savedAt = Date.now();
-    try { localStorage.setItem("dn_ls_base", JSON.stringify({ at: this.savedAt, hist: this.hist.map((h) => [+h.v.toFixed(3), +h.a.toFixed(3)]) })); } catch {}
+    try { localStorage.setItem(this.anahtar, JSON.stringify({ at: this.savedAt, hist: this.hist.map((h) => [+h.v.toFixed(3), +h.a.toFixed(3)]) })); } catch {}
   }
   resetBase() {
     this.hist = []; this.base = { valence: 0, arousal: 0, madV: null, madA: null, n: 0 }; this.baseReady = false; this.restored = null;
-    try { localStorage.removeItem("dn_ls_base"); } catch {}
+    try { if (this.anahtar) localStorage.removeItem(this.anahtar); } catch {}
   }
   _recompute() {
     const med = LearningStateEstimator._med, vs = this.hist.map((h) => h.v), as = this.hist.map((h) => h.a);

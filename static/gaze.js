@@ -32,6 +32,13 @@ const GZ = {
   MIN_HIT: 60,
 };
 
+// Kayıt sahibi eşleşmesi: istenen sahip yoksa (ders dışı sayfa) her kayıt kabul; varsa kayıt aynı ders ve aynı öğrenciye ait olmalı
+// (sahibi yazılmamış eski kayıt kabul edilmez).
+function gzSahipUyar(istenen, kayit) {
+  if (!istenen) return true;
+  return !!kayit && kayit.ders === istenen.ders && kayit.sid === istenen.sid;
+}
+
 // ---------------------------------------------------------------- özellikler
 function gzEyeFeatures(p, e) {
   const a = p[e.a], b = p[e.b];
@@ -695,10 +702,16 @@ class GazeTracker {
 
   // ---- kalıcılık: aynı pencere geometrisinde önceki kalibrasyon yeniden kullanılır
   _key() { const c = this._curGeom(); return `dn_gaze_v2_${c.sw}x${c.sh}@${c.dpr}`; }
-  save(secim = null) { store.set(this._key(), { geom: this.geom, model: this.model.toJSON(), wgModel: this.wgModel ? this.wgModel.toJSON() : null, report: this.report, secim }); }
+  // Kayıtlı kalibrasyon kime ait: sahip = { ders, sid } (sayfa ayarlar). Lab'da aynı bilgisayarı farklı kişiler kullanır (25.11 sorunu:
+  // önceki kişinin modeli yeni derste yükleniyordu). sahip ayarlıysa yalnız aynı ders + aynı öğrencinin kaydı yüklenir.
+  save(secim = null) { store.set(this._key(), { geom: this.geom, model: this.model.toJSON(), wgModel: this.wgModel ? this.wgModel.toJSON() : null, report: this.report, secim, sahip: this.sahip || null }); }
   restore() {
     const d = store.get(this._key());
     if (!d || !d.model) return false;
+    if (!gzSahipUyar(this.sahip, d.sahip)) {
+      this._klog(`kayıtlı kalibrasyon kullanılmadı: başka ders/öğrenciye ait (${d.sahip ? `${d.sahip.ders}/${d.sahip.sid}` : "sahibi yazılmamış eski kayıt"})`);
+      return false;
+    }
     // Kalibrasyon başka kamera çözünürlüğünde yapıldıysa (ör. eski 640x480) kullanılmaz: göz öznitelikleri farklı gürültüde
     const cam = `${this.video.videoWidth}x${this.video.videoHeight}`;
     if (!d.report || d.report.kamera !== cam) {

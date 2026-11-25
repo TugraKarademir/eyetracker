@@ -439,6 +439,8 @@ async function start() {
   // Olay günlüğü: sayfa/pencere/fare/klavye zamanı/kamera ayarı/yük/pil/ağ (olay_gunlugu.js); kare dosyasıyla gönderilir
   window.OlayGunlugu?.baslat({ yazilim: YAZILIM, track: stream.getVideoTracks()[0] });
   gaze = new GazeTracker(video, { onStatus: () => {} });
+  // kayıtlı kalibrasyon sahibi: ders bağlamında bu ders + öğrenci; tek başına testte "test" (önceki kişinin modeli yüklenmez)
+  gaze.sahip = BAGLAM ? { ders: BAGLAM.ders, sid: BAGLAM.sid } : { ders: "test", sid: null };
   await gaze.load();
   gaze.onLandmarks = reKanca;
   gaze.kaliteAcik = true;   // kare kaydı için görüntü kalitesi (q)
@@ -831,8 +833,10 @@ function guideShow() {
 }
 // ---- Yüz profili: kişinin yapısal yüz/göz durumu (nötr), gerçek kapalı göz seviyesi ve başı kameraya dönükken açısı.
 // Görüntü saklanmaz; yalnız sayılar (localStorage, cihazda).
+// Kişiye özgü: ders bağlamında yalnız aynı ders + öğrencinin profili yüklenir; ders dışı (tek başına) testte hiç yüklenmez
+// (25.11: önceki kişinin profili yeni kişinin testine ve raporuna taşınıyordu).
 let yuz = null;
-try { yuz = JSON.parse(localStorage.getItem("dn_yuz_profili") || "null"); } catch {}
+try { const d = JSON.parse(localStorage.getItem("dn_yuz_profili") || "null"); if (d && BAGLAM && d.sahip?.ders === BAGLAM.ders && d.sahip?.sid === BAGLAM.sid) yuz = d; } catch {}
 let audio = null;
 function sesAc() {   // düğme tıklaması içinde çağrılmalı (tarayıcı otomatik oynatma kuralı)
   try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume?.(); tlog(`ses: ${audio.state}`); } catch (e) { tlog("ses açılamadı: " + e.message); }
@@ -1006,7 +1010,7 @@ async function faceProfile() {
     gaze.yuzKapali = kapali.kirpma;   // bundan sonra kırpma kararı kişisel kapalı-göz değerine göre (gaze.js)
     tlog(`kırpma eşiği artık kişisel: ${(kapali.kirpma - 0.08).toFixed(2)} (gerçek kapalı göz ${kapali.kirpma.toFixed(2)}); aşağı bakış kapalı sayılmayacak`);
   } else { gaze.yuzKapali = null; tlog("kişisel kırpma eşiği kurulmadı (kapalı göz ölçülemedi); genel eşik kullanılıyor"); }
-  try { localStorage.setItem("dn_yuz_profili", JSON.stringify(yuz)); } catch {}
+  try { localStorage.setItem("dn_yuz_profili", JSON.stringify({ ...yuz, sahip: BAGLAM ? { ders: BAGLAM.ders, sid: BAGLAM.sid } : null })); } catch {}
   const r = (v, k = 2) => (v == null ? "-" : v.toFixed(k));
   tlog(`yüz profili: nötr açıklık ${r(notr.acik)} kırpma ${r(notr.kirpma)} | kapalı kırpma ${r(kapali.kirpma)} açıklık ${r(kapali.acik)} | kişisel eşik ${yuz.esik ?? "-"} | baş nötr yaw ${r(notr.yaw, 1)}° pitch ${r(notr.pitch, 1)}° uzaklık ${r(notr.uzak, 0)} cm ${kamera ? ` | kameraya dönük yaw ${r(kamera.yaw, 1)}° pitch ${r(kamera.pitch, 1)}°` : ""}`, yuz);
   if (yuz.kameraYuz) tlog(`kamera (nötr baş açısından): ${yuz.kameraYuz.yukariCm} cm yukarı, ${yuz.kameraYuz.sagCm} cm sağ (${yuz.kameraYuz.yukariDer}°, ${yuz.kameraYuz.sagDer}°, uzaklık ${yuz.kameraYuz.uzakCm} cm, yön işareti: ${yuz.kameraYuz.isaret}) | doğrulama: kameraya dönünce açı ${yuz.kameraYuz.donus ?? "-"}° azaldı${yuz.kameraYuz.tutarli === false ? " ⚠ TUTARSIZ (kameraya dönünce açı büyüdü)" : ""}`, yuz.kameraYuz);

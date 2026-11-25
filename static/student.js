@@ -10,8 +10,16 @@ const GELISMIS = params.get("gelismis") === "1";
 const NOKTA = params.get("nokta") !== "0";
 document.head.insertAdjacentHTML("beforeend", `<style>${GELISMIS ? ".basit" : ".gelismis"}{display:none!important}</style>`);
 $("#jCode").value = (params.get("code") || "").toUpperCase();
+// Önceki katılımlar: { [DERS]: { sid, ad } }. Ad önceden doldurulmaz (lab'da aynı bilgisayarı farklı kişiler kullanır);
+// eski kimlik yalnız aynı ders ve AYNI ad girilirse yeniden kullanılır, yoksa sunucu yeni öğrenci açar.
 const prev = store.get("dn_student") || {};
-if (prev.name) $("#jName").value = prev.name;
+const adAyni = (a, b) => typeof a === "string" && typeof b === "string" && a.trim().toLocaleLowerCase("tr") === b.trim().toLocaleLowerCase("tr");
+function oncekiSid(code, name) {
+  const k = prev[code];
+  if (k && typeof k === "object") return adAyni(k.ad, name) ? k.sid : undefined;
+  if (typeof k === "string") return adAyni(prev.name, name) ? k : undefined;   // eski biçim: { name, [DERS]: sid } (son girilen ad)
+  return undefined;
+}
 
 const show = (id) => ["joinView", "consentView", "classView", "endView"].forEach((v) => $("#" + v).classList.toggle("hidden", v !== id));
 
@@ -20,9 +28,11 @@ $("#joinForm").onsubmit = async (e) => {
   const code = $("#jCode").value.trim().toUpperCase(), name = $("#jName").value.trim();
   try {
     // KVKK onayı (sınıf testi 25.11): onay kutusu işaretlenmeden form gönderilmez; sunucu onaysız katılımı reddeder
-    const r = await api("/api/join", { code, name, sid: prev[code], onay: { surum: ONAY_SURUM, t: Date.now() / 1000 } });
+    const r = await api("/api/join", { code, name, sid: oncekiSid(code, name), onay: { surum: ONAY_SURUM, t: Date.now() / 1000 } });
     CODE = code; SID = r.sid; AD = name;
-    store.set("dn_student", { ...prev, name, [code]: r.sid });
+    const yeni = { ...prev, [code]: { sid: r.sid, ad: name } }; delete yeni.name;
+    store.set("dn_student", yeni);
+    ls.sahipAyarla?.({ ders: CODE, sid: SID });
     show("consentView");
   } catch (err) { $("#jErr").textContent = err.message; }
 };
@@ -455,6 +465,7 @@ function gazeStatus(s) {
 
 async function startGaze() {
   gaze = new GazeTracker($("#video"), { getRegions: gazeRegions, onStatus: gazeStatus });
+  gaze.sahip = { ders: CODE, sid: SID };   // kayıtlı kalibrasyon yalnız bu ders + bu öğrenciye aitse yüklenir
   if (NOKTA) {
     gaze.setShowDot(true); gaze.dot.classList.add("test-nokta"); gaze.dot.style.transform = "translate(-100px, -100px)";   // kalibrasyondan önce ekran dışında
     const k = $("#gazeDotChk"); k.checked = true; k.closest("label")?.classList.remove("gelismis");
@@ -484,7 +495,7 @@ setInterval(() => {
 // durur (iki MediaPipe aynı anda çalışıp kare hızını düşürmesin). Test, aktarım kuralıyla seçtiği modeli aynı tarayıcı deposuna
 // yazar (gaze.save); "Derse dön" (postMessage) ile çerçeve kapanınca model buraya yüklenir.
 let kalCerceve = null;
-const BAKIS_TAMAM = () => `dn_bakis_tamam_${CODE}`;   // bu derste bakış testi tamamlandı (kalibrasyon kaydedildi)
+const BAKIS_TAMAM = () => `dn_bakis_tamam_${CODE}_${SID}`;   // bu derste BU öğrenci bakış testini tamamladı (kalibrasyon kaydedildi)
 // Bakış testi kaydı derse bağlansın: ders kodu ve sid adreste, ad yalnız aynı kökenli çerçevenin okuduğu bu nesnede (adreste ad yok)
 window.dnBaglam = () => ({ ders: CODE, sid: SID, ad: AD });
 function bakisTestiAc() {
