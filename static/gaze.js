@@ -22,6 +22,7 @@ const GZ = {
   EYE_L: { a: 362, b: 263, top: 386, bot: 374, iris: [473, 474, 475, 476, 477] },
   SETTLE: 0.7, COLLECT: 1.0, SMOOTH: 3, BLINK: 0.15, BLINK_BS: 0.5, BLINK_DOWN: 0.3,
   CLICK_WINDOW: [0.35, 0.05], CLICK_WEIGHT: 3, CLICK_MAX: 600, CLICK_RADIUS: 300,
+  KAYMA_N: 8, KAYMA_TAM: 3, KAYMA_MAX: 400,   // seçilen model için ders tıklaması kayma düzeltmesi (gzKaymaGuncelle)
   SNAP: 60, HOLD: 4,
   // Pencere ekranın en az bu oranını kaplamalı (genişlik ve yükseklik ayrı). Bakış hatası ~250 px iken
   // dar bir pencerede bölgeler hatadan küçük kalır; ölçüm anlamsızlaşır, bu yüzden bakış hiç gönderilmez.
@@ -121,6 +122,19 @@ const gzWgOz = (w) => [0, 0, 0, 0, ...w];
 // Bakış testinin aktarım kuralıyla seçtiği model (bakis_test.html aktarimSec). biz dışındaki her yöntem kare başına kendi özniteliğini
 // ister: bizA bas_arindir.js, reL re_yama.js, karma/karmaH karma.js + re_yama.js (ders sayfası bunları yükler). l: gaze.latest.
 const GZ_SECIM_KOD = ["bizA", "bizW", "bizK", "kureM", "reL", "karma", "karmaH"];
+// Seçilen model (karmaH, reL …) ders sırasında yeniden eğitilemez (eğitim verisi saklanmaz). Onun yerine ders tıklamalarından
+// sabit kayma öğrenilir: her kabul edilen tıklamada hata (tıklama − düzeltmesiz tahmin) son KAYMA_N içinde tutulur; düzeltme
+// = medyan × min(1, n/KAYMA_TAM) (tek tıklama tam kaydırmaz), her eksende ±KAYMA_MAX ile sınırlı. Tıklama, düzeltilmiş tahminden
+// CLICK_RADIUS'tan uzaksa (kişi muhtemelen oraya bakmıyordu) alınmaz. Saf işlev: kay = { x, y, n, son: [[ex, ey], …] }.
+function gzKaymaGuncelle(kay, ex, ey) {
+  if (!Number.isFinite(ex) || !Number.isFinite(ey)) return kay;
+  if (Math.hypot(ex - kay.x, ey - kay.y) > GZ.CLICK_RADIUS) return kay;
+  const son = [...kay.son, [ex, ey]].slice(-GZ.KAYMA_N);
+  const med = (a) => { const b = [...a].sort((p, q) => p - q), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
+  const w = Math.min(1, son.length / GZ.KAYMA_TAM), sin = (v) => Math.max(-GZ.KAYMA_MAX, Math.min(GZ.KAYMA_MAX, v));
+  return { x: sin(med(son.map((e) => e[0])) * w), y: sin(med(son.map((e) => e[1])) * w), n: son.length, son };
+}
+const gzKaymaBos = () => ({ x: 0, y: 0, n: 0, son: [] });
 function gzSecimOz(S, l) {
   if (!l?.raw) return null;
   switch (S.kod) {
@@ -247,7 +261,7 @@ class GazeTracker {
     // WebGazer yöntemi: aynı karelerden, aynı kalibrasyon noktalarıyla eğitilen ikinci model (ayrı kütüphane çalışmaz)
     this.wgModel = null; this.wgClickF = []; this.wgClickY = []; this.wgPoint = null;
     // secim: bakış testinden aktarılan model (gzSecimYukle); yoksa ana model. Tıklamayla öğrenme yalnız ana modeli günceller.
-    this.secim = null; this.secimSon = []; this.secimSay = { ok: 0, yok: 0 };
+    this.secim = null; this.secimSon = []; this.secimSay = { ok: 0, yok: 0 }; this.kayma = gzKaymaBos();
     this.wfx = new OneEuro(); this.wfy = new OneEuro(); this.wgAssigner = new RegionAssigner();
     this.point = null; this.region = null; this.stale = false;
     this.win = { n: 0, counts: {}, pts: [], scr: [], wgN: 0, wgCounts: {} };
@@ -474,15 +488,18 @@ class GazeTracker {
     const f = gzModelFeatures(avg);
     let [px, py] = this.model.predict(f);                         // ekran koordinatı
     // Seçilen model: kare tahminlerinin son GZ.SMOOTH ortalaması; bu karede özniteliği çıkmazsa ana model kullanılır
+    let secimOk = false;
     if (this.secim) {
       let q = null; try { const v = gzSecimOz(this.secim, this.latest); if (v) q = this.secim.model.predict(v); } catch { q = null; }
       if (q && q.every(Number.isFinite)) {
+        secimOk = true;
         this.secimSon.push(q); if (this.secimSon.length > GZ.SMOOTH) this.secimSon.shift();
         px = this.secimSon.reduce((s, z) => s + z[0], 0) / this.secimSon.length; py = this.secimSon.reduce((s, z) => s + z[1], 0) / this.secimSon.length;
         this.secimSay.ok++;
       } else { this.secimSon = []; this.secimSay.yok++; }
     }
-    this.hist.push({ t, f, p: [px, py], w: wgp }); if (this.hist.length > 60) this.hist.shift();
+    this.hist.push({ t, f, p: [px, py], w: wgp, s: secimOk }); if (this.hist.length > 60) this.hist.shift();   // p: düzeltmesiz
+    if (secimOk && this.kayma.n) { px += this.kayma.x; py += this.kayma.y; }   // ders tıklamalarından öğrenilen kayma (yalnız seçilen model)
     const o = this._off();
     const x = this.fx.f(px, t) - o.x, y = this.fy.f(py, t) - o.y;   // pencere (CSS px) koordinatı
     this.point = [x, y];
@@ -625,7 +642,7 @@ class GazeTracker {
     this.model = GazeModel.from(d.model); this.geom = d.geom; this.report = d.report;
     if (d.report.zoom > 1.01) this.setZoom(d.report.zoom, d.report.zoomC);   // bakış testinin kamera ayarındaki yakınlaştırma
     this.wgModel = d.wgModel ? GazeModel.from(d.wgModel) : null; this.wgClickF = []; this.wgClickY = [];
-    this.secim = null; this.secimSon = []; this.secimSay = { ok: 0, yok: 0 };
+    this.secim = null; this.secimSon = []; this.secimSay = { ok: 0, yok: 0 }; this.kayma = gzKaymaBos();
     if (d.secim) {
       try { this.secim = gzSecimYukle(d.secim); } catch { this.secim = null; }
       this._klog(this.secim ? `aktarılan model: ${this.secim.ad} (${this.secim.kod}) — ${this.secim.gerekce || ""}` : `aktarılan model (${d.secim.kod}) yüklenemedi (gereken betik yok): ana model kullanılıyor`);
@@ -636,10 +653,19 @@ class GazeTracker {
   }
 
   // ---- tıklamayla öğrenme (webgaze learn_click)
+  // Ham kayıt için: { x, y, n } (px, ekran) — düzeltme yoksa n 0
+  kaymaBilgi() { return this.secim ? { x: Math.round(this.kayma.x), y: Math.round(this.kayma.y), n: this.kayma.n } : null; }
   learnClick(e) {
     this._learnOffset(e);
     if (!this.model || !this.model.F || this.calibrating || this.stale) return;
     const now = performance.now() / 1000;
+    if (this.secim) {   // seçilen modelin kayma düzeltmesi (ana modelin tıklamayla öğrenmesinden bağımsız)
+      const R = this.hist.filter((h) => h.s && h.t >= now - GZ.CLICK_WINDOW[0] && h.t <= now - GZ.CLICK_WINDOW[1]);
+      if (R.length >= 2) {
+        const p = [0, 1].map((k) => R.reduce((s, h) => s + h.p[k], 0) / R.length);
+        this.kayma = gzKaymaGuncelle(this.kayma, e.screenX - p[0], e.screenY - p[1]);
+      }
+    }
     const recent = this.hist.filter((h) => h.t >= now - GZ.CLICK_WINDOW[0] && h.t <= now - GZ.CLICK_WINDOW[1]);
     if (recent.length < 2) return;
     const pred = [0, 1].map((k) => recent.reduce((s, h) => s + h.p[k], 0) / recent.length);

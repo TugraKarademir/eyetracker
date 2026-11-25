@@ -103,7 +103,8 @@ async function sendMetrics() {
     const kurulum = kurulumBilgi();
     // Ham ölçüler (yaw/pitch/EAR/MAR/kırpma/ifade/3B baş, ≈2 sn penceresi): analizör kare işlemediyse gönderilmez
     const ham = analyzer.hamAl ? analyzer.hamAl() : null;
-    if (ham) { ham.islemeFps = sonIsleme.fps != null ? +sonIsleme.fps.toFixed(1) : null; ham.isciGecikmeMs = sonIsleme.gecikmeMs; }
+    if (ham) { ham.islemeFps = sonIsleme.fps != null ? +sonIsleme.fps.toFixed(1) : null; ham.isciGecikmeMs = sonIsleme.gecikmeMs;
+      const k = gaze?.kaymaBilgi?.(); if (k) ham.bakisKayma = k; }   // seçilen modele uygulanan ders tıklaması kayma düzeltmesi (ekran px)
     const govde = { code: CODE, sid: SID, attention: s.attention, energy: s.energy, emotion: s.emotion,
       face: s.face, lookingAway: away, eyesClosed: s.eyesClosed, tabHidden: document.hidden, gaze: g, ekran: ekranBilgi(), kurulum, ...kal,
       hse: ht ? { top: ht.name, p: ht.p, valence: hse.valence, arousal: hse.arousal } : null, ...(ham ? { ham } : {}) };
