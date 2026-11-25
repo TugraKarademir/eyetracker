@@ -91,7 +91,7 @@
                kareIslenen: (g.diag?.kare ?? 0) - d0.kare, kareYuzlu: (g.diag?.yuz ?? 0) - d0.yuz, kareTahmin: K.length,
                model: g.secim?.kod || "biz", kayma: g.kaymaBilgi?.() || null,
                gosterilen: istatistik(gos, sx, sy), secim: g.secim ? istatistik(sec, sx, sy) : null, ana: istatistik(ana, sx, sy),
-               bas, basFark: basFark(g.report?.basRef, bas), kalibrasyon: g.report ? { acc: g.report.acc ?? null, gazelab: g.report.gazelab?.acc ?? null, at: g.report.at ?? null } : null };
+               bas, basFark: basFark(g.report?.basRef, bas), kalibrasyon: g.report ? { acc: g.report.acc ?? null, gazelab: g.report.gazelab?.acc ?? null, at: g.report.at ?? null, gozluk: g.report.gozluk ?? null } : null };
     } finally { nokta.remove(); et.remove(); }
   }
   // Noktaları sırayla ölçer; her öğeye tur, sıra, zaman eklenir. Gösterilen bakış noktası ölçüm boyunca gizlenir.

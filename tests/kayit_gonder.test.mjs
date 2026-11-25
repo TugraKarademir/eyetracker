@@ -22,7 +22,7 @@ function kur(fetchSahte) {
     setTimeout, clearTimeout, AbortController, Promise, JSON, Math, navigator: { userAgent: "Windows NT 10.0" },
     screen: { width: 1920, height: 1080 }, innerWidth: 1900, innerHeight: 1000,
     KAYIT_KIMLIK: "20261125_100000_abcdef", BAGLAM: null, KAYIT_SONUC: {}, testLog: [], tiklamaOz: [],
-    cihaz2: () => ({}), CIHAZ_TAM: null, glPaket: () => null, kareOzet: () => null,
+    cihaz2: () => ({}), CIHAZ_TAM: null, glPaket: () => null, kareOzet: () => null, GOZLUK: null,
     ISI: { veri: { gorseller: [] }, kimlik: "20261125_100000_isi1", anaDosya: null }, isiTestiOzet: () => ({}), glKayitlar: () => [],
     tlog: (m) => olay.log.push(m), kayitHataGoster: (n, tur = "Kayıt") => olay.hata.push(tur === "Kayıt" ? n : `${tur}: ${n}`), kayitHataKaldir: () => olay.kaldir++,
     fetch: (url, o) => { olay.govde.push(JSON.parse(o.body)); return fetchSahte(o); },
