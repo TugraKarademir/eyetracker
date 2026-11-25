@@ -5,9 +5,9 @@ const params = new URLSearchParams(location.search);
 // Öğrenci yalnız bakışı kalibre eder ve etkileşir; ekran alanı, bakış noktası, duygu paneli ve el hareketi ayarları
 // yalnız ?gelismis=1 ile görünür. Gizliyken el hareketi ve HSEmotion her zaman açık çalışır (onay metni kapsar).
 const GELISMIS = params.get("gelismis") === "1";
-// Test amaçlı (?nokta=1): bakış noktası, bakış testindeki gibi kırmızı halka olarak açık gelir; "Bakış noktamı göster" kutusu da görünür.
-// Normal öğrenci adresinde nokta yok (öğrenci kendi noktasını kovalamasın, ders verisi bozulmasın).
-const NOKTA = params.get("nokta") === "1";
+// Test dönemi (kullanıcı kararı 25.11): bakış noktası, bakış testindeki gibi kırmızı halka olarak herkeste açık gelir; "Bakış noktamı göster"
+// kutusu görünür, öğrenci kapatabilir. ?nokta=0 ile kapalı başlar ve kutu gizlenir.
+const NOKTA = params.get("nokta") !== "0";
 document.head.insertAdjacentHTML("beforeend", `<style>${GELISMIS ? ".basit" : ".gelismis"}{display:none!important}</style>`);
 $("#jCode").value = (params.get("code") || "").toUpperCase();
 const prev = store.get("dn_student") || {};
