@@ -1928,7 +1928,10 @@ function glTahmin(b, o) {
 function glReset() {
   KAYIT_SONUC = {};   // yeniden kalibrasyon: öğretmen panelinde yeniden "sürüyor"
   glFazBitir(); GLK.recs = []; GLK.bazOrnek = []; GLK.headBase = null; GLK.dog = null; GLK.bitti = false; ISI.veri = null; ISI.kimlik = null; ISI.gonderilen = null; ISI.anaDosya = null;
-  KARE.kareler = []; KARE.tasma = 0; KARE.gonderilen = null; KARE.hata = null; KARE.bsAd = null;
+  // Kamera ayarı kareleri korunur (ayar adımı glReset'ten hemen önce biter; yeniden denemede kameraAyari eskisini kendisi siler)
+  const ayarK = KARE.kareler.filter((r) => r.a === "ayar");
+  KARE.kareler = ayarK; KARE.tasma = 0; KARE.gonderilen = null; KARE.hata = null; if (!ayarK.length) KARE.bsAd = null;
+  KARE.kalite = KARE.kalite.ayar ? { ayar: KARE.kalite.ayar } : {};
   $("#isiGorunum")?.remove(); $("#isiBtn").style.display = "none";
   Object.assign(ISIG, { gi: 0, a: 0, b: null, degisti: false, durum: "" });   // görünüm durumu yeni oturuma taşınmaz
   GLK.sure = { basla: simdi() }; GLK.basEpoch = Date.now() / 1000;
@@ -2221,7 +2224,9 @@ function isiTestiOzet(gonderiyor = false) {
 
 // ---- 1) Kamera ayarı (gazelab "kamera ve yüz konumlandırma" adımı + yakınlaştırma)
 async function kameraAyari() {
-  adimKur(true); adimBasla("ayar"); kareAltBasla("ayar");
+  adimKur(true); adimBasla("ayar");
+  KARE.kareler = KARE.kareler.filter((r) => r.a !== "ayar"); delete KARE.kalite.ayar; KARE.ayarN = 0;   // önceki ayar oturumunun kareleri
+  kareAltBasla("ayar");
   const track = video.srcObject?.getVideoTracks()[0];
   const cap = track?.getCapabilities?.() || {}, donanim = !!cap.zoom;
   const zMax = donanim ? cap.zoom.max : 3, zMin = donanim ? cap.zoom.min : 1;

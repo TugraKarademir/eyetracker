@@ -1,10 +1,10 @@
 // Gövde duruşu (kullanıcı kararı 25.11.2026): MediaPipe PoseLandmarker (lite), saniyede DUR_CFG.HZ kez, yalnız kayıt
 // (hiçbir hesaba/öğretmen paneline girmez). Görüntü saklanmaz; 33 nokta (normalize x, y, z, görünürlük) ve dünya koordinatları (m).
 // Model yüz modeli gibi çalışma anında Google'ın adresinden yüklenir (internet gerekir). Yavaş cihazda kendini kapatır:
-// son DUR_CFG.OLCU_N ölçümün ortalama süresi DUR_CFG.YAVAS_MS'yi aşarsa durur ve nedenini bildirir (onKapandi).
+// ısınma sonrası son DUR_CFG.OLCU_N ölçümün MEDYAN süresi DUR_CFG.YAVAS_MS'yi aşarsa durur ve nedenini bildirir (onKapandi).
 // Noktalar: 0 burun, 1-10 yüz, 11/12 sol/sağ omuz, 13/14 dirsek, 15/16 bilek, 17-22 el, 23/24 kalça, 25-32 bacak (genelde görünmez).
 const DUR_CFG = {
-  HZ: 3, YAVAS_MS: 60, OLCU_N: 20, MIN_GORUNUR: 0.5,
+  HZ: 3, YAVAS_MS: 60, OLCU_N: 20, ISINMA: 5, MIN_GORUNUR: 0.5,   // ISINMA: ilk ölçümler (model/GPU ısınması, saniyeler sürebilir) sayılmaz
   MODEL: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
 };
 
@@ -58,7 +58,8 @@ class GovdeDurusu {
     const t0 = performance.now();
     const r = this.lm.detectForVideo(this.video, t0);
     const ms = performance.now() - t0;
-    this.sureler.push(ms); if (this.sureler.length > DUR_CFG.OLCU_N) this.sureler.shift();
+    this.olcumN = (this.olcumN || 0) + 1;
+    if (this.olcumN > DUR_CFG.ISINMA) { this.sureler.push(ms); if (this.sureler.length > DUR_CFG.OLCU_N) this.sureler.shift(); }
     const yuv = (v, d) => (Number.isFinite(v) ? +v.toFixed(d) : null);
     const L = r.landmarks?.[0], W = r.worldLandmarks?.[0];
     const n = L ? L.map((p) => [yuv(p.x, 4), yuv(p.y, 4), yuv(p.z, 4), yuv(p.visibility, 2)]) : null;
@@ -66,9 +67,9 @@ class GovdeDurusu {
     this.onSonuc({ ep: Math.round(performance.timeOrigin + t0), ms: Math.round(ms), n, w: W ? W.map((p) => [yuv(p.x, 3), yuv(p.y, 3), yuv(p.z, 3)]) : null,
                    olcu: n ? durusOlcu(n, asp) : null });
     if (this.sureler.length >= DUR_CFG.OLCU_N) {
-      const ort = this.sureler.reduce((s, v) => s + v, 0) / this.sureler.length;
-      if (ort > DUR_CFG.YAVAS_MS) {
-        this.kapali = { neden: "yavas", ortMs: Math.round(ort), sinirMs: DUR_CFG.YAVAS_MS, delegate: this.delegate };
+      const s = [...this.sureler].sort((a, b) => a - b), med = s[s.length >> 1];
+      if (med > DUR_CFG.YAVAS_MS) {
+        this.kapali = { neden: "yavas", medyanMs: Math.round(med), sinirMs: DUR_CFG.YAVAS_MS, delegate: this.delegate };
         this.enabled = false; clearTimeout(this.timer); this.onKapandi(this.kapali);
       }
     }

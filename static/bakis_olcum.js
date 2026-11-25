@@ -7,7 +7,7 @@
 // başına uzaklıkların medyanı, kesinlik = tahminlerin kendi ortalamasına RMS uzaklığı.
 (function (G) {
   const O = {
-    SETTLE: 900, COLLECT: 1500, ARALIK_DK: 5,
+    SETTLE: 900, COLLECT: 1500, ARALIK_DK: 1,   // kullanıcı kararı 25.11: varsayılan dakikada bir (?kontrol=<dk> değiştirir, 0 kapatır)
     // ders içi: sırayla dolaşılır (kenar ve köşeler dahil); ders sonu: bakış testindeki 5 GazeLab noktası
     NOKTA: [[0.5, 0.5], [0.15, 0.15], [0.85, 0.85], [0.85, 0.15], [0.15, 0.85], [0.5, 0.15], [0.5, 0.85], [0.15, 0.5], [0.85, 0.5]],
     SON: [[0.5, 0.5], [0.15, 0.15], [0.85, 0.15], [0.15, 0.85], [0.85, 0.85]],

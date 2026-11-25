@@ -35,8 +35,8 @@ class HandRaiseDetector {
    * @param getFace    () => {t, eyeY, top} | null   (gaze.js yüz konumu, normalize)
    * @param onRaise    () => void   el HOLD sn kaldırılı kalınca bir kez çağrılır
    */
-  constructor(video, { getFace = () => null, onRaise = () => {}, onThumb = () => {} } = {}) {
-    Object.assign(this, { video, getFace, onRaise, onThumb });
+  constructor(video, { getFace = () => null, onRaise = () => {}, onThumb = () => {}, onSonuc = null } = {}) {
+    Object.assign(this, { video, getFace, onRaise, onThumb, onSonuc });
     this.thumbSince = null; this.lastThumb = 0; this.thumbLatched = false;
     this.ready = false; this.enabled = false; this.loading = null;
     this.upSince = null; this.lastUp = 0; this.latched = false;
