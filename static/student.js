@@ -279,11 +279,14 @@ DERS_KARE.EN_COK = DERS_KARE.tam ? 3000 : 12000; DERS_KARE.PARTI = DERS_KARE.tam
 function dersKareBagla() {
   if (!gaze || !DERS_KARE.acik || !window.KareKayit) return;
   gaze.onKare = (l, tah) => {
-    if (paused || kalCerceve || bitiyor) return;
+    // ders bitince kayıt durur; yalnız ders sonu kontrolü sürerken (hedefi bilinen kareler) devam eder
+    if (paused || kalCerceve || (bitiyor && !gaze.olcumHedef)) return;
     if (l.bs && !DERS_KARE.bsAd) DERS_KARE.bsAd = Object.keys(l.bs);
     const o = gaze._off?.();
     const r = KareKayit.satir(l, DERS_KARE.bsAd, { off: o ? [Math.round(o.x), Math.round(o.y)] : null,
-      g: tah ? [Math.round(tah.p[0]), Math.round(tah.p[1])] : null, gs: tah ? (tah.s ? 1 : 0) : null }, { re: DERS_KARE.tam });
+      g: tah ? [Math.round(tah.p[0]), Math.round(tah.p[1])] : null, gs: tah ? (tah.s ? 1 : 0) : null,
+      // kontrol noktası sürerken: [hedef x, hedef y (pencere px), sıra, tür (ders_ici/ders_sonu), aşama (yerlesme/toplama)]; yoksa null
+      h: gaze.olcumHedef ? [gaze.olcumHedef.x, gaze.olcumHedef.y, gaze.olcumHedef.sira, gaze.olcumHedef.tur, gaze.olcumHedef.asama] : null }, { re: DERS_KARE.tam });
     if (DERS_KARE.kareler.length >= DERS_KARE.EN_COK) { DERS_KARE.kareler.shift(); DERS_KARE.tasma++; }   // gönderim sürerken tampon ayrı dizidir
     DERS_KARE.kareler.push(r); DERS_KALITE?.ekle(r);
   };
@@ -413,11 +416,18 @@ setInterval(async () => {
 }, 5000);
 async function dersSonuKontrolu() {
   while (olcumSuruyor) await new Promise((r) => setTimeout(r, 200));   // süren ders içi nokta bitsin
-  if (!bakisHazir() || !stream || paused) return;
+  if (!BO) return;
+  // Kontrol gösterilemiyorsa nedeni kayda yazılır ("atlandı" ile "hiç sorulmadı" ayrılsın)
+  const neden = [];
+  if (!stream) neden.push("kamera_yok");
+  if (paused) neden.push("duraklatildi");
+  if (!gaze?.model) neden.push("model_yok"); else if (!gaze.tracking) neden.push("takip_kapali");
+  if (gaze?.stale) neden.push("pencere_degisti"); if (gaze?.calibrating) neden.push("kalibrasyon_suruyor");
+  if (neden.length || !bakisHazir()) { olcumGonder([{ tur: "ders_sonu_yapilmadi", t: Date.now(), neden: neden.length ? neden : ["bilinmiyor"] }]); return; }
   const N = BO.O.SON;
   const basla = await BO.sonKart(`<b>Ders sona erdi.</b><br>Son olarak kısa bir bakış kontrolü: ekranda ${N.length} sarı nokta sırayla çıkacak.
     Her birine <b>küçülene kadar bakın</b>. Tıklamayın. (yaklaşık ${Math.round(N.length * (BO.O.SETTLE + BO.O.COLLECT) / 1000)} sn)`);
-  if (!basla) { olcumGonder([{ tur: "ders_sonu_atlandi", t: Date.now() }]); return; }
+  if (basla !== true) { olcumGonder([{ tur: "ders_sonu_atlandi", t: Date.now(), neden: basla || "atla" }]); return; }   // neden: atla | zaman_asimi
   const L = await BO.kontrol(gaze, N, "ders_sonu", (i, n) => `Sadece bakın, tıklamayın<br><span style="font-size:12px;opacity:.8">nokta ${i + 1}/${n}</span>`);
   olcumGonder(L);
   await new Promise((r) => setTimeout(r, 800));   // son gönderim yedeğe "ok" yazabilsin

@@ -8,7 +8,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import assert from "node:assert/strict";
 
-const ctx = vm.createContext({ Math, Number, JSON, Object, Array, Set, Date, Intl, String, globalThis: null });
+const ctx = vm.createContext({ Math, Number, JSON, Object, Array, Set, Date, Intl, String, Promise, setTimeout, clearTimeout, setInterval, clearInterval, performance, globalThis: null });
 ctx.globalThis = ctx;
 vm.runInContext(fs.readFileSync(new URL("../static/bakis_olcum.js", import.meta.url), "utf8"), ctx);
 vm.runInContext(fs.readFileSync(new URL("../static/yedek.js", import.meta.url), "utf8"), ctx);
@@ -43,4 +43,19 @@ assert.equal(J.length, 2);
 assert.equal(J[0].govde.attention, 50);
 assert.equal(J[1].olcum[0].hataAna, 90); assert.equal(J[1].govde, undefined);
 assert.equal(Y.dersCsvSatirlari(K).length, 1);
+// 5) kontrol: ölçüm sürerken g.olcumHedef hedefi, sırayı, türü ve aşamayı taşır; bitince silinir
+{
+  const el = () => ({ style: {}, remove() {}, className: "", innerHTML: "" });
+  Object.assign(ctx, { document: { head: { insertAdjacentHTML() {} }, body: { append() {} }, createElement: el, fullscreenElement: null }, innerWidth: 1000, innerHeight: 500 });
+  const B = ctx.BakisOlcum; B.O.SETTLE = 30; B.O.COLLECT = 30;
+  const goruldu = [];
+  const g = { hist: [], diag: {}, _off: () => ({ x: 0, y: 0 }), model: { predict: () => null }, showDot: false, setShowDot() {} };
+  const iz = setInterval(() => { if (g.olcumHedef) goruldu.push({ ...g.olcumHedef }); }, 5);
+  const L = await B.kontrol(g, [[0.5, 0.5], [0.1, 0.2]], "ders_sonu", () => "");
+  clearInterval(iz);
+  assert.equal(L.length, 2); assert.equal(g.olcumHedef, null);
+  const ilk = goruldu.find((h) => h.sira === 1), ikinci = goruldu.find((h) => h.sira === 2);
+  assert.deepEqual([ilk.x, ilk.y, ilk.tur], [500, 250, "ders_sonu"]); assert.deepEqual([ikinci.x, ikinci.y], [100, 100]);
+  assert.ok(goruldu.some((h) => h.asama === "yerlesme") && goruldu.some((h) => h.asama === "toplama"));
+}
 console.log("bakis_olcum: tamam");

@@ -63,14 +63,18 @@
       .olcum-kart button{margin:14px 8px 0 0}</style>`);
   }
   const bekle = (ms) => new Promise((r) => setTimeout(r, ms));
-  async function noktaOlc(g, x, y, etiket) {
+  // isaret: { tur, sira } — ölçüm sürerken g.olcumHedef'e yazılır (ders sayfası kare kaydına hedefi işaretler):
+  // { tur, sira, x, y (pencere px), asama: "yerlesme" | "toplama" }; bitince silinir
+  async function noktaOlc(g, x, y, etiket, isaret = null) {
     stil();
     const nokta = document.createElement("div"), et = document.createElement("div");
     nokta.className = "olcum-nokta"; nokta.style.left = x + "px"; nokta.style.top = y + "px"; nokta.style.animationDuration = `${(O.SETTLE + O.COLLECT) / 1000}s`;
     et.className = "olcum-etiket"; et.innerHTML = etiket; et.style.left = x + "px"; et.style.top = (y > innerHeight * 0.7 ? y - 70 : y + 30) + "px";
     document.body.append(nokta, et);
+    if (isaret) g.olcumHedef = { ...isaret, x: Math.round(x), y: Math.round(y), asama: "yerlesme" };
     try {
       await bekle(O.SETTLE);
+      if (g.olcumHedef) g.olcumHedef.asama = "toplama";
       const t0 = performance.now() / 1000, d0 = { kare: g.diag?.kare ?? 0, yuz: g.diag?.yuz ?? 0 };
       const gor = new Set(), K = [], poz = [];
       const topla = () => {
@@ -92,7 +96,7 @@
                model: g.secim?.kod || "biz", kayma: g.kaymaBilgi?.() || null,
                gosterilen: istatistik(gos, sx, sy), secim: g.secim ? istatistik(sec, sx, sy) : null, ana: istatistik(ana, sx, sy),
                bas, basFark: basFark(g.report?.basRef, bas), kalibrasyon: g.report ? { acc: g.report.acc ?? null, gazelab: g.report.gazelab?.acc ?? null, at: g.report.at ?? null, gozluk: g.report.gozluk ?? null } : null };
-    } finally { nokta.remove(); et.remove(); }
+    } finally { nokta.remove(); et.remove(); if (isaret) g.olcumHedef = null; }
   }
   // Noktaları sırayla ölçer; her öğeye tur, sıra, zaman eklenir. Gösterilen bakış noktası ölçüm boyunca gizlenir.
   async function kontrol(g, noktalar, tur, etiketYap) {
@@ -101,21 +105,21 @@
     try {
       for (let i = 0; i < noktalar.length; i++) {
         const [u, v] = noktalar[i];
-        const m = await noktaOlc(g, Math.round(u * innerWidth), Math.round(v * innerHeight), etiketYap(i, noktalar.length));
+        const m = await noktaOlc(g, Math.round(u * innerWidth), Math.round(v * innerHeight), etiketYap(i, noktalar.length), { tur, sira: i + 1 });
         sonuc.push({ tur, t: Date.now(), sira: i + 1, noktaUV: [u, v], pencere: [innerWidth, innerHeight], tamEkran: !!document.fullscreenElement, ...m });
       }
     } finally { if (dotAcik) g.setShowDot(true); }
     return sonuc;
   }
-  // Ders sonu kartı: "Başla" → 5 nokta, "Atla" ya da SURE_MS içinde yanıt yoksa atlanır (null)
+  // Ders sonu kartı: "Başla" → true; "Atla" → "atla"; sureMs içinde yanıt yoksa → "zaman_asimi"
   function sonKart(metin, sureMs = 60000) {
     stil();
     return new Promise((coz) => {
       const k = document.createElement("div"); k.className = "olcum-kart";
       k.innerHTML = `<div>${metin}<div><button class="btn primary" data-a="1">Başla</button><button class="btn" data-a="0">Atla</button></div></div>`;
       const bitir = (v) => { clearTimeout(z); k.remove(); coz(v); };
-      const z = setTimeout(() => bitir(false), sureMs);
-      k.onclick = (e) => { const a = e.target?.dataset?.a; if (a != null) bitir(a === "1"); };
+      const z = setTimeout(() => bitir("zaman_asimi"), sureMs);
+      k.onclick = (e) => { const a = e.target?.dataset?.a; if (a != null) bitir(a === "1" ? true : "atla"); };
       document.body.append(k);
     });
   }
