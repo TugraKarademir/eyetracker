@@ -792,6 +792,16 @@ class DersVeri(unittest.TestCase):
         self.assertEqual([len(x["olaylar"]) for x in O], [2, 1])
         self.assertTrue(all(isinstance(x["sunucuT"], float) and "sunucuSurum" in x for x in K + O))
 
+    def test_beden_ayri_dosyaya(self):
+        kod, r = post(self.base, "/api/ders-veri", {"code": self.kod, "sid": self.sid,
+                                                    "beden": [{"tur": "el", "ep": 1, "eller": []}, {"tur": "govde", "ep": 2, "n": None}]})
+        self.assertEqual((kod, r["kare"], r["olay"], r["beden"]), (200, 0, 0, 2))
+        B = self.satirlar("ders_beden")
+        self.assertEqual([x["tur"] for x in B[0]["beden"]], ["el", "govde"])
+        self.assertEqual(self.satirlar("ders_kare") + self.satirlar("ders_olay"), [])
+        kod, _ = post(self.base, "/api/ders-veri", {"code": self.kod, "sid": self.sid, "beden": [1]})
+        self.assertEqual(kod, 400)
+
     def test_ders_bittikten_sonra_da_kabul(self):
         post(self.base, "/api/event", {"code": self.kod, "key": self.key, "type": "end"})
         self.assertTrue(server.CLASSES[self.kod]["ended"])

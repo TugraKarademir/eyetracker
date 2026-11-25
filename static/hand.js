@@ -216,5 +216,16 @@ class HandRaiseDetector {
     if (thumbHold >= HAND_CFG.THUMB_HOLD && !this.thumbLatched) { this.thumbLatched = true; this._log(t, "👍 ANLADIM", extra); this.onThumb(); }
     this.prevHand = hand;
     this.info = { hand, gesture: best, score: bestScore, up, hold, faceOk: !!face, occluded, thumbHold };
+    // Kayıt kancası (ders: beden verisi): her ölçümde eller (21 nokta normalize x, y, z), yön etiketi, hareket adı/güveni,
+    // elin yüzü örtüp örtmediği ve kural kararları. Görüntü yok.
+    if (this.onSonuc) {
+      const y = (v) => (Number.isFinite(v) ? +v.toFixed(4) : null);
+      try {
+        this.onSonuc({ ep: Math.round(performance.timeOrigin + t * 1000), ortulu: occluded ? 1 : 0, kalkik: up ? 1 : 0, bas: thumb ? 1 : 0,
+          eller: (r.landmarks || []).map((lm, i) => ({ yon: (r.handedness || r.handednesses)?.[i]?.[0]?.categoryName ?? null,
+            hareket: r.gestures?.[i]?.[0]?.categoryName ?? null, guven: y(r.gestures?.[i]?.[0]?.score),
+            n: lm.map((p) => [y(p.x), y(p.y), y(p.z)]) })) });
+      } catch {}
+    }
   }
 }

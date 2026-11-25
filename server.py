@@ -1421,12 +1421,14 @@ class Handler(BaseHTTPRequestHandler):
         ders, sid = b.get("code"), b.get("sid")
         if not (isinstance(ders, str) and re.fullmatch(r"[A-Z0-9]{1,20}", ders) and isinstance(sid, str) and re.fullmatch(r"s_[0-9a-f]{4,40}", sid)):
             return self.err("geçersiz ders/öğrenci")
-        K, O, bas = b.get("kareler") or [], b.get("olaylar") or [], b.get("baslik")
+        K, O, Bd, bas = b.get("kareler") or [], b.get("olaylar") or [], b.get("beden") or [], b.get("baslik")
         if not isinstance(K, list) or len(K) > 3000 or not all(isinstance(k, dict) for k in K):
             return self.err("kareler: nesne dizisi bekleniyor (en çok 3000)")
         if not isinstance(O, list) or len(O) > 10000 or not all(isinstance(o, list) and o for o in O):
             return self.err("olaylar: dizi dizisi bekleniyor (en çok 10000)")
-        if not K and not O:
+        if not isinstance(Bd, list) or len(Bd) > 5000 or not all(isinstance(x, dict) for x in Bd):
+            return self.err("beden: nesne dizisi bekleniyor (en çok 5000)")
+        if not K and not O and not Bd:
             return self.err("boş parti")
         with LOCK:
             var = kayit.ogrenci_var(KAYIT, ders, sid)
@@ -1438,14 +1440,15 @@ class Handler(BaseHTTPRequestHandler):
         t = now()
         with TESTLOG_LOCK:
             for klasor, veri in (("ders_kare", {"baslik": bas if isinstance(bas, dict) else None, "kareler": K} if K else None),
-                                 ("ders_olay", {"olaylar": O} if O else None)):
+                                 ("ders_olay", {"olaylar": O} if O else None),
+                                 ("ders_beden", {"beden": Bd} if Bd else None)):
                 if veri is None:
                     continue
                 yol = os.path.join(TEST_DIR, klasor)
                 os.makedirs(yol, exist_ok=True)
                 with open(os.path.join(yol, f"{ders}_{sid}.jsonl"), "a", encoding="utf-8") as f:
                     f.write(json.dumps({"sunucuT": t, "sunucuSurum": SURUM, **veri}, ensure_ascii=False) + "\n")
-        self.send_json({"ok": True, "kare": len(K), "olay": len(O)})
+        self.send_json({"ok": True, "kare": len(K), "olay": len(O), "beden": len(Bd)})
 
     def teacher_ok(self, cls, key):
         return bool(key) and secrets.compare_digest(str(key).encode("utf-8"), cls["teacher_key"].encode("utf-8"))

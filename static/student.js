@@ -208,8 +208,8 @@ $("#pauseBtn").onclick = () => {
   paused = !paused;
   $("#pauseBtn").textContent = paused ? "Devam et" : "Duraklat";
   gaze?.pause(paused);
-  if (paused) { analyzer?.stop(); stream?.getVideoTracks().forEach((t) => (t.enabled = false)); $("#vbadge").textContent = "Duraklatıldı"; }
-  else { stream?.getVideoTracks().forEach((t) => (t.enabled = true)); analyzer?.start(); }
+  if (paused) { govdeDet?.setEnabled(false); analyzer?.stop(); stream?.getVideoTracks().forEach((t) => (t.enabled = false)); $("#vbadge").textContent = "Duraklatıldı"; }
+  else { stream?.getVideoTracks().forEach((t) => (t.enabled = true)); analyzer?.start(); govdeAc(); }
 };
 // Ekran alanı kalibrasyonu: ortaya ve kenarlara bakılarak baş yönü aralığı ölçülür (büyük ekranlar için)
 $("#recalBtn").onclick = () => { if (typeof ls !== "undefined") ls.resetBase(); if (analyzer) analyzer.calibrateScreen(); };
@@ -259,6 +259,9 @@ const DERS_YEDEK = [];
 // gönderilir; sunucu test_kayitlari/ders_kare/ ve ders_olay/ altına yazar. Göz kesiti (re, kare başına ~1600 sayı) yalnız ?kare=tam ile.
 // ?kare=0 kare kaydını kapatır (olaylar yine gider). Yerel yedeğe girmez (bellek). Gönderilemeyen kare en çok DERS_KARE.EN_COK tutulur.
 const DERS_YAZILIM = { sayfa: "student", mediapipe: typeof MP_BASE !== "undefined" ? MP_BASE : null, model: typeof MP_MODEL !== "undefined" ? MP_MODEL : null, kareSurum: 2 };
+// Beden verisi (el noktaları ve gövde duruşu, ~3-5/sn): ayrı tampon, aynı gönderim turunda /api/ders-veri "beden" alanıyla → ders_beden/
+const DERS_BEDEN = { satirlar: [], EN_COK: 20000, tasma: 0 };
+function bedenEkle(r) { if (paused || kalCerceve || bitiyor) return; if (DERS_BEDEN.satirlar.length >= DERS_BEDEN.EN_COK) { DERS_BEDEN.satirlar.shift(); DERS_BEDEN.tasma++; } DERS_BEDEN.satirlar.push(r); }
 const DERS_KARE = { acik: params.get("kare") !== "0", tam: params.get("kare") === "tam", kareler: [], bsAd: null, tasma: 0, gonderilen: 0, hata: 0, suruyor: null };
 // Bellekte bekleyen en çok kare (gönderilemezse en eskisi atılır, tasma sayılır) ve tek istekteki en çok kare (sunucu sınırı 8 MB):
 // hafif satır ~1,4 KB, göz kesitli (tam) ~10 KB
@@ -287,6 +290,12 @@ function dersVeriGonder() {
     if (O.length) {
       try { await api("/api/ders-veri", { code: CODE, sid: SID, olaylar: O }); window.OlayGunlugu.onayla(O.length); }
       catch { tamam = false; }
+    }
+    let Bd = DERS_BEDEN.satirlar; DERS_BEDEN.satirlar = [];
+    if (Bd.length) {
+      try { while (Bd.length) { const P = Bd.slice(0, 3000); await api("/api/ders-veri", { code: CODE, sid: SID, beden: P }); Bd = Bd.slice(P.length); } }
+      catch { tamam = false; }
+      if (Bd.length) { const T = Bd.concat(DERS_BEDEN.satirlar), f = Math.max(0, T.length - DERS_BEDEN.EN_COK); DERS_BEDEN.tasma += f; DERS_BEDEN.satirlar = f ? T.slice(f) : T; }
     }
     let K = DERS_KARE.kareler; DERS_KARE.kareler = [];
     const baslik = { bsAd: DERS_KARE.bsAd, timeOrigin: Math.round(performance.timeOrigin), ekran: [screen.width, screen.height], pencere: [innerWidth, innerHeight],
@@ -480,7 +489,7 @@ const BAKIS_TAMAM = () => `dn_bakis_tamam_${CODE}`;   // bu derste bakış testi
 window.dnBaglam = () => ({ ders: CODE, sid: SID, ad: AD });
 function bakisTestiAc() {
   if (kalCerceve || !gaze?.ready) return;
-  gaze.pause(true); analyzer?.stop(); handDet.setEnabled(false); hse.setEnabled(false);
+  gaze.pause(true); analyzer?.stop(); handDet.setEnabled(false); hse.setEnabled(false); govdeDet?.setEnabled(false);
   const f = kalCerceve = document.createElement("iframe");
   f.src = `/bakis_test.html?gomulu=1&ders=${encodeURIComponent(CODE || "")}&sid=${encodeURIComponent(SID || "")}`; f.allow = "camera; fullscreen; autoplay"; f.allowFullscreen = true; f.title = "Bakış kalibrasyonu";
   Object.assign(f.style, { position: "fixed", inset: "0", width: "100vw", height: "100vh", border: "0", zIndex: "9999", background: "#0f141b" });
@@ -492,6 +501,7 @@ function bakisTestiKapat() {
   if (!paused) { gaze.pause(false); if (analyzerHazir) analyzer?.start(); }
   // El ve duygu kutuları açıksa yeniden başlar (test açıkken kamera hazır olunca başlatılmamış olabilirler)
   if ($("#autoHandChk").checked && stream) handDet.setEnabled(true).catch(() => {});
+  govdeAc();
   if ($("#hseChk").checked && stream) hse.setEnabled(true).catch(() => {});
   if (gaze.restore()) { store.set(BAKIS_TAMAM(), true); gazeStatus("ok"); toast(GELISMIS ? `👁️ Kalibrasyon yüklendi: ${gaze.secim?.ad || "ana model"}` : "👁️ Bakış kalibrasyonu tamam", 5000); }
   else toast("Kalibrasyon kaydedilmedi; tekrar deneyebilirsiniz.", 5000);
@@ -513,6 +523,7 @@ document.addEventListener("fullscreenchange", regaze);
 
 // ================================================================ el kaldırınca söz iste
 const handDet = new HandRaiseDetector($("#video"), {
+  onSonuc: (o) => bedenEkle({ tur: "el", ...o }),
   getFace: () => gaze?.face || null,
   onRaise: () => {
     if (handUp || !SID) return;
@@ -538,7 +549,7 @@ const handDet = new HandRaiseDetector($("#video"), {
   };
   chk.onchange = apply;
   // Kamera açıldıktan sonra başlat
-  const wait = setInterval(() => { if (stream && $("#video").readyState >= 2) { clearInterval(wait); apply(); } }, 500);
+  const wait = setInterval(() => { if (stream && $("#video").readyState >= 2) { clearInterval(wait); apply(); govdeAc(); } }, 500);
   setInterval(() => {
     if (!chk.checked || !handDet.ready || !handDet.enabled) return;
     const i = handDet.info;
@@ -550,6 +561,17 @@ const handDet = new HandRaiseDetector($("#video"), {
       `El görüldü (${i.gesture || "?"} %${Math.round(100 * i.score)}) · avucunuzu açıp parmaklarınız göz hizasının üstünde kalacak şekilde tutun`;
   }, 200);
 })();
+
+// ================================================================ gövde duruşu (beden.js; yalnız kayıt). ?govde=0 kapatır.
+const govdeDet = typeof GovdeDurusu === "function" && params.get("govde") !== "0" ? new GovdeDurusu($("#video"), {
+  onSonuc: (o) => bedenEkle({ tur: "govde", ...o }),
+  onKapandi: (k) => { window.OlayGunlugu?.ekle("govde", { kapandi: k }); console.warn("[GÖVDE] yavaş cihaz, kapatıldı", k); },
+}) : null;
+async function govdeAc() {
+  if (!govdeDet || !stream || kalCerceve || paused) return;
+  try { await govdeDet.setEnabled(true); if (govdeDet.enabled) window.OlayGunlugu?.ekle("govde", { acildi: govdeDet.delegate || null }); }
+  catch (e) { console.warn("gövde modeli yüklenemedi", e); window.OlayGunlugu?.ekle("govde", { hata: String(e?.message || e).slice(0, 160) }); }
+}
 
 // ================================================================ HSEmotion (8 duygu + valence/arousal)
 // Bu sayfada gösterilir, konsola [HS …] satırı yazar; öğretmene en olası sınıf, oranı ve valence/arousal gider (sendMetrics).
