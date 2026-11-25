@@ -46,6 +46,7 @@ $("#camBtn").onclick = async () => {
   }
   show("classView");
   $("#video").srcObject = stream;
+  window.OlayGunlugu?.baslat({ yazilim: DERS_YAZILIM, track: stream.getVideoTracks()[0] });
   connect();
   startGaze();
   try {
@@ -250,6 +251,61 @@ $("#chatForm").onsubmit = (e) => { e.preventDefault(); const v = $("#chatIn").va
 // Yerel yedek: bu öğrencinin gönderilen ders ölçümleri ({t, govde, sunucu}; bellekte, localStorage yok). Ders bitince bir kez
 // iki dosya iner: düzleştirilmiş CSV ve gövdelerin kayıpsız JSON'u; "Ders verimi indir" düğmesi ikisini yeniden indirir.
 const DERS_YEDEK = [];
+
+// ================================================================ ders sırasında kare kare veri ve olay günlüğü (kullanıcı kararı 25.11.2026)
+// Her MediaPipe karesi (kare_kayit.js biçimi) + o karenin bakış tahmini; olaylar (olay_gunlugu.js). ~10 sn'de bir /api/ders-veri ile
+// gönderilir; sunucu test_kayitlari/ders_kare/ ve ders_olay/ altına yazar. Göz kesiti (re, kare başına ~1600 sayı) yalnız ?kare=tam ile.
+// ?kare=0 kare kaydını kapatır (olaylar yine gider). Yerel yedeğe girmez (bellek). Gönderilemeyen kare en çok DERS_KARE.EN_COK tutulur.
+const DERS_YAZILIM = { sayfa: "student", mediapipe: typeof MP_BASE !== "undefined" ? MP_BASE : null, model: typeof MP_MODEL !== "undefined" ? MP_MODEL : null, kareSurum: 2 };
+const DERS_KARE = { acik: params.get("kare") !== "0", tam: params.get("kare") === "tam", kareler: [], bsAd: null, tasma: 0, gonderilen: 0, hata: 0, suruyor: null };
+// Bellekte bekleyen en çok kare (gönderilemezse en eskisi atılır, tasma sayılır) ve tek istekteki en çok kare (sunucu sınırı 8 MB):
+// hafif satır ~1,4 KB, göz kesitli (tam) ~10 KB
+DERS_KARE.EN_COK = DERS_KARE.tam ? 3000 : 12000; DERS_KARE.PARTI = DERS_KARE.tam ? 300 : 1500;
+function dersKareBagla() {
+  if (!gaze || !DERS_KARE.acik || !window.KareKayit) return;
+  gaze.onKare = (l, tah) => {
+    if (paused || kalCerceve || bitiyor) return;
+    if (l.bs && !DERS_KARE.bsAd) DERS_KARE.bsAd = Object.keys(l.bs);
+    const o = gaze._off?.();
+    const r = KareKayit.satir(l, DERS_KARE.bsAd, { off: o ? [Math.round(o.x), Math.round(o.y)] : null,
+      g: tah ? [Math.round(tah.p[0]), Math.round(tah.p[1])] : null, gs: tah ? (tah.s ? 1 : 0) : null }, { re: DERS_KARE.tam });
+    if (DERS_KARE.kareler.length >= DERS_KARE.EN_COK) { DERS_KARE.kareler.shift(); DERS_KARE.tasma++; }   // gönderim sürerken tampon ayrı dizidir
+    DERS_KARE.kareler.push(r);
+  };
+}
+// Tek gönderim turu: önce olaylar (ayrı istek: kare partisi sorun çıkarsa olaylar takılmasın), sonra kareler PARTI'lik istekler hâlinde.
+// Gönderilecek kareler tampondan ALINIR (yeni kareler boş tampona düşer); gönderilemeyenler tamponun başına geri konur.
+// Aynı anda tek tur (DERS_KARE.suruyor = sürmekte olan tur); ders sonu bunu bekleyip son turu yapar. Döner: hepsi gitti mi.
+function dersVeriGonder() {
+  if (DERS_KARE.suruyor) return DERS_KARE.suruyor;
+  if (!CODE || !SID) return Promise.resolve(true);
+  DERS_KARE.suruyor = (async () => {
+    let tamam = true;
+    const O = window.OlayGunlugu?.bekleyen(5000) || [];
+    if (O.length) {
+      try { await api("/api/ders-veri", { code: CODE, sid: SID, olaylar: O }); window.OlayGunlugu.onayla(O.length); }
+      catch { tamam = false; }
+    }
+    let K = DERS_KARE.kareler; DERS_KARE.kareler = [];
+    const baslik = { bsAd: DERS_KARE.bsAd, timeOrigin: Math.round(performance.timeOrigin), ekran: [screen.width, screen.height], pencere: [innerWidth, innerHeight],
+      dpr: devicePixelRatio, yazilim: DERS_YAZILIM, tasma: DERS_KARE.tasma, gozluk: gaze?.report?.gozluk ?? null,
+      model: gaze?.secim?.kod || (gaze?.model ? "biz" : null), kayma: gaze?.kaymaBilgi?.() || null };
+    try {
+      while (K.length) {
+        const P = K.slice(0, DERS_KARE.PARTI);
+        await api("/api/ders-veri", { code: CODE, sid: SID, baslik, kareler: P });
+        K = K.slice(P.length); DERS_KARE.gonderilen += P.length;
+      }
+    } catch { tamam = false; DERS_KARE.hata++; }
+    if (K.length) {   // gönderilemeyenler geri (eski önce); sınır aşılırsa en eskiler atılır
+      const B = K.concat(DERS_KARE.kareler), fazla = Math.max(0, B.length - DERS_KARE.EN_COK);
+      DERS_KARE.tasma += fazla; DERS_KARE.kareler = fazla ? B.slice(fazla) : B;
+    }
+    return tamam;
+  })().finally(() => { DERS_KARE.suruyor = null; });
+  return DERS_KARE.suruyor;
+}
+setInterval(dersVeriGonder, 10000);
 let dersYedekIndi = false;
 function dersYedekIndir() {
   if (!window.DNYedek) return false;
@@ -272,6 +328,9 @@ async function finish() {
   if (bitiyor) return; bitiyor = true;
   clearInterval(sendTimer); es?.close(); window.LIVE?.setLive(false); analyzer?.stop();
   try { tiklamaHatalariGonder(null); await dersSonuKontrolu(); } catch (e) { console.warn("ders sonu kontrolü", e); }
+  // son kare/olay partisi: sürmekte olan tur bitsin, sonra kalan gönderilsin (başarısız turda en çok 2 yeniden deneme)
+  try { if (DERS_KARE.suruyor) await DERS_KARE.suruyor; for (let i = 0; i < 3; i++) if (await dersVeriGonder()) break; }
+  catch (e) { console.warn("ders verisi son gönderim", e); }
   if (!dersYedekIndi && DERS_YEDEK.length) { dersYedekIndi = true; dersYedekIndir(); }
   gaze?.pause(true); gaze?.setShowDot(false);
   stream?.getTracks().forEach((t) => t.stop());
@@ -376,6 +435,7 @@ async function startGaze() {
   }
   try {
     await gaze.load();
+    dersKareBagla();
     cihazTamBaslat();
     // Sınıf testi: katılınca bakış testi zorunlu; bu derste bu tarayıcıda tamamlanmışsa (sayfa yenilendi) yeniden açılmaz
     if (!store.get(BAKIS_TAMAM())) bakisTestiAc();

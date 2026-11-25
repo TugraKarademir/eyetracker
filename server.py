@@ -53,12 +53,34 @@ KAYIT = kayit.ac(os.path.join(DATA, "dersler.db"))   # kalıcı ders kaydı; yaz
 # ---- Bakış testi verileri GazeLab biçiminde (gazelab/server.py şeması + yöntem sütunu + yöntem özeti)
 GL_DB = os.path.join(TEST_DIR, "gazelab.db")
 OLCUM_MAX_BYTES = 256_000   # ders bakış ölçümleri (kontrol noktaları, tıklama hataları) tek istekte
-KARE_MAX_BYTES = 64_000_000   # bakış testi kare başına öznitelik dosyası (ortak eğitim; ~1500 kare × göz kesiti ≈ 10-15 MB); aşılırsa hata
+KARE_MAX_BYTES = 160_000_000   # bakış testi kare başına öznitelik dosyası + olay günlüğü (ortak eğitim; ~1500 kare × göz kesiti ≈ 10-15 MB; ara adımlar ve ısı testi de girdi); aşılırsa hata
+DERS_VERI_MAX_BYTES = 8_000_000   # ders sırasında kare kare veri + olay günlüğü, tek istekte (~10 sn'lik parti; birikmişse en çok 1500 kare)
+DERS_VERI_DOSYA_MAX = 2_000_000_000   # öğrenci başına ders_kare dosyası en çok (sınırsız disk dolmasın; 40 dk ≈ 50-100 MB)
 ISI_MAX_BYTES = 64_000_000   # ısı testi ayrı dosyası (10 görsel × 60 sn ≈ 12 MB); aşılırsa hata, kırpma yok
 GL_LOCK = threading.Lock()
 # Bakış testi kaydı (kimlikli, aynı dosyanın üzerine yazılan): yazma sırası ve geri gitme koruması.
 # dosya yolu -> (günlük satır sayısı, durum 'bitti' mi). Daha kısa ya da bitti'den ara'ya dönen kayıt yazılmaz.
 TESTLOG_LOCK = threading.Lock()
+
+
+def kod_surumu():
+    """Sunucunun çalıştığı kodun sürümü (kayıtlara eklenir; sonradan hangi kodla alındığı bilinsin): git kısa özeti, çalışma
+    ağacında kaydedilmemiş kod değişikliği varsa "+degisik". git yoksa ya da depo değilse None (uydurma yok)."""
+    import subprocess
+    try:
+        kok = os.path.dirname(os.path.abspath(__file__))
+        ek = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}   # paketli (konsolsuz) uygulamada pencere açılmasın
+        h = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=kok, capture_output=True, text=True, timeout=5, **ek)
+        if h.returncode != 0:
+            return None
+        d = subprocess.run(["git", "status", "--porcelain", "--", "static", "server.py", "kayit.py", "yonetim.py"],
+                           cwd=kok, capture_output=True, text=True, timeout=5, **ek)
+        return h.stdout.strip() + ("+degisik" if d.returncode == 0 and d.stdout.strip() else "")
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+SURUM = kod_surumu()
 TESTLOG_SON = {}
 GL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions(
@@ -1245,6 +1267,7 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 etiket = kayit.ogrenci_var(KAYIT, ders, sid)
         b["dersBagli"] = etiket
+        b["sunucuSurum"] = SURUM
         gl = b.get("gazelab") if isinstance(b.get("gazelab"), dict) else {}
         gt = gl.get("tablolar") if isinstance(gl.get("tablolar"), dict) else {}
         asama = gt.get("asama") if isinstance(gt.get("asama"), list) else None
@@ -1318,6 +1341,7 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(kimlik, str) or not re.fullmatch(r"[A-Za-z0-9_-]{8,60}", kimlik):
             return self.err("geçersiz isiKimlik")
         ad = f"{kimlik}_isi.json"
+        b["sunucuSurum"] = SURUM
         os.makedirs(TEST_DIR, exist_ok=True)
         with open(os.path.join(TEST_DIR, ad), "w", encoding="utf-8") as f:
             json.dump(b, f, ensure_ascii=False)
@@ -1342,6 +1366,7 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(kimlik, str) or not re.fullmatch(r"\d{8}_\d{6}_[A-Za-z0-9-]{4,40}", kimlik):
             return self.err("geçersiz kareKimlik")
         ad = f"{kimlik}_kare.json"
+        b["sunucuSurum"] = SURUM
         os.makedirs(TEST_DIR, exist_ok=True)
         yol = os.path.join(TEST_DIR, ad)
         with TESTLOG_LOCK:
@@ -1377,8 +1402,50 @@ class Handler(BaseHTTPRequestHandler):
         t = now()
         with TESTLOG_LOCK, open(os.path.join(klasor, f"{ders}_{sid}.jsonl"), "a", encoding="utf-8") as f:
             for o in L:
-                f.write(json.dumps({"sunucuT": t, **o}, ensure_ascii=False) + "\n")
+                f.write(json.dumps({"sunucuT": t, "sunucuSurum": SURUM, **o}, ensure_ascii=False) + "\n")
         self.send_json({"ok": True, "n": len(L)})
+
+    def ders_veri(self):
+        """Ders sırasında kare kare öznitelikler (static/kare_kayit.js) ve olay günlüğü (static/olay_gunlugu.js), ~10 sn'lik partiler:
+        test_kayitlari/ders_kare/<DERS>_<sid>.jsonl ve ders_olay/<DERS>_<sid>.jsonl dosyalarına her parti bir satır olarak EKLENİR
+        ({sunucuT, sunucuSurum, baslik, kareler} / {sunucuT, sunucuSurum, olaylar}). Ders bitmiş olabilir (son parti); öğrenci kayıtlı olmalı."""
+        n = int(self.headers.get("Content-Length") or 0)
+        if n <= 0 or n > DERS_VERI_MAX_BYTES:
+            return self.err(f"geçersiz uzunluk (sınır {DERS_VERI_MAX_BYTES})", 413 if n > 0 else 400)
+        try:
+            b = json.loads(self.rfile.read(n).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            return self.err("Geçersiz JSON")
+        if not isinstance(b, dict):
+            return self.err("nesne bekleniyor")
+        ders, sid = b.get("code"), b.get("sid")
+        if not (isinstance(ders, str) and re.fullmatch(r"[A-Z0-9]{1,20}", ders) and isinstance(sid, str) and re.fullmatch(r"s_[0-9a-f]{4,40}", sid)):
+            return self.err("geçersiz ders/öğrenci")
+        K, O, bas = b.get("kareler") or [], b.get("olaylar") or [], b.get("baslik")
+        if not isinstance(K, list) or len(K) > 3000 or not all(isinstance(k, dict) for k in K):
+            return self.err("kareler: nesne dizisi bekleniyor (en çok 3000)")
+        if not isinstance(O, list) or len(O) > 10000 or not all(isinstance(o, list) and o for o in O):
+            return self.err("olaylar: dizi dizisi bekleniyor (en çok 10000)")
+        if not K and not O:
+            return self.err("boş parti")
+        with LOCK:
+            var = kayit.ogrenci_var(KAYIT, ders, sid)
+        if not var:
+            return self.err("öğrenci bulunamadı", 404)
+        kare_yolu = os.path.join(TEST_DIR, "ders_kare", f"{ders}_{sid}.jsonl")
+        if K and os.path.exists(kare_yolu) and os.path.getsize(kare_yolu) > DERS_VERI_DOSYA_MAX:
+            return self.err(f"öğrenci kare dosyası sınırı aşıldı ({DERS_VERI_DOSYA_MAX} bayt)", 413)
+        t = now()
+        with TESTLOG_LOCK:
+            for klasor, veri in (("ders_kare", {"baslik": bas if isinstance(bas, dict) else None, "kareler": K} if K else None),
+                                 ("ders_olay", {"olaylar": O} if O else None)):
+                if veri is None:
+                    continue
+                yol = os.path.join(TEST_DIR, klasor)
+                os.makedirs(yol, exist_ok=True)
+                with open(os.path.join(yol, f"{ders}_{sid}.jsonl"), "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sunucuT": t, "sunucuSurum": SURUM, **veri}, ensure_ascii=False) + "\n")
+        self.send_json({"ok": True, "kare": len(K), "olay": len(O)})
 
     def teacher_ok(self, cls, key):
         return bool(key) and secrets.compare_digest(str(key).encode("utf-8"), cls["teacher_key"].encode("utf-8"))
@@ -1721,6 +1788,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.test_log_isi()
         if u.path == "/api/testlog-kare":
             return self.test_log_kare()
+        if u.path == "/api/ders-veri":
+            return self.ders_veri()
         if u.path == "/api/olcum":
             return self.ders_olcum()
         if u.path == "/api/material":
@@ -1817,6 +1886,8 @@ class Handler(BaseHTTPRequestHandler):
                "away": int(m["lookingAway"]), "eyes_closed": int(m["eyesClosed"]), "tab_hidden": int(m["tabHidden"])}
         row.update(kayit_bakis(b.get("gaze"), parsed))
         row["ham"] = temiz_ham(b.get("ham"))   # isteğe bağlı; yoksa/bozuksa NULL, ölçüm yine kaydedilir
+        if hse:   # HSEmotion sonucu (temiz_hse doğruladı) kalıcı kayda da girer (önceden yalnız canlı görünümdeydi); ham yoksa tek başına
+            row["ham"] = {**(row["ham"] or {}), "hse": hse}
         kayit.ornek_ekle(KAYIT, cls["code"], s["id"], t, row)
         kur = temiz_kurulum(b.get("kurulum"))
         if kur:

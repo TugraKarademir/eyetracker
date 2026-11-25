@@ -124,6 +124,8 @@ body.gomulu #adimCubuk { font-size: 14px; line-height: 22px; padding: 2px 14px; 
 <script src="/gazelab_stats.js"></script>
 <script src="/isi_testi.js"></script>
 <script src="/cihaz.js"></script>
+<script src="/kare_kayit.js"></script>
+<script src="/olay_gunlugu.js"></script>
 <script src="/yedek.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
 <script src="/hsemotion.js"></script>
@@ -434,9 +436,12 @@ async function start() {
   // (120 px'te yalnız 2 tur çıkıyordu). Masaüstünde 120 px aynen kalır (önceki ölçümlerle karşılaştırılabilir).
   if (innerWidth < 768) TEST.NEAR = Math.round(0.05 * Math.hypot(innerWidth, innerHeight));
   tlog(`kamera ${st.width}x${st.height}`, { ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, cihaz: navigator.userAgent.match(/Android[^;)]*|iPhone|Windows NT [\d.]+|Mac OS X/)?.[0] || "?", dokunmatik: navigator.maxTouchPoints > 0 });
+  // Olay günlüğü: sayfa/pencere/fare/klavye zamanı/kamera ayarı/yük/pil/ağ (olay_gunlugu.js); kare dosyasıyla gönderilir
+  window.OlayGunlugu?.baslat({ yazilim: YAZILIM, track: stream.getVideoTracks()[0] });
   gaze = new GazeTracker(video, { onStatus: () => {} });
   await gaze.load();
-  gaze.onLandmarks = reKanca;   // RealEye Light öznitelikleri (yalnız toplama aşamalarında)
+  gaze.onLandmarks = reKanca;
+  gaze.kaliteAcik = true;   // kare kaydı için görüntü kalitesi (q)   // RealEye Light öznitelikleri (yalnız toplama aşamalarında)
   // gaze.js kendi kayıtlı modelini yükleyip tıklamayla öğrenmeye başlamış olabilir; bu sayfada kendi döngümüz var
   gaze.tracking = false; document.removeEventListener("pointerdown", gaze._onClick, true);
   // Tam cihaz bilgisi bir kez (beklenmez; ölçüm akışını geciktirmez). Hata olursa null kalır, kayıt yine gider.
@@ -457,10 +462,7 @@ async function start() {
     if (new URLSearchParams(location.search).get("wg") === "1") { $("#sState").textContent = "WebGazer yükleniyor…"; await wgStart(); }
   }
   $("#sState").textContent = "hazır";
-  // gazelab'deki gibi önce kamera ayarı (önizleme + yüz kutusu + yakınlaştırma); ?ayar=0 ile atlanır
-  if (AYAR.ACIK) { await kameraAyari(); guideBaslat(); }
-  else setTimeout(() => guideBaslat(), 1200);   // kamera hazır: akış kendiliğinden başlar (yüz algılansın diye kısa bekleme)
-  // Ham öznitelik tamponu (son ~1 sn)
+  // Ham öznitelik tamponu (son ~1 sn). Kamera ayarından ÖNCE kurulur: ayar adımının kareleri de kaydedilsin.
   setInterval(() => {
     const l = gaze.latest; if (!l) return;
     if (!buf.length || buf[buf.length - 1].t !== l.t) {
@@ -469,6 +471,9 @@ async function start() {
     }
     while (buf.length && l.t - buf[0].t > 8) buf.shift();   // baş turu noktası 6 sn toplar (yüz profili adımları 3 sn)
   }, 15);
+  // gazelab'deki gibi önce kamera ayarı (önizleme + yüz kutusu + yakınlaştırma); ?ayar=0 ile atlanır
+  if (AYAR.ACIK) { await kameraAyari(); guideBaslat(); }
+  else setTimeout(() => guideBaslat(), 1200);   // kamera hazır: akış kendiliğinden başlar (yüz algılansın diye kısa bekleme)
   requestAnimationFrame(loop);
 }
 
@@ -594,7 +599,7 @@ document.addEventListener("pointerdown", async (e) => {
   if (guide !== guideOnce || (tgt && !tgt.el)) return;   // beklerken adım değişti
   const yas = (A) => (A.length ? [Math.round(1000 * (now - A[A.length - 1].t)), Math.round(1000 * (now - A[0].t))] : null);
   let win = buf.filter((b) => !b.blink && b.t >= now - TEST.WIN[0] && b.t <= now - TEST.WIN[1]);
-  const zaman = { sonKareMs: sonT ? Math.round(1000 * (now - sonT)) : null, bekleMs: Math.round(performance.now() - e.timeStamp),
+  const zaman = { ep: Math.round(performance.timeOrigin + e.timeStamp), sonKareMs: sonT ? Math.round(1000 * (now - sonT)) : null, bekleMs: Math.round(performance.now() - e.timeStamp),
     pencere: win.length, pencereYasMs: yas(win), eski: eskiWin.length, eskiYasMs: yas(eskiWin) };
   // Kare hızı düşükse 0,35 sn'lik pencereye 0-1 kare düşüyor: pencere 0,6 sn'ye genişletilir (göz hâlâ hedefte varsayımı)
   if (win.length < 2) { win = buf.filter((b) => !b.blink && b.t >= now - 0.6 && b.t <= now); zaman.genis = win.length; }   // tıklama anına göre son 0,6 sn
@@ -960,10 +965,16 @@ async function faceProfile() {
     ${MOBIL ? "" : "3) Başınızı <b>kameraya</b> çevirip merceğe bakın.<br>"}
     <span style="opacity:.75">Hoparlör sesinin açık olduğundan emin olun. Ekranda ışık yanıp sönmez; uyarı yalnız sestir.</span>`, "Hazırım");
   const DS = duyguOrnekle();
-  const A = await faceStep("🙂 Sarı noktaya <b>rahat ve nötr</b> bakın<br>(yüzünüz noktaya dönük, ekrana düz oturun)", 2, { dot: true });
-  DS.dur = true;
-  const B = await faceStep("😌 <b>Gözlerinizi kapatın</b><br>bip sesini duyunca açın", 3);
-  const C = MOBIL ? [] : await faceStep("📷 <b>Yüzünüzü kameraya çevirin</b><br>(başınızı kameraya doğru döndürüp merceğe bakın)", 2);
+  let A, B, C;
+  try {
+    kareAltBasla("profil_notr");
+    A = await faceStep("🙂 Sarı noktaya <b>rahat ve nötr</b> bakın<br>(yüzünüz noktaya dönük, ekrana düz oturun)", 2, { dot: true });
+    DS.dur = true;
+    kareAltBasla("profil_kapali");
+    B = await faceStep("😌 <b>Gözlerinizi kapatın</b><br>bip sesini duyunca açın", 3);
+    kareAltBasla("profil_kamera");
+    C = MOBIL ? [] : await faceStep("📷 <b>Yüzünüzü kameraya çevirin</b><br>(başınızı kameraya doğru döndürüp merceğe bakın)", 2);
+  } finally { kareAltBitir(); }
   const notr = summarize(A.filter((b) => !b.blink)), kapali = summarize(B), kamera = MOBIL ? null : summarize(C.filter((b) => !b.blink));
   { const hiz = gaze.diag && A.length > 1 ? (A.length / Math.max(0.5, A.at(-1).t - A[0].t)).toFixed(1) : "?";
     tlog(`profil kareleri: nötr ${notr.n}, kapalı ${kapali.n}${kamera ? `, kamera ${kamera.n}` : ""} (~${hiz} kare/sn)${notr.n < 15 || kapali.n < 15 ? " — az kare, profil değerleri gürültülü olabilir" : ""}`); }
@@ -1465,7 +1476,7 @@ function gomuluYedekIndir() {
     DNYedek.indir(DNYedek.csvMetni([{ baslik: "Yöntemler", rows: tablo(glYontemTablosu) }, { baslik: "Aşamalar", rows: tablo(glFazTablosu) },
       { baslik: "Oturum", rows: tablo(glOturumTablosu) }, { baslik: "Cihaz", rows: cihaz }]), kok("bakis_ozet.csv"), "text/csv;charset=utf-8"); n++;
   } catch (e) { console.warn("yedek CSV", e); }
-  try { if (KARE.kareler.length) { DNYedek.indir(JSON.stringify({ ...BAGLAM, kareKimlik: KAYIT_KIMLIK, baslik: kareBaslik(), kareler: KARE.kareler }), kok("bakis_kare.json"), "application/json"); n++; } }
+  try { if (KARE.kareler.length) { DNYedek.indir(JSON.stringify({ ...BAGLAM, kareKimlik: KAYIT_KIMLIK, baslik: kareBaslik(), kareler: KARE.kareler, olaylar: kareOlaylar() }), kok("bakis_kare.json"), "application/json"); n++; } }
   catch (e) { console.warn("yedek kare", e); }
   return n > 0;
 }
@@ -1645,9 +1656,11 @@ async function testKaydiGonderNow(sureMs) {
   const ac = new AbortController(), zaman = setTimeout(() => ac.abort(), sureMs);
   try {
     const cihaz = navigator.userAgent.match(/Android[^;)]*|iPhone|Windows NT [\d.]+|Mac OS X/)?.[0] || "bilinmiyor";
-    const govde = JSON.stringify({ kimlik: KAYIT_KIMLIK, ...BAGLAM, ...KAYIT_SONUC, cihaz, ua: navigator.userAgent, cihaz2: cihaz2(), cihazTam: CIHAZ_TAM, katilimci: { gozluk: GOZLUK }, ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, log: testLog, tiklamaOz: tiklamaOz, kare: kareOzet(), gazelab: glPaket() });
+    const govde = JSON.stringify({ kimlik: KAYIT_KIMLIK, ...BAGLAM, ...KAYIT_SONUC, cihaz, ua: navigator.userAgent, cihaz2: cihaz2(), cihazTam: CIHAZ_TAM, yazilim: YAZILIM, katilimci: { gozluk: GOZLUK }, ekran: `${screen.width}x${screen.height}`, pencere: `${innerWidth}x${innerHeight}`, log: testLog, tiklamaOz: tiklamaOz, kare: kareOzet(), gazelab: glPaket() });
     SON_GOVDE = govde;
+    const t0 = performance.now();
     const r = await fetch("/api/testlog", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal, body: govde });
+    window.OlayGunlugu?.istek("/api/testlog", performance.now() - t0, r.ok, govde.length);
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.status);
     if (j.cihazOzet) SON_CIHAZ_OZET = j.cihazOzet;
@@ -1680,7 +1693,7 @@ async function isiTestiGonder(anaDosya) {
 // aşama, aşama içi zaman (gazelab recordings ile aynı saat), ekrandaki hedef nokta (pencere px; yoksa null), kırpma, bizim ham vektör,
 // 3B baş pozu, blendshape'ler, iris mm, 2B yüz, WebGazer göz yaması, göz küresi açıları, RealEye göz kesiti (hesaplandıysa).
 // Hiçbir modeli/akışı değiştirmez; yalnız okur. Ayrı dosyaya gönderilir (/api/testlog-kare) ve gömülü modda yerel yedekle de iner.
-const KARE = { kareler: [], tasma: 0, gonderilen: null, hata: null, bsAd: null, EN_COK: 20000, hedefNo: 0, hedefEl: null };
+const KARE = { kareler: [], tasma: 0, gonderilen: null, hata: null, bsAd: null, EN_COK: 20000, AYAR_EN_COK: 1800, ayarN: 0, hedefNo: 0, hedefEl: null, alt: null, altT0: 0 };
 const yuv = (v, d) => (v == null || !Number.isFinite(v) ? null : +v.toFixed(d));
 const dizi = (a, d) => (Array.isArray(a) || ArrayBuffer.isView(a) ? Array.from(a, (v) => yuv(v, d)) : null);
 function kareHedef() {   // ekrandaki ilk hedef noktası (.tgt); yeni nokta çıkınca numara artar
@@ -1689,24 +1702,25 @@ function kareHedef() {   // ekrandaki ilk hedef noktası (.tgt); yeni nokta çı
   const x = parseFloat(el.style.left), y = parseFloat(el.style.top);
   return Number.isFinite(x) && Number.isFinite(y) ? [Math.round(x), Math.round(y), KARE.hedefNo] : null;
 }
-function kareKaydet(l, t, c) {
+// a: aşama (GazeLab aşaması ya da ara adım: ayar, profil_notr, profil_kapali, profil_kamera); satır biçimi kare_kayit.js
+function kareKaydet(l, t, a) {
   try {
-    if (c.stimulus_id === "isi_testi") return;
     if (KARE.kareler.length >= KARE.EN_COK) { KARE.tasma++; return; }
     if (l.bs && !KARE.bsAd) KARE.bsAd = Object.keys(l.bs);
-    const o = gaze._off?.(), p3 = l.pose3;
-    KARE.kareler.push({ a: c.stimulus_id, t, kt: yuv(l.t, 4), h: kareHedef(), b: l.blink ? 1 : 0, ac: yuv(l.open, 4),
-      raw: dizi(l.raw, 5), p3: p3 ? ["yaw", "pitch", "roll", "dist", "tx", "ty", "tz"].map((k) => yuv(p3[k], 3)) : null,
-      bs: l.bs && KARE.bsAd ? KARE.bsAd.map((k) => yuv(l.bs[k], 4)) : null, ir: l.irisMm ? [yuv(l.irisMm.sag, 3), yuv(l.irisMm.sol, 3)] : null,
-      y2: l.yuz2d ? [yuv(l.yuz2d.nx, 1), yuv(l.yuz2d.ny, 1), yuv(l.yuz2d.size, 1)] : null, off: o ? [Math.round(o.x), Math.round(o.y)] : null,
-      wg: dizi(l.wgp, 1), ku: dizi(l.kure, 4), re: dizi(l.re, 3) });
+    const o = gaze._off?.();
+    KARE.kareler.push(KareKayit.satir(l, KARE.bsAd, { a, t, h: kareHedef(), off: o ? [Math.round(o.x), Math.round(o.y)] : null }));
   } catch (e) { KARE.hata = String(e?.message || e); }
 }
+// Ara adım (GazeLab aşaması dışı) kare kaydı: KARE.alt ayarlıyken (kamera ayarı, yüz profili alt adımları)
+function kareAltBasla(ad) { KARE.alt = ad; KARE.altT0 = simdi(); }
+function kareAltBitir() { KARE.alt = null; }
 function kareBaslik() {
-  return { surum: 1, aciklama: "her satır bir MediaPipe karesi; a=aşama, t=aşama içi ms (gazelab recordings saati), kt=kare zamanı sn, h=[hedef x, hedef y, hedef no] pencere px (yoksa null), b=kırpma, ac=göz açıklığı, raw=bizim ham vektör, p3=[yaw,pitch,roll,dist,tx,ty,tz], bs=blendshape (bsAd sırası), ir=iris mm [sağ,sol], y2=[burun x,y, göz köşesi arası] video px, off=sayfa ofseti px, wg=WebGazer göz yaması, ku=göz küresi açıları, re=RealEye göz kesiti (yalnız hesaplandıysa)",
+  return { surum: 2, aciklama: "her satır bir MediaPipe karesi; a=aşama (GazeLab aşaması ya da ayar/profil_notr/profil_kapali/profil_kamera), t=aşama içi ms (gazelab recordings saati), h=[hedef x, hedef y, hedef no] pencere px (yoksa null), off=sayfa ofseti px; kalan anahtarlar static/kare_kayit.js başındaki açıklamada (kt, ep, ct, pf, q, b, ac, raw, p3, bs, ir, y2, wg, ku, re). olaylar: static/olay_gunlugu.js ([epoch ms, tür, veri])",
     bsAd: KARE.bsAd, ekran: [screen.width, screen.height], pencere: [innerWidth, innerHeight], dpr: devicePixelRatio, pencereKonum: [screenX, screenY],
-    gozluk: GOZLUK, n: KARE.kareler.length, tasma: KARE.tasma, hata: KARE.hata };
+    timeOrigin: Math.round(performance.timeOrigin), yazilim: YAZILIM, gozluk: GOZLUK, n: KARE.kareler.length, tasma: KARE.tasma, hata: KARE.hata,
+    olay: window.OlayGunlugu?.ozet() ?? null };
 }
+const kareOlaylar = () => window.OlayGunlugu?.hepsi() ?? null;
 // Kalibrasyon (bakarak) sırasındaki ortalama 3B baş pozu: ders sayfası bundan sapmayı (ör. 15 cm yaklaşma) kaydeder. Kare kaydından;
 // yoksa null (uydurma yok).
 function basReferansi() {
@@ -1715,13 +1729,14 @@ function basReferansi() {
   const ort = (j) => +(P.reduce((s, r) => s + r.p3[j], 0) / P.length).toFixed(2);
   return { yaw: ort(0), pitch: ort(1), roll: ort(2), dist: ort(3), n: P.length, kaynak: "bakarak" };
 }
-function kareOzet() { return { n: KARE.kareler.length, tasma: KARE.tasma, dosya: KARE.gonderilen, hata: KARE.hata }; }
+function kareOzet() { return { n: KARE.kareler.length, tasma: KARE.tasma, dosya: KARE.gonderilen, hata: KARE.hata, olay: window.OlayGunlugu?.ozet() ?? null }; }
 async function kareGonder() {
   if (!KARE.kareler.length) return null;
-  const sureMs = KAYIT_SURE.son, ac = new AbortController(), zaman = setTimeout(() => ac.abort(), sureMs);
+  const sureMs = KAYIT_SURE.son, ac = new AbortController(), zaman = setTimeout(() => ac.abort(), sureMs), t0 = performance.now();
   try {
-    const r = await fetch("/api/testlog-kare", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal,
-      body: JSON.stringify({ ...BAGLAM, kareKimlik: KAYIT_KIMLIK, ana: KAYIT_KIMLIK, baslik: kareBaslik(), kareler: KARE.kareler }) });
+    const govde = JSON.stringify({ ...BAGLAM, kareKimlik: KAYIT_KIMLIK, ana: KAYIT_KIMLIK, baslik: kareBaslik(), kareler: KARE.kareler, olaylar: kareOlaylar() });
+    const r = await fetch("/api/testlog-kare", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ac.signal, body: govde });
+    window.OlayGunlugu?.istek("/api/testlog-kare", performance.now() - t0, r.ok, govde.length);
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || r.status);
     tlog(`kare verisi bilgisayara gönderildi: test_kayitlari/${j.dosya} (${j.kare} kare, ${j.bayt} bayt)`); kayitHataKaldir("Kare verisi"); KARE.gonderilen = j.dosya; return j.dosya;
@@ -1877,6 +1892,8 @@ const GLAB = true;   // ?gazelab=0: GazeLab doğrulaması her zaman yapılır
 // Aynı bilgisayarda farklı kişiler test olacağı için tarayıcıya kaydedilmez; yalnız bu sayfa açıkken (yeniden denemede) hatırlanır.
 const GOZLUK_AD = { yok: "Gözlük/lens yok", gozluk: "Gözlük", lens: "Kontakt lens", belirtmedi: "Belirtmek istemiyor" };
 let GOZLUK = null;
+// Kaydı üreten yazılım (sonradan farklı sürümlerle alınmış veriler ayrılabilsin; sunucu kendi kod sürümünü ayrıca ekler)
+const YAZILIM = { sayfa: "bakis_test", mediapipe: typeof MP_BASE !== "undefined" ? MP_BASE : null, model: typeof MP_MODEL !== "undefined" ? MP_MODEL : null, kareSurum: 2 };
 const AYAR = { ACIK: QS.get("ayar") !== "0", MIN_YUZ: 0.25, IYI_GOZ_PX: 100, HEDEF_YUZ: 0.42, KUTU: [0.5, 0.7] };
 const GLK = { recs: [], cur: null, baz: false, bazOrnek: [], headBase: null, sure: {}, kamera: null, ayar: null, dog: null, bitti: false, basEpoch: null };
 const simdi = () => performance.now();
@@ -1908,6 +1925,7 @@ function glReset() {
   GLK.oturumId = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[b % 62]).join("").slice(0, 8);
 }
 function glFazBasla(ad) {
+  kareAltBitir();   // ara adım etiketi (ör. yarıda kalan kamera ayarı) GazeLab aşamasına taşmasın
   glFazBitir();
   const d = gaze?.diag || {};
   GLK.cur = { stimulus_id: ad, order_idx: GLK.recs.length, started_at: Date.now() / 1000, t0: simdi(),
@@ -1991,10 +2009,15 @@ function glKare(l) {   // her yeni MediaPipe karesinde (start() içindeki tampon
   const hs = GL.headSample(l);
   basUyariKontrol(hs);
   if (GLK.baz && hs) GLK.bazOrnek.push(hs);
-  const c = GLK.cur; if (!c) return;
+  const c = GLK.cur;
+  if (!c) {
+    // ara adım kareleri; kamera ayarı kartı uzun açık kalırsa GazeLab aşamalarının yerini yemesin diye ayrı sınır
+    if (KARE.alt && (KARE.alt !== "ayar" || (KARE.ayarN = (KARE.ayarN || 0) + 1) <= KARE.AYAR_EN_COK)) kareKaydet(l, Math.round(simdi() - KARE.altT0), KARE.alt);
+    return;
+  }
   const t = Math.round(simdi() - c.t0);
   if (hs && t - c.lastHead >= 100) { c.lastHead = t; c.headRaw.push([t, hs]); }   // baş pozu ~10 Hz (gazelab)
-  kareKaydet(l, t, c);
+  kareKaydet(l, t, c.stimulus_id);
   if (l.blink) { c.kirpma++; if (ISI.aktif) isiKare(t, l, null); return; }
   const P = glTahmin(l, gaze._off());
   for (const [k, q] of Object.entries(P)) (c.gaze[k] ||= []).push([t, Math.round(q[0]), Math.round(q[1])]);
@@ -2188,7 +2211,7 @@ function isiTestiOzet(gonderiyor = false) {
 
 // ---- 1) Kamera ayarı (gazelab "kamera ve yüz konumlandırma" adımı + yakınlaştırma)
 async function kameraAyari() {
-  adimKur(true); adimBasla("ayar");
+  adimKur(true); adimBasla("ayar"); kareAltBasla("ayar");
   const track = video.srcObject?.getVideoTracks()[0];
   const cap = track?.getCapabilities?.() || {}, donanim = !!cap.zoom;
   const zMax = donanim ? cap.zoom.max : 3, zMin = donanim ? cap.zoom.min : 1;
@@ -2271,7 +2294,7 @@ async function kameraAyari() {
   requestAnimationFrame(ciz);
   await new Promise((ok) => { K.querySelector("#ayarTamam").onclick = (e) => { e.stopPropagation(); ok(); }; });
   GOZLUK = GOZLUK_AD[K.querySelector("#ayarGozluk").value] ? K.querySelector("#ayarGozluk").value : null;
-  bitti = true; K.remove();
+  bitti = true; K.remove(); kareAltBitir();
   const st = track?.getSettings?.() || {};
   GLK.ayar = { mod: donanim ? "kamera" : "dijital", zoom: +(+z).toFixed(2), zoomC: gaze.zoomC ? gaze.zoomC.map((v) => +v.toFixed(3)) : null, islenen: gaze.diag?.islenen,
                kamera: `${video.videoWidth}x${video.videoHeight}`, fps: st.frameRate ? +st.frameRate.toFixed(1) : null, ...son, sureSn: +((simdi() - t0) / 1000).toFixed(1), gozluk: GOZLUK };

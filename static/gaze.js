@@ -53,6 +53,30 @@ function gzIrisMm(p, e) {
   const a = p[e.a], b = p[e.b], mm = 5.85 / rPx;
   return [(c[0] - (a[0] + b[0]) / 2) * mm, (c[1] - (a[1] + b[1]) / 2) * mm];
 }
+// Görüntü kalitesi (kare başına, küçük bir kesitten; ölçüm amaçlı, hiçbir modele girmez). img: { data: RGBA, width, height }.
+// Döner: [parlaklık ort (0-255), kontrast (std), sol-sağ parlaklık farkı (görüntünün sol yarısı - sağ yarısı), netlik (Laplace varyansı),
+//         aşırı pozlama % (≥250), az pozlama % (≤10)]; boş görüntüde null.
+function gzKalite(img) {
+  const { data, width: w, height: h } = img || {};
+  if (!data || !(w > 2) || !(h > 2)) return null;
+  const n = w * h, L = new Float32Array(n);
+  let top = 0, top2 = 0, sol = 0, sag = 0, ac = 0, az = 0;
+  for (let i = 0; i < n; i++) {
+    const v = 0.299 * data[4 * i] + 0.587 * data[4 * i + 1] + 0.114 * data[4 * i + 2];
+    L[i] = v; top += v; top2 += v * v;
+    if (i % w < w / 2) sol += v; else sag += v;
+    if (v >= 250) ac++; else if (v <= 10) az++;
+  }
+  const ort = top / n, yarim = Math.floor(w / 2) * h;
+  let lt = 0, lt2 = 0, ln = 0;
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x, l = L[i - 1] + L[i + 1] + L[i - w] + L[i + w] - 4 * L[i];
+    lt += l; lt2 += l * l; ln++;
+  }
+  const r1 = (v) => Math.round(v * 10) / 10;
+  return [r1(ort), r1(Math.sqrt(Math.max(0, top2 / n - ort * ort))), r1(sol / yarim - sag / (n - yarim)),
+          r1(lt2 / ln - (lt / ln) ** 2), r1(100 * ac / n), r1(100 * az / n)];
+}
 // ham: [rx, ry, lx, ly, ro, lo, hy, hp]  ->  model: [rx, ry, lx, ly, ortalama açıklık, baş yaw, baş pitch]
 // webgaze'den farkı: baş açısı da modele girer. Büyük ekranda kenarlara bakarken baş dönüyor; açı modelde
 // yokken bu dönüş göz bebeği kayması sanılıyordu (kayıtta 2560 px ekranda hata ~7-10°).
@@ -353,7 +377,7 @@ class GazeTracker {
     // kayıt, başlangıcından önce yakalanmış kare almasın.
     if (this.paused || (this.rec && this.rec !== u.rec)) { m.bmp.close(); return; }
     this.diag.islemeMs = (this.diag.islemeMs || 0) + m.ms; this.diag.islemeN = (this.diag.islemeN || 0) + 1;
-    try { this._isle(m.res, u.t, m.bmp, t1, u.kirp, u.zoom); }
+    try { this._isle(m.res, u.t, m.bmp, t1, u.kirp, u.zoom, u.vm); }
     finally { m.bmp.close(); }
   }
 
@@ -395,7 +419,7 @@ class GazeTracker {
         } else { this.diag.atlanan++; next(); return; }
       }
       const t = performance.now() / 1000, src = this._kaynak(), t0 = performance.now();
-      const u = this._ucus = { id: (this._kareNo = (this._kareNo || 0) + 1), t, t0, kirp: this.kirp, zoom: this.zoom, rec: this.rec };
+      const u = this._ucus = { id: (this._kareNo = (this._kareNo || 0) + 1), t, t0, kirp: this.kirp, zoom: this.zoom, rec: this.rec, vm: this._vmAl() };
       const birak = (e) => { if (this._ucus === u) this._ucus = null; this.diag.hata++; this.diag.sonHata = String(e?.message || e).slice(0, 160); };
       createImageBitmap(src).then((bmp) => {
         if (this._ucus !== u || !this._isci) { bmp.close(); return; }   // bu arada worker kapandı ya da bekçi bıraktı
@@ -413,13 +437,47 @@ class GazeTracker {
     try { res = this.mesh.detectForVideo(src, performance.now()); }
     catch (e) { if (this.diag) { this.diag.hata++; this.diag.sonHata = String(e?.message || e).slice(0, 160); } next(); return; }
     if (this.diag) { this.diag.islemeMs = (this.diag.islemeMs || 0) + (performance.now() - t0); this.diag.islemeN = (this.diag.islemeN || 0) + 1; }
-    this._isle(res, t, src, t0, this.kirp, this.zoom);
+    this._isle(res, t, src, t0, this.kirp, this.zoom, this._vmAl());
     next();
   }
 
   // Bir karenin MediaPipe sonucunu işler (iki yol da buradan geçer): landmark → öznitelik → kırpma → latest → onLandmarks → rec → _predict.
   // src: modele giden karenin kendisi (video, yakınlaştırma tuvali ya da worker'dan dönen ImageBitmap); kirp/zoom: o kare yakalanırken geçerli olan.
-  _isle(res, t, src, t0, kirp, zoom) {
+  // Kare zaman üst verisi (rVFC): ct = kameranın kareyi yakaladığı an (epoch ms; tarayıcı vermezse null), pf = gösterilen kare sayacı
+  // (ardışık karelerde pf farkı > 1 ise arada kamera karesi işlenmeden geçmiş), mt = videonun medya zamanı (sn)
+  _vmAl() {
+    const m = this._meta; if (!m) return null;
+    const o = typeof performance !== "undefined" ? performance.timeOrigin : 0;
+    return { ct: Number.isFinite(m.captureTime) ? Math.round(o + m.captureTime) : null, pf: m.presentedFrames ?? null,
+             mt: Number.isFinite(m.mediaTime) ? Math.round(m.mediaTime * 1000) / 1000 : null };
+  }
+  // Yüz ve göz bölgesinin görüntü kalitesi (gzKalite): q = yüz kesiti 6 değer + göz şeridi [parlaklık, aşırı pozlama %] (gözlük yansıması)
+  // Yalnız gerekince hesaplanır (kare kancası bağlıysa ya da kaliteAcik): kare başına bir çizim + bir okuma (GPU → CPU).
+  // Yüz kutusu kare sınırına kırpılır (dışı çizilmez; tuvalde önceki karenin pikseli kalmaz). Göz şeridi aynı okumadan alınır.
+  _kalite(src, p, w, h) {
+    if (!(this.onKare || this.kaliteAcik) || typeof document === "undefined") return null;
+    if (!this._qCv) { this._qCv = document.createElement("canvas"); this._qCv.width = 64; this._qCv.height = 64; this._qCtx = this._qCv.getContext("2d", { willReadFrequently: true }); }
+    const kutu = (ix, pay = 0) => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; for (const i of ix) { const q = p[i]; if (q[0] < x0) x0 = q[0]; if (q[0] > x1) x1 = q[0]; if (q[1] < y0) y0 = q[1]; if (q[1] > y1) y1 = q[1]; }
+      return [Math.max(0, x0 - pay), Math.max(0, y0 - pay), Math.min(w, x1 + pay), Math.min(h, y1 + pay)]; };
+    const [fx0, fy0, fx1, fy1] = kutu([10, 152, 234, 454, 1]), fw = fx1 - fx0, fh = fy1 - fy0;
+    if (!(fw > 8 && fh > 8)) return null;
+    const c = this._qCtx, N = 64;
+    c.drawImage(src, fx0, fy0, fw, fh, 0, 0, N, N);
+    const img = c.getImageData(0, 0, N, N), yuz = gzKalite(img);
+    // göz şeridi: aynı 64×64 kesitte karşılık gelen dikdörtgen
+    const ep = Math.max(4, (kutu([159, 145, 386, 374])[3] - kutu([159, 145, 386, 374])[1]));
+    const [ex0, ey0, ex1, ey1] = kutu([33, 133, 159, 145, 362, 263, 386, 374], ep);
+    const X = (x) => Math.max(0, Math.min(N, Math.round((x - fx0) / fw * N))), Y = (y) => Math.max(0, Math.min(N, Math.round((y - fy0) / fh * N)));
+    const gx0 = X(ex0), gx1 = X(ex1), gy0 = Y(ey0), gy1 = Y(ey1);
+    let goz = null;
+    if (gx1 - gx0 > 2 && gy1 - gy0 > 2) {
+      const gw = gx1 - gx0, gh = gy1 - gy0, d = new Uint8ClampedArray(gw * gh * 4);
+      for (let y = 0; y < gh; y++) d.set(img.data.subarray(4 * ((gy0 + y) * N + gx0), 4 * ((gy0 + y) * N + gx1)), 4 * y * gw);
+      goz = gzKalite({ data: d, width: gw, height: gh });
+    }
+    return yuz ? [...yuz, goz ? goz[0] : null, goz ? goz[4] : null] : null;
+  }
+  _isle(res, t, src, t0, kirp, zoom, vm = null) {
     const lm = res.faceLandmarks && res.faceLandmarks[0];
     // İşlenen karenin boyutu (ImageBitmap/tuvalde width/height, videoda videoWidth/videoHeight)
     const w = src.videoWidth || src.width, h = src.videoHeight || src.height;
@@ -427,11 +485,12 @@ class GazeTracker {
     if (this.diag) { this.diag.kare++; if (lm) this.diag.yuz++; this.diag.video = `${this.video.videoWidth}x${this.video.videoHeight}`; this.diag.islenen = `${w}x${h}`; this.diag.zoom = zoom; }
     // Kancalar (onLandmarks, wgYama) bu karenin piksellerini okur; yalnız bu çağrı süresince geçerli
     this.kareKaynak = src;
-    try { this._isleYuz(res, lm, t, src, w, h, kirp, zoom); }
+    try { this._isleYuz(res, lm, t, src, w, h, kirp, zoom, vm); }
     finally { this.kareKaynak = null; }
     if (this.diag) this.diag.toplamMs = (this.diag.toplamMs || 0) + (performance.now() - t0);   // ana yol: MediaPipe + göz yaması + küre + kancalar; worker yolu: sonuç geldikten sonraki ana iş parçacığı işi
   }
-  _isleYuz(res, lm, t, src, w, h, kirp, zoom) {
+  _isleYuz(res, lm, t, src, w, h, kirp, zoom, vm = null) {
+    const ep = typeof performance !== "undefined" ? Math.round(performance.timeOrigin + t * 1000) : null;   // kare zamanı, epoch ms
     if (lm && lm.length >= 478) {
       const p = lm.map((q) => [q.x * w, q.y * h]);
       const [rx, ry, ro] = gzEyeFeatures(p, GZ.EYE_R), [lx, ly, lo] = gzEyeFeatures(p, GZ.EYE_L);
@@ -453,7 +512,8 @@ class GazeTracker {
       const bsAll = bs ? Object.fromEntries(bs.map((c) => [c.categoryName, c.score])) : null;
       // yuz2d: GazeLab baş pozu sınırları için burun ucu (1) ve dış göz köşeleri arası (33-263) uzaklık, video pikseli
       const yuz2d = { nx: p[1][0], ny: p[1][1], size: Math.hypot(p[263][0] - p[33][0], p[263][1] - p[33][1]) };
-      this.latest = { t, raw, blink, open: (ro + lo) / 2, eyes, pose3, bs: bsAll, yuz2d, irisMm: { sag: gzIrisMm(p, GZ.EYE_R), sol: gzIrisMm(p, GZ.EYE_L) } };
+      this.latest = { t, ep, vm, raw, blink, open: (ro + lo) / 2, eyes, pose3, bs: bsAll, yuz2d, irisMm: { sag: gzIrisMm(p, GZ.EYE_R), sol: gzIrisMm(p, GZ.EYE_L) } };
+      try { this.latest.q = this._kalite(src, p, w, h); } catch { this.latest.q = null; }
       // WebGazer göz yaması: aynı karenin aynı yüz noktalarından (wg_yama.js yüklüyse; kare başına ~2-3 ms)
       let wgp = null;
       if (typeof wgYama === "function") { try { wgp = wgYama(this.kareKaynak, p); } catch { wgp = null; } }
@@ -477,6 +537,11 @@ class GazeTracker {
       this.latest = null;
       if (this.rec) { this.recStat.frames++; this.recStat.noFace++; }
       if (this.tracking) this._sample(null);
+    }
+    // Kare kancası (ders: kare kare kayıt). Yüzsüz kare de bildirilir (zaman çizelgesinde boşluk görünsün). Bakış tahmini bu karenin ise eklenir.
+    if (this.onKare) {
+      const h = this.hist[this.hist.length - 1], tah = h && h.t === t ? { p: h.p, s: h.s } : null;
+      try { this.onKare(this.latest || { t, ep, vm, yok: true }, tah); } catch {}
     }
   }
 

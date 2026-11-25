@@ -170,6 +170,13 @@ Compress-Archive -Path E:\eyetracker\data, E:\eyetracker\test_kayitlari -Destina
 - Ders boyunca her tıklamada tahmin ile tıklanan yer arasındaki fark ve kalibrasyondaki baş pozuna göre fark (ör. mesafe -15 cm) kaydedilir.
 - Sonuçlar: `E:\eyetracker\test_kayitlari\ders_olcum\<DERS>_<sid>.jsonl` (her satır bir ölçüm) ve öğrencinin `..._ders.json` / `..._ders.csv` yedeğinde ("Bakış kontrolleri ve tıklama hataları" tablosu).
 
+**Kare kare veri ve olay günlüğü** (ortak model eğitimi için; 25.11.2026):
+- Ders sırasında her kamera karesinin öznitelikleri (göz, baş pozu, 52 yüz ifadesi değeri, iris, WebGazer göz yaması, görüntü kalitesi, kare zamanı, o karenin bakış tahmini) ~10 sn'de bir sunucuya gider: `test_kayitlari\ders_kare\<DERS>_<sid>.jsonl` (her satır bir parti). Satır biçimi `static\kare_kayit.js` başında. Boyut: örnek satırla hesaplandı (gerçek derste ölçülmedi), kare başına ~1,4 KB; 40 dakikada öğrenci başına saniyede 15 karede ~50 MB, 30 karede ~100 MB.
+- Olay günlüğü (sekme/pencere değişimi, tam ekran, pencere boyutu ve konumu, fare hareketi ve tıklama, kaydırma, tuşa basma zamanı (hangi tuş olduğu alınmaz), kamera ayarı değişimi, işlemci yükü, pil, ağ, sunucu isteği süreleri): `test_kayitlari\ders_olay\<DERS>_<sid>.jsonl`. Tür listesi `static\olay_gunlugu.js` başında.
+- Bakış testinde aynı satırlar `<kimlik>_kare.json` içinde (ara adımlar da: kamera ayarı, yüz profili nötr/kapalı/kameraya bakış, ısı testi); olay günlüğü aynı dosyada `olaylar` alanında.
+- Öğrenci adresine `&kare=0` kare kaydını kapatır (olaylar yine gider); `&kare=tam` göz kesitlerini de ekler (kare başına ~1600 sayı, birkaç kat büyük).
+- Her kayıt dosyasında `sunucuSurum`: kayıt alınırken sunucunun çalıştırdığı kodun git özeti (`+degisik` = kaydedilmemiş kod değişikliği vardı).
+
 **i. Sorun giderme.**
 - Sayfa açılmıyor: öğrenci ve öğretmen bilgisayarı aynı ağda mı (öğretmen bilgisayarında c adımındaki kural var mı, ağ "Genel" mi)? Sunucu penceresi hâlâ açık mı?
 - Sertifika uyarısı çıkıyor: f adımı o bilgisayarda yapıldı mı, tarayıcı kapatılıp açıldı mı? Adres `https://<IP>:8443` biçiminde ve b'de verilen IP ile aynı mı?

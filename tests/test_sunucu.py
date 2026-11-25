@@ -273,6 +273,14 @@ class SunucuOrnek(unittest.TestCase):
         self.metrik(kod, sid, hse={"top": "<script>"})
         self.assertIsNone(server.public_student(server.CLASSES[kod]["students"][sid], server.now())["hse"])
 
+    def test_metrics_hse_kalici_kayda_ham_icinde_girer(self):
+        kod, _, sid = self.ogrenci()
+        self.metrik(kod, sid, hse={"top": "Neutral", "p": 0.5, "valence": 0, "arousal": 0}, ham={"n": 3})
+        self.metrik(kod, sid, ham={"n": 4})   # hse yoksa ham'a eklenmez
+        H = [json.loads(r["ham"]) for r in server.KAYIT.execute("SELECT ham FROM samples ORDER BY t").fetchall()]
+        self.assertEqual(H[0]["hse"], {"top": "Neutral", "p": 0.5, "valence": 0, "arousal": 0})
+        self.assertNotIn("hse", H[1])
+
     def test_ogrenci_ayrinti_isi_ve_kalibrasyon(self):
         kod, _, sid = self.ogrenci()
         self.metrik(kod, sid, gaze={"cal": True, "region": "materyal", "share": {"materyal": 1},
@@ -749,6 +757,76 @@ class DersOlcum(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.td, "ders_olcum")))
 
 
+class DersVeri(unittest.TestCase):
+    """/api/ders-veri: ders sırasında kare kare öznitelik ve olay partileri öğrenci başına iki jsonl dosyasına eklenir."""
+    def setUp(self):
+        self.base, self.kapat = basla()
+        self.addCleanup(self.kapat)
+        self.td = tempfile.mkdtemp()
+        eski = server.TEST_DIR
+        server.TEST_DIR = self.td
+        self.addCleanup(lambda: (setattr(server, "TEST_DIR", eski), shutil.rmtree(self.td, ignore_errors=True)))
+        _, r = post(self.base, "/api/class", {"name": "T"})
+        self.kod, self.key = r["code"], r["key"]
+        _, j = post(self.base, "/api/join", {"onay": ONAY, "code": self.kod, "name": "Ali"})
+        self.sid = j["sid"]
+
+    def satirlar(self, klasor):
+        yol = os.path.join(self.td, klasor, f"{self.kod}_{self.sid}.jsonl")
+        if not os.path.exists(yol):
+            return []
+        with open(yol, encoding="utf-8") as f:
+            return [json.loads(x) for x in f]
+
+    def test_kare_ve_olay_ayri_dosyalara_eklenir(self):
+        kod, r = post(self.base, "/api/ders-veri", {"code": self.kod, "sid": self.sid, "baslik": {"bsAd": ["a"]},
+                                                    "kareler": [{"kt": 1.5, "ep": 1, "p3": [1, 2, 3, 4, 5, 6, 7]}, {"kt": 1.6, "yok": 1}],
+                                                    "olaylar": [[1000, "odak", 0], [1001, "tus"]]})
+        self.assertEqual((kod, r["kare"], r["olay"]), (200, 2, 2))
+        kod, r = post(self.base, "/api/ders-veri", {"code": self.kod, "sid": self.sid, "olaylar": [[1002, "odak", 1]]})
+        self.assertEqual((kod, r["kare"], r["olay"]), (200, 0, 1))
+        K, O = self.satirlar("ders_kare"), self.satirlar("ders_olay")
+        self.assertEqual(len(K), 1)
+        self.assertEqual(K[0]["baslik"], {"bsAd": ["a"]})
+        self.assertEqual([k["kt"] for k in K[0]["kareler"]], [1.5, 1.6])
+        self.assertEqual([len(x["olaylar"]) for x in O], [2, 1])
+        self.assertTrue(all(isinstance(x["sunucuT"], float) and "sunucuSurum" in x for x in K + O))
+
+    def test_ders_bittikten_sonra_da_kabul(self):
+        post(self.base, "/api/event", {"code": self.kod, "key": self.key, "type": "end"})
+        self.assertTrue(server.CLASSES[self.kod]["ended"])
+        kod, _ = post(self.base, "/api/ders-veri", {"code": self.kod, "sid": self.sid, "kareler": [{"kt": 1}]})
+        self.assertEqual(kod, 200)
+
+    def test_gecersiz_ve_kayitsiz_reddedilir(self):
+        for g, beklenen in (({"code": self.kod, "sid": "s_ffff", "kareler": [{}]}, 404),
+                            ({"code": "../x", "sid": self.sid, "kareler": [{}]}, 400),
+                            ({"code": self.kod, "sid": self.sid}, 400),
+                            ({"code": self.kod, "sid": self.sid, "kareler": [1]}, 400),
+                            ({"code": self.kod, "sid": self.sid, "olaylar": [[]]}, 400),
+                            ({"code": self.kod, "sid": self.sid, "kareler": "x"}, 400)):
+            kod, _ = post(self.base, "/api/ders-veri", g)
+            self.assertEqual(kod, beklenen, g)
+        with unittest.mock.patch.object(server, "DERS_VERI_MAX_BYTES", 100):
+            kod, _ = post(self.base, "/api/ders-veri", {"code": self.kod, "sid": self.sid, "kareler": [{"x": "y" * 200}]})
+        self.assertEqual(kod, 413)
+        self.assertEqual(self.satirlar("ders_kare") + self.satirlar("ders_olay"), [])
+
+
+class KodSurumu(unittest.TestCase):
+    def test_git_yoksa_none(self):
+        with unittest.mock.patch("subprocess.run", side_effect=OSError("git yok")):
+            self.assertIsNone(server.kod_surumu())
+
+    def test_degisiklik_isareti(self):
+        class R:
+            def __init__(self, out): self.returncode, self.stdout = 0, out
+        with unittest.mock.patch("subprocess.run", side_effect=[R("abc1234\n"), R(" M static/gaze.js\n")]):
+            self.assertEqual(server.kod_surumu(), "abc1234+degisik")
+        with unittest.mock.patch("subprocess.run", side_effect=[R("abc1234\n"), R("")]):
+            self.assertEqual(server.kod_surumu(), "abc1234")
+
+
 class KareKaydi(unittest.TestCase):
     """/api/testlog-kare: bakış testi kare başına öznitelikleri ayrı dosyaya yazılır (ortak eğitim)."""
     def setUp(self):
@@ -767,7 +845,7 @@ class KareKaydi(unittest.TestCase):
         kod, r = post(self.base, "/api/testlog-kare", govde)
         self.assertEqual((kod, r["kare"]), (200, 2))
         with open(os.path.join(self.td, r["dosya"]), encoding="utf-8") as f:
-            self.assertEqual(json.load(f), govde)
+            self.assertEqual(json.load(f), {**govde, "sunucuSurum": server.SURUM})   # sunucu kendi kod sürümünü ekler
         self.assertEqual(sorted(os.listdir(self.td)), ["20261125_090000_ab12_kare.json"])   # .tmp kalmaz
 
     def test_gecersiz_reddedilir(self):
@@ -799,7 +877,7 @@ class IsiTestiKaydi(unittest.TestCase):
         kod, r = post(self.base, "/api/testlog-isi", govde)
         self.assertEqual((kod, r["ok"], r["dosya"]), (200, True, "20261124_101500_ab12_isi.json"))
         with open(os.path.join(self.td, r["dosya"]), encoding="utf-8") as f:
-            self.assertEqual(json.load(f), govde)
+            self.assertEqual(json.load(f), {**govde, "sunucuSurum": server.SURUM})   # sunucu kod sürümünü ekler
 
     def test_gecersiz_json_reddedilir(self):
         rq = urllib.request.Request(self.base + "/api/testlog-isi", b"{bozuk", {"Content-Type": "application/json"})

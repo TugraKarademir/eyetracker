@@ -22,7 +22,11 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 async function api(path, body) {
-  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const govde = body ? JSON.stringify(body) : null, t0 = performance.now();
+  let r;
+  try { r = await fetch(path, govde ? { method: "POST", headers: { "Content-Type": "application/json" }, body: govde } : {}); }
+  catch (e) { window.OlayGunlugu?.istek(path, performance.now() - t0, false, govde?.length ?? 0); throw e; }
+  window.OlayGunlugu?.istek(path, performance.now() - t0, r.ok, govde?.length ?? 0);   // sunucu isteği süresi (olay günlüğü varsa)
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || "İstek başarısız");
   return j;
