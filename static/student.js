@@ -92,7 +92,9 @@ async function sendMetrics() {
   // Bakış testi açıkken ya da analizör çalışmıyorken (model yükleniyor) ölçüm yok: kurucunun varsayılanları (dikkat 70, enerji 85) gönderilmez
   if (paused || !analyzer || kalCerceve || !analyzer.running) return;
   const s = analyzer.state;
-  if (s.calibrating && s.face) { analyzer.hamAl?.(); return; }   // kalibrasyon bitmeden gönderme (o karelerin ham ölçüsü de atılır)
+  // Analizör yüzü görüp tabanını kurana dek (ilk 10 yüz karesi) dikkat/enerji kurucu varsayılanıdır (70/85): yüz olsa da olmasa da gönderilmez
+  // (25.11: yavaş bilgisayarda yüz bulunmadan 70/85 gönderiliyordu). O karelerin ham ölçüsü de atılır.
+  if (s.calibrating) { analyzer.hamAl?.(); return; }
   const g = gaze ? gaze.flush() : null;
   // Bakış kalibre ise "ekran dışı" kararı baş yönünden daha güvenilirdir
   const away = s.lookingAway || !!(g && (g.cal || g.coarse) && (g.share?.disari || 0) >= 0.6);
