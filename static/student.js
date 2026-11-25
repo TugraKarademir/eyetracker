@@ -299,12 +299,17 @@ function tiklamaHatalariGonder(poz) {
 setInterval(async () => {
   if (!OLCUM_DK || olcumSuruyor || bitiyor || !bakisHazir() || kalCerceve || paused || document.hidden) { if (!bakisHazir()) olcumSonraki = null; return; }
   const now = Date.now();
-  if (olcumSonraki == null) { olcumSonraki = now + OLCUM_DK * 60000; return; }   // kalibrasyon yüklendikten sonra ilk aralık beklenir
+  if (olcumSonraki == null) { olcumSonraki = now + Math.min(1, OLCUM_DK) * 60000; return; }   // ilk nokta kalibrasyondan 1 dk sonra (kayma erken düzelsin), sonra her OLCUM_DK dk
   if (now < olcumSonraki) return;
   olcumSuruyor = true;
   try {
     const N = BO.O.NOKTA, q = N[olcumSira++ % N.length];
     const L = await BO.kontrol(gaze, [q], "ders_ici", () => "👀 Kısa bakış kontrolü: bu noktaya bakın");
+    // Kullanıcı kararı 25.11: ölçüm (düzeltmeden ÖNCE alındı) aynı zamanda kaymayı düzeltir: hedef − seçilen modelin düzeltmesiz ortalaması
+    for (const m of L) {
+      const sec = m.secim;
+      if (sec?.ort && sec.n >= 5) m.kaymaSonra = gaze.kaymaNoktadan(m.hedef[0] - sec.ort[0], m.hedef[1] - sec.ort[1]);
+    }
     olcumGonder(L);
   } catch (e) { console.warn("ders içi kontrol", e); }
   finally { olcumSuruyor = false; olcumSonraki = Date.now() + OLCUM_DK * 60000; }

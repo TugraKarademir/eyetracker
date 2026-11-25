@@ -29,4 +29,10 @@ assert.equal(m.n, G.KAYMA_N); assert.equal(m.son.length, G.KAYMA_N);
 let b = bos(); for (let x = 0; x <= 1000; x += 100) b = guncelle(b, x, 0);   // yavaşça artan kayma birikir ama sınırı aşmaz
 assert.ok(b.x <= G.KAYMA_MAX && b.x > 0);
 assert.equal(guncelle(m, NaN, 1), m);
+// 4) kontrol noktası (güvenilir): sınıra takılmaz, tek noktada tam düzeltme; sonra tıklamalar düzeltilmiş tahmine göre kabul edilir
+let n = guncelle(bos(), 170, 290, true);
+assert.equal(n.n, G.KAYMA_NOKTA_AGIRLIK); assert.equal(n.x, 170); assert.equal(n.y, 290);
+n = guncelle(n, 180, 300);   // eskiden 300 px sınırına takılırdı; şimdi düzeltilmiş tahmine yakın
+assert.equal(n.n, G.KAYMA_NOKTA_AGIRLIK + 1);
+assert.equal(guncelle(bos(), 900, 0, true).x, G.KAYMA_MAX);
 console.log("kayma: tamam");

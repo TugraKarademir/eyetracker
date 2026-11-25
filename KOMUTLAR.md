@@ -165,7 +165,7 @@ Compress-Archive -Path E:\eyetracker\data, E:\eyetracker\test_kayitlari -Destina
 ```
 
 **Ders sırasında bakış hatası ölçümü** (kalibrasyonla karşılaştırmak için; modeli değiştirmez):
-- Her 5 dakikada ekranda 2,4 sn bir sarı nokta çıkar ("Kısa bakış kontrolü"); öğrenci yalnız bakar. Aralık: öğrenci adresine `&kontrol=2` (dakika), kapatmak için `&kontrol=0`.
+- Kalibrasyondan 1 dk sonra, sonra her 5 dakikada ekranda 2,4 sn bir sarı nokta çıkar ("Kısa bakış kontrolü"); öğrenci yalnız bakar. Nokta önce hatayı ölçer, sonra gösterilen bakış noktasının sabit kaymasını düzeltir. Aralık: öğrenci adresine `&kontrol=2` (dakika), kapatmak için `&kontrol=0`.
 - Ders bitince öğrenciye 5 noktalı son kontrol sorulur (Başla / Atla, ~12 sn). Bitirdikten sonra yedek dosyalar iner.
 - Ders boyunca her tıklamada tahmin ile tıklanan yer arasındaki fark ve kalibrasyondaki baş pozuna göre fark (ör. mesafe -15 cm) kaydedilir.
 - Sonuçlar: `E:\eyetracker\test_kayitlari\ders_olcum\<DERS>_<sid>.jsonl` (her satır bir ölçüm) ve öğrencinin `..._ders.json` / `..._ders.csv` yedeğinde ("Bakış kontrolleri ve tıklama hataları" tablosu).

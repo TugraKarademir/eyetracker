@@ -22,7 +22,7 @@ const GZ = {
   EYE_L: { a: 362, b: 263, top: 386, bot: 374, iris: [473, 474, 475, 476, 477] },
   SETTLE: 0.7, COLLECT: 1.0, SMOOTH: 3, BLINK: 0.15, BLINK_BS: 0.5, BLINK_DOWN: 0.3,
   CLICK_WINDOW: [0.35, 0.05], CLICK_WEIGHT: 3, CLICK_MAX: 600, CLICK_RADIUS: 300,
-  KAYMA_N: 8, KAYMA_TAM: 3, KAYMA_MAX: 400,   // seçilen model için ders tıklaması kayma düzeltmesi (gzKaymaGuncelle)
+  KAYMA_N: 8, KAYMA_TAM: 3, KAYMA_MAX: 600, KAYMA_NOKTA_AGIRLIK: 3,   // seçilen model için ders tıklaması kayma düzeltmesi (gzKaymaGuncelle)
   SNAP: 60, HOLD: 4,
   // Pencere ekranın en az bu oranını kaplamalı (genişlik ve yükseklik ayrı). Bakış hatası ~250 px iken
   // dar bir pencerede bölgeler hatadan küçük kalır; ölçüm anlamsızlaşır, bu yüzden bakış hiç gönderilmez.
@@ -125,11 +125,13 @@ const GZ_SECIM_KOD = ["bizA", "bizW", "bizK", "kureM", "reL", "karma", "karmaH"]
 // Seçilen model (karmaH, reL …) ders sırasında yeniden eğitilemez (eğitim verisi saklanmaz). Onun yerine ders tıklamalarından
 // sabit kayma öğrenilir: her kabul edilen tıklamada hata (tıklama − düzeltmesiz tahmin) son KAYMA_N içinde tutulur; düzeltme
 // = medyan × min(1, n/KAYMA_TAM) (tek tıklama tam kaydırmaz), her eksende ±KAYMA_MAX ile sınırlı. Tıklama, düzeltilmiş tahminden
-// CLICK_RADIUS'tan uzaksa (kişi muhtemelen oraya bakmıyordu) alınmaz. Saf işlev: kay = { x, y, n, son: [[ex, ey], …] }.
-function gzKaymaGuncelle(kay, ex, ey) {
+// CLICK_RADIUS'tan uzaksa (kişi muhtemelen oraya bakmıyordu) alınmaz. Ders içi kontrol noktası (guvenilir: kişinin baktığı yer biliniyor)
+// bu sınıra takılmaz ve KAYMA_NOKTA_AGIRLIK tıklama sayılır (tek noktada tam düzeltme). Saf işlev: kay = { x, y, n, son: [[ex, ey], …] }.
+function gzKaymaGuncelle(kay, ex, ey, guvenilir = false) {
   if (!Number.isFinite(ex) || !Number.isFinite(ey)) return kay;
-  if (Math.hypot(ex - kay.x, ey - kay.y) > GZ.CLICK_RADIUS) return kay;
-  const son = [...kay.son, [ex, ey]].slice(-GZ.KAYMA_N);
+  if (!guvenilir && Math.hypot(ex - kay.x, ey - kay.y) > GZ.CLICK_RADIUS) return kay;
+  const ek = Array.from({ length: guvenilir ? GZ.KAYMA_NOKTA_AGIRLIK : 1 }, () => [ex, ey]);
+  const son = [...kay.son, ...ek].slice(-GZ.KAYMA_N);
   const med = (a) => { const b = [...a].sort((p, q) => p - q), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
   const w = Math.min(1, son.length / GZ.KAYMA_TAM), sin = (v) => Math.max(-GZ.KAYMA_MAX, Math.min(GZ.KAYMA_MAX, v));
   return { x: sin(med(son.map((e) => e[0])) * w), y: sin(med(son.map((e) => e[1])) * w), n: son.length, son };
@@ -654,6 +656,8 @@ class GazeTracker {
 
   // ---- tıklamayla öğrenme (webgaze learn_click)
   // Ham kayıt için: { x, y, n } (px, ekran) — düzeltme yoksa n 0
+  // Ders içi kontrol noktası: hedef − seçilen modelin düzeltmesiz ortalaması (ekran px) kaymaya güvenilir örnek olarak girer
+  kaymaNoktadan(ex, ey) { if (this.secim) this.kayma = gzKaymaGuncelle(this.kayma, ex, ey, true); return this.kaymaBilgi(); }
   tikAl() { const L = this.tikHatalar; this.tikHatalar = []; return L; }
   kaymaBilgi() { return this.secim ? { x: Math.round(this.kayma.x), y: Math.round(this.kayma.y), n: this.kayma.n } : null; }
   learnClick(e) {
