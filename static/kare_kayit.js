@@ -26,5 +26,29 @@
     if (secenek.re !== false) r.re = dizi(l.re, 3);
     return r;
   }
-  G.KareKayit = { satir, yuv, dizi };
+  // Kare akışı kalite sayacı (satırlardan): kare sayısı, yüzsüz kare, kareler arası süre (ort/sapma/en çok, ms; ep'den),
+  // işlenmeden geçen kamera karesi (pf sayacındaki atlamaların toplamı). al(sifirla): özet; veri yoksa null alanlar.
+  function kaliteSayaci() {
+    let n = 0, yok = 0, sonEp = null, sonPf = null, dn = 0, ort = 0, m2 = 0, enCok = null, atlanan = 0, pfN = 0, ilk = null;
+    return {
+      ekle(r) {
+        n++; if (r.yok) yok++;
+        if (Number.isFinite(r.ep)) {
+          if (ilk == null) ilk = r.ep;
+          if (sonEp != null && r.ep > sonEp) { const d = r.ep - sonEp; dn++; const e = d - ort; ort += e / dn; m2 += e * (d - ort); if (enCok == null || d > enCok) enCok = d; }
+          sonEp = r.ep;
+        }
+        if (Number.isFinite(r.pf)) { if (sonPf != null && r.pf > sonPf) { atlanan += r.pf - sonPf - 1; pfN++; } sonPf = r.pf; }
+      },
+      al(sifirla = false) {
+        const o = { kare: n, yuzsuz: yok, yuzsuzYuzde: n ? Math.round(1000 * yok / n) / 10 : null,
+                    sureSn: ilk != null && sonEp != null ? Math.round((sonEp - ilk) / 100) / 10 : null,
+                    araOrtMs: dn ? Math.round(ort * 10) / 10 : null, araSapmaMs: dn > 1 ? Math.round(Math.sqrt(m2 / (dn - 1)) * 10) / 10 : null,
+                    araEnCokMs: enCok, kameraAtlanan: pfN ? atlanan : null };
+        if (sifirla) { n = yok = dn = ort = m2 = atlanan = pfN = 0; enCok = null; ilk = sonEp; }
+        return o;
+      },
+    };
+  }
+  G.KareKayit = { satir, yuv, dizi, kaliteSayaci };
 })(globalThis);

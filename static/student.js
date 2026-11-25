@@ -218,6 +218,8 @@ function connect() {
   es = new EventSource(`/api/stream?role=student&code=${CODE}&sid=${SID}`);
   es.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
+    // Ekrana gelen içerik türü (bakışı çeken olaylar): yalnız tür (ve sohbette yazanın rolü); metin ALINMAZ
+    if (m.type !== "signal") window.OlayGunlugu?.ekle("icerik", m.type === "chat" ? ["chat", m.msg?.role ?? null] : m.type === "live" ? ["live", m.on ? 1 : 0] : [m.type]);
     if (m.type === "welcome") {
       $("#clsTitle").textContent = m.cls.name; document.title = m.cls.name + " — DersNabzı";
       setTopic(m.cls.topic); $("#msgs").innerHTML = ""; m.chat.forEach(addChat);
@@ -270,7 +272,7 @@ function dersKareBagla() {
     const r = KareKayit.satir(l, DERS_KARE.bsAd, { off: o ? [Math.round(o.x), Math.round(o.y)] : null,
       g: tah ? [Math.round(tah.p[0]), Math.round(tah.p[1])] : null, gs: tah ? (tah.s ? 1 : 0) : null }, { re: DERS_KARE.tam });
     if (DERS_KARE.kareler.length >= DERS_KARE.EN_COK) { DERS_KARE.kareler.shift(); DERS_KARE.tasma++; }   // gönderim sürerken tampon ayrı dizidir
-    DERS_KARE.kareler.push(r);
+    DERS_KARE.kareler.push(r); DERS_KALITE?.ekle(r);
   };
 }
 // Tek gönderim turu: önce olaylar (ayrı istek: kare partisi sorun çıkarsa olaylar takılmasın), sonra kareler PARTI'lik istekler hâlinde.
@@ -306,6 +308,21 @@ function dersVeriGonder() {
   return DERS_KARE.suruyor;
 }
 setInterval(dersVeriGonder, 10000);
+// Kare akışı kalitesi: dakikada bir olay ("kalite": kare, yüzsüz %, kareler arası süre ort/sapma/en çok, işlenmeden geçen kamera karesi)
+const DERS_KALITE = window.KareKayit?.kaliteSayaci?.() || null;
+setInterval(() => { if (DERS_KALITE && !paused) { const q = DERS_KALITE.al(true); if (q.kare) window.OlayGunlugu?.ekle("kalite", q); } }, 60000);
+// Ekran yerleşimi: bölge kutuları (bakışın düştüğü materyal/konu/duyuru/etkileşim/sohbet/kamera alanları), öğretmen görüntüsünün
+// çözünürlüğü ve tiyatro modu. Saniyede bir bakılır, değişince olay ("yerlesim") yazılır.
+let sonYerlesim = "";
+setInterval(() => {
+  if (!window.OlayGunlugu || !CODE) return;
+  try {
+    const v = $("#teacherVideo"), y = { bolge: gazeRegions().map((r) => [r.name, Math.round(r.x), Math.round(r.y), Math.round(r.w), Math.round(r.h),
+      ...(r.content ? [Math.round(r.content.x), Math.round(r.content.y), Math.round(r.content.w), Math.round(r.content.h)] : [])]),
+      ogretmenVideo: v?.videoWidth ? [v.videoWidth, v.videoHeight] : null, tiyatro: document.body.classList.contains("theater") ? 1 : 0 };
+    const k = JSON.stringify(y); if (k !== sonYerlesim) { sonYerlesim = k; OlayGunlugu.ekle("yerlesim", y); }
+  } catch {}
+}, 1000);
 let dersYedekIndi = false;
 function dersYedekIndir() {
   if (!window.DNYedek) return false;

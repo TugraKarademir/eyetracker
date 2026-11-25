@@ -5,7 +5,9 @@
 //  basla {timeOrigin, saatDilimi, utcFarkDk, yazilim, url yolu}      gorunur 1/0 (sekme)      odak 1/0 (pencere)      tamEkran 1/0
 //  pencere [innerW, innerH, outerW, outerH, dpr]                     konum [screenX, screenY]  zoom ölçek (visualViewport, iki parmak)
 //  fm [x, y] fare hareketi (en çok 20/sn)   tik [x, y, düğme, pointerType]   kaydir [dx, dy] (tekerlek)   sayfaKaydir [scrollX, scrollY]
-//  tus (yalnız zaman)   dokun [x, y]   kamera {değişen ayarlar}   kameraYetenek {aralıklar}   cpu "nominal|fair|serious|critical"
+//  tik/dokun [x, y, düğme, pointerType, öğe]  öğe = { o: "etiket#id.sınıf[tür]", k: [x, y, w, h] } tıklanan (en yakın etkileşimli) öğe
+//  surukle [x0, y0, x1, y1, ms] (≥10 px basılı hareket)   yaziAlani öğe (yazı alanına odak; yazılan metin ALINMAZ)
+//  tus (yalnız zaman; yazı alanındaysa o alanın etiketi)   dokun [x, y]   kamera {değişen ayarlar}   kameraYetenek {aralıklar}   cpu "nominal|fair|serious|critical"
 //  pil [düzey 0-1, şarjda 1/0]   ag {effectiveType, downlink, rtt}   cevrimici 1/0   bellek MB (JS yığını)   istek [yol, ms, ok 1/0, bayt]
 //  cikis (sayfa kapanıyor)
 (function (G) {
@@ -33,6 +35,20 @@
     return o;
   }
 
+  // Öğe tanımı: sayfa yapısı (etiket, id, ilk sınıf, tür) ve ekrandaki kutusu; içerik/metin alınmaz
+  const ETKILESIMLI = "button, a, input, textarea, select, label, summary, [role=button], [contenteditable=''], [contenteditable=true], [onclick], [data-r]";
+  function ogeAd(el) {
+    if (!el || !el.tagName) return null;
+    const s = el.classList && el.classList.length ? "." + el.classList[0] : "";
+    return `${el.tagName.toLowerCase()}${el.id ? "#" + el.id : ""}${s}${el.type ? `[${el.type}]` : ""}`.slice(0, 80);
+  }
+  function oge(hedef) {
+    const el = hedef?.closest?.(ETKILESIMLI) || hedef;
+    if (!el || !el.getBoundingClientRect) return null;
+    const r = el.getBoundingClientRect();
+    return { o: ogeAd(el), k: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)] };
+  }
+  const yaziAlani = (el) => !!el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && !/^(button|submit|checkbox|radio|range|color|file|reset|image)$/.test(el.type)) || el.isContentEditable);
   const OG = { olaylar: [], gonderilen: 0, EN_COK: 200000, tasma: 0, sayac: {}, basladi: false, _kam: null, _track: null };
   const simdiEp = () => Math.round(performance.timeOrigin + performance.now());
   const evEp = (e) => (e && Number.isFinite(e.timeStamp) && e.timeStamp > 0 ? Math.round(performance.timeOrigin + e.timeStamp) : simdiEp());
@@ -63,10 +79,19 @@
     if (G.visualViewport) visualViewport.addEventListener("resize", () => { const s = r2(visualViewport.scale); if (s !== OG._zoom) { OG._zoom = s; ekle("zoom", s); } });
     // Fare / dokunma / klavye (yakalama aşamasında: sayfa olayı durdursa da kaydedilir)
     d.addEventListener("pointermove", (e) => { const t = evEp(e); if (seyrek("fm", 50, t)) ekle("fm", [Math.round(e.clientX), Math.round(e.clientY)], t); }, { capture: true, passive: true });
-    d.addEventListener("pointerdown", (e) => ekle(e.pointerType === "touch" ? "dokun" : "tik", [Math.round(e.clientX), Math.round(e.clientY), e.button, e.pointerType || null], evEp(e)), { capture: true, passive: true });
+    let bas = null;
+    d.addEventListener("pointerdown", (e) => {
+      const t = evEp(e); bas = { x: e.clientX, y: e.clientY, t };
+      ekle(e.pointerType === "touch" ? "dokun" : "tik", [Math.round(e.clientX), Math.round(e.clientY), e.button, e.pointerType || null, oge(e.target)], t);
+    }, { capture: true, passive: true });
+    d.addEventListener("pointerup", (e) => {
+      const b = bas; bas = null; if (!b) return;
+      if (Math.hypot(e.clientX - b.x, e.clientY - b.y) >= 10) { const t = evEp(e); ekle("surukle", [Math.round(b.x), Math.round(b.y), Math.round(e.clientX), Math.round(e.clientY), t - b.t], t); }
+    }, { capture: true, passive: true });
+    d.addEventListener("focusin", (e) => { if (yaziAlani(e.target)) ekle("yaziAlani", oge(e.target), evEp(e)); }, { capture: true });
     d.addEventListener("wheel", (e) => { const t = evEp(e); if (seyrek("kaydir", 100, t)) ekle("kaydir", [Math.round(e.deltaX), Math.round(e.deltaY)], t); }, { capture: true, passive: true });
     d.addEventListener("scroll", (e) => { const t = evEp(e); if (seyrek("sayfaKaydir", 200, t)) ekle("sayfaKaydir", [Math.round(scrollX), Math.round(scrollY)], t); }, { capture: true, passive: true });
-    d.addEventListener("keydown", (e) => ekle("tus", undefined, evEp(e)), { capture: true, passive: true });
+    d.addEventListener("keydown", (e) => ekle("tus", yaziAlani(e.target) ? ogeAd(e.target) : undefined, evEp(e)), { capture: true, passive: true });
     addEventListener("online", () => ekle("cevrimici", 1)); addEventListener("offline", () => ekle("cevrimici", 0));
     addEventListener("pagehide", () => ekle("cikis"));
     // Ağ bilgisi (Chrome/Edge; diğerlerinde yok)
@@ -110,5 +135,5 @@
   function onayla(n) { OG.gonderilen += n; if (OG.gonderilen > 20000) { OG.olaylar.splice(0, OG.gonderilen); OG.gonderilen = 0; } }   // gönderilenler bellekten atılır
   function hepsi() { return OG.olaylar.slice(); }
   function ozet() { return { n: OG.olaylar.length, tasma: OG.tasma, sayac: { ...OG.sayac } }; }
-  G.OlayGunlugu = { baslat, kameraIzle, ekle, istek, bekleyen, onayla, hepsi, ozet, kameraAyarOzet, degisenler, yetenekOzet, _OG: OG };
+  G.OlayGunlugu = { baslat, kameraIzle, ekle, istek, bekleyen, onayla, hepsi, ozet, kameraAyarOzet, degisenler, yetenekOzet, oge, ogeAd, _OG: OG };
 })(globalThis);

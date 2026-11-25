@@ -441,7 +441,10 @@ async function start() {
   gaze = new GazeTracker(video, { onStatus: () => {} });
   await gaze.load();
   gaze.onLandmarks = reKanca;
-  gaze.kaliteAcik = true;   // kare kaydı için görüntü kalitesi (q)   // RealEye Light öznitelikleri (yalnız toplama aşamalarında)
+  gaze.kaliteAcik = true;   // kare kaydı için görüntü kalitesi (q)
+  // Tüm kamera akışının kalitesi (yüzsüz kareler dahil; kare dosyası yalnız yüzlü kareleri tutar): kare başlığında kalite.tum
+  KARE.akis = KareKayit.kaliteSayaci();
+  gaze.onKare = (l) => KARE.akis.ekle({ ep: l.ep, pf: l.vm?.pf, yok: l.yok ? 1 : 0 });   // RealEye Light öznitelikleri (yalnız toplama aşamalarında)
   // gaze.js kendi kayıtlı modelini yükleyip tıklamayla öğrenmeye başlamış olabilir; bu sayfada kendi döngümüz var
   gaze.tracking = false; document.removeEventListener("pointerdown", gaze._onClick, true);
   // Tam cihaz bilgisi bir kez (beklenmez; ölçüm akışını geciktirmez). Hata olursa null kalır, kayıt yine gider.
@@ -1693,7 +1696,7 @@ async function isiTestiGonder(anaDosya) {
 // aşama, aşama içi zaman (gazelab recordings ile aynı saat), ekrandaki hedef nokta (pencere px; yoksa null), kırpma, bizim ham vektör,
 // 3B baş pozu, blendshape'ler, iris mm, 2B yüz, WebGazer göz yaması, göz küresi açıları, RealEye göz kesiti (hesaplandıysa).
 // Hiçbir modeli/akışı değiştirmez; yalnız okur. Ayrı dosyaya gönderilir (/api/testlog-kare) ve gömülü modda yerel yedekle de iner.
-const KARE = { kareler: [], tasma: 0, gonderilen: null, hata: null, bsAd: null, EN_COK: 20000, AYAR_EN_COK: 1800, ayarN: 0, hedefNo: 0, hedefEl: null, alt: null, altT0: 0 };
+const KARE = { kareler: [], tasma: 0, gonderilen: null, hata: null, bsAd: null, EN_COK: 20000, AYAR_EN_COK: 1800, ayarN: 0, hedefNo: 0, hedefEl: null, alt: null, altT0: 0, kalite: {} };
 const yuv = (v, d) => (v == null || !Number.isFinite(v) ? null : +v.toFixed(d));
 const dizi = (a, d) => (Array.isArray(a) || ArrayBuffer.isView(a) ? Array.from(a, (v) => yuv(v, d)) : null);
 function kareHedef() {   // ekrandaki ilk hedef noktası (.tgt); yeni nokta çıkınca numara artar
@@ -1708,7 +1711,9 @@ function kareKaydet(l, t, a) {
     if (KARE.kareler.length >= KARE.EN_COK) { KARE.tasma++; return; }
     if (l.bs && !KARE.bsAd) KARE.bsAd = Object.keys(l.bs);
     const o = gaze._off?.();
-    KARE.kareler.push(KareKayit.satir(l, KARE.bsAd, { a, t, h: kareHedef(), off: o ? [Math.round(o.x), Math.round(o.y)] : null }));
+    const r = KareKayit.satir(l, KARE.bsAd, { a, t, h: kareHedef(), off: o ? [Math.round(o.x), Math.round(o.y)] : null });
+    KARE.kareler.push(r);
+    (KARE.kalite[a] ||= KareKayit.kaliteSayaci()).ekle(r);
   } catch (e) { KARE.hata = String(e?.message || e); }
 }
 // Ara adım (GazeLab aşaması dışı) kare kaydı: KARE.alt ayarlıyken (kamera ayarı, yüz profili alt adımları)
@@ -1717,7 +1722,8 @@ function kareAltBitir() { KARE.alt = null; }
 function kareBaslik() {
   return { surum: 2, aciklama: "her satır bir MediaPipe karesi; a=aşama (GazeLab aşaması ya da ayar/profil_notr/profil_kapali/profil_kamera), t=aşama içi ms (gazelab recordings saati), h=[hedef x, hedef y, hedef no] pencere px (yoksa null), off=sayfa ofseti px; kalan anahtarlar static/kare_kayit.js başındaki açıklamada (kt, ep, ct, pf, q, b, ac, raw, p3, bs, ir, y2, wg, ku, re). olaylar: static/olay_gunlugu.js ([epoch ms, tür, veri])",
     bsAd: KARE.bsAd, ekran: [screen.width, screen.height], pencere: [innerWidth, innerHeight], dpr: devicePixelRatio, pencereKonum: [screenX, screenY],
-    timeOrigin: Math.round(performance.timeOrigin), yazilim: YAZILIM, gozluk: GOZLUK, n: KARE.kareler.length, tasma: KARE.tasma, hata: KARE.hata,
+    timeOrigin: Math.round(performance.timeOrigin), yazilim: YAZILIM,
+    kalite: { tum: KARE.akis?.al() ?? null, ...Object.fromEntries(Object.entries(KARE.kalite).map(([a, s]) => [a, s.al()])) },   // aşama başına kare akışı kalitesi (kare_kayit.js kaliteSayaci) gozluk: GOZLUK, n: KARE.kareler.length, tasma: KARE.tasma, hata: KARE.hata,
     olay: window.OlayGunlugu?.ozet() ?? null };
 }
 const kareOlaylar = () => window.OlayGunlugu?.hepsi() ?? null;

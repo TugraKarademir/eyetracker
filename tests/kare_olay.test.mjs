@@ -50,4 +50,19 @@ assert.deepEqual({ ...OlayGunlugu.degisenler({ a: 1, b: 2 }, { a: 1, b: 3, c: 4 
 assert.equal(OlayGunlugu.degisenler({ a: 1 }, { a: 1 }), null);
 assert.deepEqual(JSON.parse(JSON.stringify(OlayGunlugu.yetenekOzet({ exposureTime: { min: 1, max: 1000, step: 1 }, focusMode: ["manual", "continuous"], deviceId: "x" }))),
   { exposureTime: { min: 1, max: 1000, step: 1 }, focusMode: ["manual", "continuous"] });
+// 4) kaliteSayaci: kareler arası süre, yüzsüz oran, kamera sayacındaki atlama; sıfırlayınca yeni pencere
+const S = KareKayit.kaliteSayaci();
+for (const [ep, pf, yok] of [[1000, 10, 0], [1033, 11, 0], [1066, 14, 1], [1166, 15, 0]]) S.ekle({ ep, pf, yok });
+let o = S.al(true);
+assert.equal(o.kare, 4); assert.equal(o.yuzsuz, 1); assert.equal(o.yuzsuzYuzde, 25); assert.equal(o.sureSn, 0.2);
+assert.equal(o.araOrtMs, 55.3); assert.equal(o.araEnCokMs, 100); assert.equal(o.kameraAtlanan, 2);
+S.ekle({ ep: 1200, pf: null });
+o = S.al();
+assert.equal(o.kare, 1); assert.equal(o.araOrtMs, 34); assert.equal(o.kameraAtlanan, null);
+assert.equal(KareKayit.kaliteSayaci().al().araOrtMs, null);
+
+// 5) ogeAd: etiket#id.ilkSınıf[tür], içerik yok
+assert.equal(OlayGunlugu.ogeAd({ tagName: "BUTTON", id: "handBtn", classList: Object.assign(["btn", "x"], {}), type: "button" }), "button#handBtn.btn[button]");
+assert.equal(OlayGunlugu.ogeAd({ tagName: "DIV", id: "", classList: [] }), "div");
+assert.equal(OlayGunlugu.ogeAd(null), null);
 console.log("kare_olay: tamam");
