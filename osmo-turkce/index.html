@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2c6fd6">
 <title>Harf Avcısı</title>
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 <video id="video" playsinline muted autoplay></video>
@@ -126,6 +126,9 @@
           <option value="180">180° döndür</option>
         </select>
       </label>
+      <label>Eğik bakış düzeltmesi (masadaki taşlar basık görünüyorsa) <select id="esnemeSec">
+        <option value="otomatik">Otomatik (önerilen)</option><option value="1">Yok</option><option value="1.2">Az</option>
+        <option value="1.45">Orta</option><option value="1.75">Çok</option><option value="2.1">En çok</option></select></label>
       <label class="onay"><input type="checkbox" id="otoZoomSec"> Otomatik yakınlaştırma (taşların olduğu bölgeyi büyütüp daha iyi okur)</label>
       <label>Yakınlaştırma (uzaktaki taşlar için) <input type="range" id="zoomSec" min="1" max="3" step="0.1"><output id="zoomDeger"></output></label>
       <label>Yakınlaştırılan bölge (yukarı ↔ aşağı) <input type="range" id="zoomYSec" min="0" max="100"></label>
@@ -172,8 +175,8 @@
   </div>
 </section>
 
-<script src="js/kelimeler.js?v=9"></script>
-<script src="js/vision.js?v=9"></script>
-<script src="js/oyun.js?v=9"></script>
+<script src="js/kelimeler.js?v=10"></script>
+<script src="js/vision.js?v=10"></script>
+<script src="js/oyun.js?v=10"></script>
 </body>
 </html>

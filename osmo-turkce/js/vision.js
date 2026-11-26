@@ -156,13 +156,16 @@
     return kalan;
   }
 
-  function moment(m, W, H) {
+  /* e (esneme): masaya yatık taşlar eğik bakan kamerada dikeyde basık görünür; y ekseni e kadar
+     uzatılmış uzayda çalışılır (e=1: düzeltme yok). */
+  function moment(m, W, H, e) {
+    e = e || 1;
     let s = 0, sx = 0, sy = 0;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (m[y * W + x]) { s++; sx += x; sy += y; }
     if (!s) return null;
     const cx = sx / s, cy = sy / s; let rr = 0;
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (m[y * W + x]) rr += (x - cx) * (x - cx) + (y - cy) * (y - cy);
-    return { s, cx, cy, r: Math.sqrt(rr / s) || 1 };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (m[y * W + x]) rr += (x - cx) * (x - cx) + (y - cy) * (y - cy) * e * e;
+    return { s, cx, cy, e, r: Math.sqrt(rr / s) || 1 };
   }
 
   function izgara(m, W, H, mo, aci) {
@@ -172,7 +175,7 @@
       const v = (gy + 0.5 - N / 2) * s;
       for (let gx = 0; gx < N; gx++) {
         const u = (gx + 0.5 - N / 2) * s;
-        const x = mo.cx + u * co - v * si, y = mo.cy + u * si + v * co;
+        const x = mo.cx + u * co - v * si, y = mo.cy + (u * si + v * co) / (mo.e || 1);
         const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
         let a = 0, b = 0, c = 0, d = 0;
         if (y0 >= 0 && y0 < H) {
@@ -261,7 +264,7 @@
   // çevresi ince adımla taranır. Dik duruşa küçük bir öncelik verilir (N/Z, C/U gibi 90° ikizlerinde
   // dik okuma kazanır).
   function sinifla(m, W, H, sablonlar, o) {
-    const mo = moment(m, W, H);
+    const mo = moment(m, W, H, o.esneme);
     if (!mo || mo.s < 10) return null;
     const enIyi = new Map();
     const dene = a => {
@@ -368,7 +371,8 @@
     if (boy / Math.min(bw, bh) > 8) return red('çizgi');        // çizgi/kenar parçası (I harfi ~5:1)
     const dol = grp.alan / (bw * bh);
     // I harfi tek dik çubuktur (çok dolu ama uzun-ince); kare/yuvarlak dolu lekeler elenir
-    if (dol > 0.85 && boy / Math.min(bw, bh) < 2.5) return red('dolu leke');
+    const bhE = bh * (o.esneme || 1);
+    if (dol > 0.85 && Math.max(bw, bhE) / Math.min(bw, bhE) < 2.5) return red('dolu leke');
     if (dol < 0.08) return red('dağınık');
     // renk canlılığı: harf mürekkebi doygun ve parlaktır (lacivert kumaş, gölge, ten elenir)
     const w = img.width, d = img.data, set = new Set(grp.ids);

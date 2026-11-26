@@ -16,7 +16,7 @@
   const ayar = Object.assign({
     oyuncu: 2, zorluk: 'kolay', kategori: 'hepsi', tur: 10, can: 5, sadeceOsmo: false,
     konusma: true, ses: true, muzik: true, mini: true, ozel: '', zoom: 1, zoomY: 0.5, otoZoom: true,
-    kameraId: '', cevir: 'otomatik', cozunurluk: 640,
+    kameraId: '', cevir: 'otomatik', esneme: 'otomatik', cozunurluk: 640,
     vision: {}
   }, oku(A_AYAR, {}));
   // Osmo Words taşları: beyaz taş üstünde mavi/kırmızı harf
@@ -28,8 +28,9 @@
     if (ayar.vision) ayar.vision.minKenar = 9;
     ayar.cozunurluk = 960; ayar.zoom = ayar.zoom || 1; ayar.zoomY = ayar.zoomY ?? 0.5; ayar.muzik = true;
   }
-  if (!ayar.surum || ayar.surum < 5) { ayar.otoZoom = true; ayar.muzik = true; }   // otomatik yakınlaştırma
-  ayar.surum = 5;
+  if (!ayar.surum || ayar.surum < 5) { ayar.otoZoom = true; ayar.muzik = true; }
+  if (!ayar.surum || ayar.surum < 6) ayar.esneme = 'otomatik';   // eğik bakışta basık harf düzeltmesi   // otomatik yakınlaştırma
+  ayar.surum = 6;
   ayar.vision = Object.assign({}, GORUS_VARSAYILAN, ayar.vision || {});
   const kaydet = () => yaz(A_AYAR, ayar);
 
@@ -257,11 +258,12 @@
     goruntuCiz(etkinYon(), W, H);
     const t0 = performance.now();
     const img = ictx.getImageData(0, 0, W, H);
-    const gorus = Object.assign({}, ayar.vision, { minKenar: Math.round(ayar.vision.minKenar * W / 640) });
+    const gorus = Object.assign({}, ayar.vision, { minKenar: Math.round(ayar.vision.minKenar * W / 640), esneme: etkinEsneme() });
     const r = Vision.tara(img, sablonlar, gorus);
     kam.ms = performance.now() - t0;
     kam.tespit = r.tespitler; kam.lab = r.lab; kam.elenen = r.elenenler || [];
     if (ayar.cevir === 'otomatik' && r.tespitler.length && ++yon.sayac % 5 === 0) yonDegerlendir(W, H, gorus);
+    if (ayar.esneme === 'otomatik' && r.tespitler.length && ++esn.sayac % 7 === 3) esnemeDegerlendir(gorus);
     otoZoomGuncelle(r, t);
     // Takipçi tam kare koordinatlarıyla çalışır: yakınlaştırma değişse de aynı taş aynı kalır
     const kr = kam.kirpim;
@@ -312,6 +314,26 @@
     }
     kam.kirpim = k;
     ictx.drawImage(tam, k.x, k.y, k.w, k.h, 0, 0, W, H);
+  }
+
+  /* ---------- Eğik bakış düzeltmesi ---------- */
+  // Masaya yatık taşlar eğik bakan kamerada dikeyde basık görünür. Aynı kare birkaç dikey uzatma
+  // oranıyla okunur; harfleri en yüksek skorla okutan oran seçilir (kamera sabit olduğundan tek oran yeter).
+  const ESNEMELER = [1, 1.2, 1.45, 1.75, 2.1];
+  const esn = { aktif: +(oku('harfavcisi.esneme', 0)) || 1, puan: {}, sayac: 0 };
+  ESNEMELER.forEach(e => { esn.puan[e] = 0; });
+  function etkinEsneme() { return ayar.esneme === 'otomatik' ? esn.aktif : +ayar.esneme || 1; }
+  function esnemeDegerlendir(gorus) {
+    const img = ictx.getImageData(0, 0, islem.width, islem.height);
+    for (const e of ESNEMELER) {
+      const rr = Vision.tara(img, fontSablon, Object.assign({}, gorus, { esneme: e }));
+      let p = 0; for (const d of rr.tespitler) p += d.harf ? d.skor * d.skor : d.skor * d.skor * 0.3;
+      esn.puan[e] = esn.puan[e] * 0.7 + p;
+    }
+    const en = ESNEMELER.reduce((a, b) => (esn.puan[b] > esn.puan[a] ? b : a));
+    if (en !== esn.aktif && esn.puan[en] > (esn.puan[esn.aktif] || 0) * 1.08 + 0.05) {
+      esn.aktif = en; yaz('harfavcisi.esneme', en);
+    }
   }
 
   /* ---------- Otomatik yakınlaştırma ---------- */
@@ -423,7 +445,7 @@
       c.fillStyle = '#fff'; c.fillText(etiket, x0 + 3, y0 - 6);
     }
     if (aktifEkran === 'kamera') {
-      const yonMetni = ayar.cevir === 'otomatik' ? ` · yön: ${YON_ADI[etkinYon()]} (otomatik)` : '';
+      const yonMetni = (ayar.cevir === 'otomatik' ? ` · yön: ${YON_ADI[etkinYon()]} (otomatik)` : '') + (etkinEsneme() > 1 ? ` · eğim düzeltme ${etkinEsneme()}×` : '');
       const zm = !oto.tamTarama && oto.hedef ? ` · oto yakınlaştırma ${(1 / oto.hedef.w).toFixed(1)}×` : '';
       $('#kameraBilgi').textContent = `${kam.tespit.length} taş görülüyor · ${kam.tespit.filter(d => d.harf).map(d => d.harf).join(' ') || '—'} · ${kam.ms.toFixed(0)} ms/kare${yonMetni}${zm}`;
     }
@@ -756,6 +778,7 @@
     $('#zoomSec').value = ayar.zoom; $('#zoomDeger').textContent = ayar.zoom.toFixed(1) + '×';
     $('#zoomYSec').value = Math.round(ayar.zoomY * 100);
     $('#otoZoomSec').checked = ayar.otoZoom;
+    $('#esnemeSec').value = String(ayar.esneme);
     $('#tasTipiSec').value = ayar.vision.tasTipi;
     $('#cozunurlukSec').value = String(ayar.cozunurluk);
     $('#minKenarSec').value = ayar.vision.minKenar; $('#minKenarDeger').textContent = ayar.vision.minKenar + ' px';
@@ -763,6 +786,7 @@
   }
   $('#kameraSec').addEventListener('change', e => { ayar.kameraId = e.target.value; kaydet(); kameraDurdur(); kameraBaslat(); });
   $('#zoomSec').addEventListener('input', e => { ayar.zoom = +e.target.value; $('#zoomDeger').textContent = ayar.zoom.toFixed(1) + '×'; kaydet(); zoomUygula(); takipci.sifirla(); });
+  $('#esnemeSec').addEventListener('change', e => { ayar.esneme = e.target.value; kaydet(); takipci.sifirla(); });
   $('#otoZoomSec').addEventListener('change', e => { ayar.otoZoom = e.target.checked; kaydet(); oto.hedef = null; });
   $('#zoomYSec').addEventListener('input', e => { ayar.zoomY = e.target.value / 100; kaydet(); takipci.sifirla(); });
   $('#cevirSec').addEventListener('change', e => {
