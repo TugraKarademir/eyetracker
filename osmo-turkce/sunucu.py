@@ -91,7 +91,13 @@ def main():
         with open(ip_dosya, "w") as f:
             f.write(ip)
 
-    isleyici = functools.partial(http.server.SimpleHTTPRequestHandler, directory=KLASOR)
+    class Isleyici(http.server.SimpleHTTPRequestHandler):
+        # tablet eski dosyaları önbellekten göstermesin: her açılışta güncel sürüm
+        def end_headers(self):
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+            super().end_headers()
+
+    isleyici = functools.partial(Isleyici, directory=KLASOR)
     sunucu = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), isleyici)
     bag = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     bag.load_cert_chain(SERT, ANAHTAR)

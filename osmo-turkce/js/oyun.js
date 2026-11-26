@@ -45,10 +45,45 @@
 
   /* ---------- Ses ---------- */
   let ac = null;
+  /* Ses kilidini aç: tarayıcılar sesi ancak bir dokunuştan sonra çalar.
+     iPad/iPhone'da yan sessiz düğmesi açıkken Web Audio susar; sessiz bir <audio> döngüsü ve
+     audioSession 'playback' ile ses "medya" kanalına alınır, böylece sessiz modda da duyulur. */
+  let sessizAudio = null;
+  function sessizWav() {
+    const n = 4000, b = new Uint8Array(44 + n), v = new DataView(b.buffer);
+    const yazS = (o, t) => { for (let i = 0; i < t.length; i++) b[o + i] = t.charCodeAt(i); };
+    yazS(0, 'RIFF'); v.setUint32(4, 36 + n, true); yazS(8, 'WAVEfmt '); v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 8000, true);
+    v.setUint16(32, 1, true); v.setUint16(34, 8, true); yazS(36, 'data'); v.setUint32(40, n, true);
+    b.fill(128, 44);
+    return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+  }
+  function sesKilidiAc() {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { }
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state !== 'running') ac.resume();
+      const buf = ac.createBuffer(1, 1, 22050), src = ac.createBufferSource();   // eski Safari için boş ses
+      src.buffer = buf; src.connect(ac.destination); src.start(0);
+    } catch (e) { }
+    try {
+      if (!sessizAudio) {
+        sessizAudio = document.createElement('audio');
+        sessizAudio.src = sessizWav(); sessizAudio.loop = true; sessizAudio.setAttribute('playsinline', '');
+        sessizAudio.setAttribute('x-webkit-airplay', 'deny');
+      }
+      if (sessizAudio.paused) { const p = sessizAudio.play(); if (p && p.catch) p.catch(() => { }); }
+    } catch (e) { }
+    if (ayar.muzik && aktifEkran === 'oyun' && !muzik.zaman) muzikBaslat();
+  }
+  ['pointerdown', 'touchend', 'keydown', 'click'].forEach(ev => document.addEventListener(ev, sesKilidiAc, { capture: true, passive: true }));
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && ac && ac.state !== 'running') { try { ac.resume(); } catch (e) { } } });
+
   function ton(frekans, sure, tip, gecikme, hacim) {
     if (!ayar.ses) return;
     try {
       ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      if (ac.state === 'suspended') ac.resume();
       const t = ac.currentTime + (gecikme || 0), o = ac.createOscillator(), g = ac.createGain();
       o.type = tip || 'sine'; o.frequency.value = frekans;
       g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(hacim || 0.25, t + 0.02);
@@ -58,7 +93,7 @@
   }
   const sesDogru = () => { ton(660, .15, 'triangle'); ton(990, .25, 'triangle', .1); };
   const sesYanlis = () => { ton(200, .3, 'sawtooth', 0, .12); ton(150, .35, 'sawtooth', .12, .12); };
-  const sesZafer = () => [523, 659, 784, 1046].forEach((f, i) => ton(f, .3, 'triangle', i * .12));
+  const sesZafer = () => { [523, 659, 784, 1046].forEach((f, i) => ton(f, .3, 'triangle', i * .12, .35)); ton(1318, .6, 'triangle', .5, .3); ton(1046, .6, 'sine', .5, .2); };
   const sesTik = () => ton(1200, .05, 'square', 0, .05);
 
   /* ---------- Arka plan müziği: tarayıcıda üretilen özgün, neşeli bir döngü ---------- */
@@ -90,10 +125,10 @@
     if (!ayar.muzik || muzik.zaman) return;
     try {
       ac = ac || new (window.AudioContext || window.webkitAudioContext)();
-      if (ac.state === 'suspended') ac.resume();
+      if (ac.state !== 'running') ac.resume();
       muzik.ana = ac.createGain(); muzik.ana.gain.value = 0.0001;
       muzik.ana.connect(ac.destination);
-      muzik.ana.gain.exponentialRampToValueAtTime(0.09, ac.currentTime + 1.5);
+      muzik.ana.gain.exponentialRampToValueAtTime(0.16, ac.currentTime + 1.5);
       muzik.sonraki = ac.currentTime + 0.1; muzik.adim = 0;
       muzik.zaman = setInterval(muzikPlanla, 60);
       muzikDugme();
@@ -108,7 +143,7 @@
   // konuşurken müziği kıs
   function muzikKis(kis) {
     if (!muzik.zaman || !muzik.ana) return;
-    try { muzik.ana.gain.setTargetAtTime(kis ? 0.03 : 0.09, ac.currentTime, 0.2); } catch (e) { }
+    try { muzik.ana.gain.setTargetAtTime(kis ? 0.05 : 0.16, ac.currentTime, 0.2); } catch (e) { }
   }
   function muzikDugme() { const b = document.getElementById('muzikBtn'); if (b) b.classList.toggle('kapali', !muzik.zaman); }
   document.addEventListener('visibilitychange', () => { if (document.hidden) muzikDurdur(); });
@@ -775,6 +810,12 @@
   $('#konusmaSec').addEventListener('change', e => { ayar.konusma = e.target.checked; kaydet(); });
   $('#sesSec').addEventListener('change', e => { ayar.ses = e.target.checked; kaydet(); });
   $('#miniSec').addEventListener('change', e => { ayar.mini = e.target.checked; kaydet(); });
+  $('#sesTestBtn').addEventListener('click', () => {
+    const eskiSes = ayar.ses; ayar.ses = true; sesKilidiAc(); sesZafer(); ayar.ses = eskiSes;
+    const eskiK = ayar.konusma; ayar.konusma = true; setTimeout(() => { soyle('Kutlarım! Ses çalışıyor.'); ayar.konusma = eskiK; }, 700);
+    const durum = ac ? ac.state : 'yok';
+    $('#sesTestBilgi').textContent = durum === 'running' ? 'Ses açık. Duymuyorsanız tabletin sesini açın.' : 'Ses motoru durumu: ' + durum + ' — bir kez daha dokunun.';
+  });
   $('#muzikSec').addEventListener('change', e => { ayar.muzik = e.target.checked; kaydet(); if (!ayar.muzik) muzikDurdur(); });
   $('#ozelKelimeler').addEventListener('input', e => { ayar.ozel = e.target.value; kaydet(); });
 

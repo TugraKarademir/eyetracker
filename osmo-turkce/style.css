@@ -157,3 +157,6 @@ button.buyuk.ikincil { background: var(--kart); color: var(--yazi); }
   80% { opacity: 1; }
   100% { opacity: 0; transform: translate(-50%, -60%) scale(1); }
 }
+
+.ses-test { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ses-test .btn { padding: 10px 18px; border-radius: 12px; border: 0; background: #2c6fd6; color: #fff; font-weight: 800; font-size: 16px; cursor: pointer; }
