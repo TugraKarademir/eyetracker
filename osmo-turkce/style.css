@@ -160,3 +160,6 @@ button.buyuk.ikincil { background: var(--kart); color: var(--yazi); }
 
 .ses-test { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .ses-test .btn { padding: 10px 18px; border-radius: 12px; border: 0; background: #2c6fd6; color: #fff; font-weight: 800; font-size: 16px; cursor: pointer; }
+.menu-muzik { position: absolute; top: 14px; right: 16px; width: 54px; height: 54px; border-radius: 50%; border: 0; background: #fff; box-shadow: 0 3px 0 rgba(0,0,0,.12); font-size: 26px; cursor: pointer; z-index: 5; }
+.menu-muzik.kapali { opacity: .4; }
+#menu { position: relative; }

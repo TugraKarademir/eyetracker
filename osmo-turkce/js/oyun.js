@@ -29,8 +29,9 @@
     ayar.cozunurluk = 960; ayar.zoom = ayar.zoom || 1; ayar.zoomY = ayar.zoomY ?? 0.5; ayar.muzik = true;
   }
   if (!ayar.surum || ayar.surum < 5) { ayar.otoZoom = true; ayar.muzik = true; }
-  if (!ayar.surum || ayar.surum < 6) ayar.esneme = 'otomatik';   // eğik bakışta basık harf düzeltmesi   // otomatik yakınlaştırma
-  ayar.surum = 6;
+  if (!ayar.surum || ayar.surum < 6) ayar.esneme = 'otomatik';   // eğik bakışta basık harf düzeltmesi
+  if (ayar.surum < 7) ayar.muzik = true;
+  ayar.surum = 7;
   ayar.vision = Object.assign({}, GORUS_VARSAYILAN, ayar.vision || {});
   const kaydet = () => yaz(A_AYAR, ayar);
 
@@ -75,9 +76,9 @@
       }
       if (sessizAudio.paused) { const p = sessizAudio.play(); if (p && p.catch) p.catch(() => { }); }
     } catch (e) { }
-    if (ayar.muzik && aktifEkran === 'oyun' && !muzik.zaman) muzikBaslat();
+    if (ayar.muzik && !muzik.zaman) muzikBaslat();          // müzik her ekranda: ilk dokunuşta başlar
   }
-  ['pointerdown', 'touchend', 'keydown', 'click'].forEach(ev => document.addEventListener(ev, sesKilidiAc, { capture: true, passive: true }));
+  ['pointerdown', 'touchend', 'keydown', 'click'].forEach(ev => document.addEventListener(ev, e => { if (!(e.target && e.target.closest && e.target.closest('#muzikBtn, #muzikSec, #menuMuzikBtn'))) sesKilidiAc(); }, { capture: true, passive: true }));
   document.addEventListener('visibilitychange', () => { if (!document.hidden && ac && ac.state !== 'running') { try { ac.resume(); } catch (e) { } } });
 
   function ton(frekans, sure, tip, gecikme, hacim) {
@@ -99,6 +100,7 @@
 
   /* ---------- Arka plan müziği: tarayıcıda üretilen özgün, neşeli bir döngü ---------- */
   const muzik = { ana: null, zaman: null, sonraki: 0, adim: 0 };
+  const MUZIK_SES = 0.3;
   const SEKIZLIK = 60 / 112 / 2;                                   // 112 vuruş/dk
   const AKOR = [[48, 52, 55], [45, 48, 52], [41, 45, 48], [43, 47, 50]];   // C  Am  F  G
   const MELODI = [72, 0, 76, 79, 76, 0, 74, 72, 69, 0, 72, 76, 74, 0, 72, 69,
@@ -127,9 +129,11 @@
     try {
       ac = ac || new (window.AudioContext || window.webkitAudioContext)();
       if (ac.state !== 'running') ac.resume();
-      muzik.ana = ac.createGain(); muzik.ana.gain.value = 0.0001;
+      muzik.ana = ac.createGain();
       muzik.ana.connect(ac.destination);
-      muzik.ana.gain.exponentialRampToValueAtTime(0.16, ac.currentTime + 1.5);
+      // Safari başlangıç noktası olmayan rampayı uygulamaz (müzik sessiz kalırdı): önce sabit değer
+      muzik.ana.gain.setValueAtTime(0.0001, ac.currentTime);
+      muzik.ana.gain.exponentialRampToValueAtTime(MUZIK_SES, ac.currentTime + 1.2);
       muzik.sonraki = ac.currentTime + 0.1; muzik.adim = 0;
       muzik.zaman = setInterval(muzikPlanla, 60);
       muzikDugme();
@@ -144,10 +148,10 @@
   // konuşurken müziği kıs
   function muzikKis(kis) {
     if (!muzik.zaman || !muzik.ana) return;
-    try { muzik.ana.gain.setTargetAtTime(kis ? 0.05 : 0.16, ac.currentTime, 0.2); } catch (e) { }
+    try { muzik.ana.gain.setTargetAtTime(kis ? MUZIK_SES * 0.3 : MUZIK_SES, ac.currentTime, 0.2); } catch (e) { }
   }
-  function muzikDugme() { const b = document.getElementById('muzikBtn'); if (b) b.classList.toggle('kapali', !muzik.zaman); }
-  document.addEventListener('visibilitychange', () => { if (document.hidden) muzikDurdur(); });
+  function muzikDugme() { for (const id of ['muzikBtn', 'menuMuzikBtn']) { const b = document.getElementById(id); if (b) b.classList.toggle('kapali', !muzik.zaman); } }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) muzikDurdur(); else if (ayar.muzik) muzikBaslat(); });
 
   let trSes = null;
   function sesleriBul() { try { trSes = speechSynthesis.getVoices().find(v => /^tr/i.test(v.lang)) || null; } catch (e) { } }
@@ -685,8 +689,10 @@
     e.target.classList.toggle('kirmizi', klavyeTakim === 'kirmizi');
   });
   $('#klavyeBtn').addEventListener('click', () => { const k = $('#klavye'); k.hidden = !k.hidden; });
+  $('#menuMuzikBtn').addEventListener('click', () => $('#muzikBtn').click());
   $('#muzikBtn').addEventListener('click', () => {
     if (muzik.zaman) { muzikDurdur(); ayar.muzik = false; } else { ayar.muzik = true; muzikBaslat(); }
+    kaydet();
     kaydet();
   });
   document.addEventListener('keydown', e => {
@@ -840,10 +846,11 @@
     const durum = ac ? ac.state : 'yok';
     $('#sesTestBilgi').textContent = durum === 'running' ? 'Ses açık. Duymuyorsanız tabletin sesini açın.' : 'Ses motoru durumu: ' + durum + ' — bir kez daha dokunun.';
   });
-  $('#muzikSec').addEventListener('change', e => { ayar.muzik = e.target.checked; kaydet(); if (!ayar.muzik) muzikDurdur(); });
+  $('#muzikSec').addEventListener('change', e => { ayar.muzik = e.target.checked; kaydet(); if (!ayar.muzik) muzikDurdur(); else muzikBaslat(); });
   $('#ozelKelimeler').addEventListener('input', e => { ayar.ozel = e.target.value; kaydet(); });
 
   // Test/geliştirme için dışarı aç
+  muzikDugme();
   window.HarfAvcisi = { harfGeldi: (h, r) => harfGeldi(h, r || 'mavi', 'test'), oyun, ayar, git, takipci, yon, muzik };
 
   menuHazirla();
