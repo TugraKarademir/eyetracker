@@ -9,8 +9,8 @@ import assert from "node:assert/strict";
 
 const ctx = vm.createContext({ document: { createElement: () => ({ getContext: () => ({}) }) }, Math, Float32Array, Float64Array, Int8Array, Map, Number, Array, Object, Error });
 for (const f of ["re_yama.js", "karma.js"]) vm.runInContext(fs.readFileSync(new URL(`../static/${f}`, import.meta.url), "utf8"), ctx);
-const { ReRidge, REY, rerHazirla, karmaOznitelik, karmaSutunGrup, karmaEkle, karmaSatirlar, karmaKurSaf, karmaTahmin } =
-  vm.runInContext("({ ReRidge, REY, rerHazirla, karmaOznitelik, karmaSutunGrup, karmaEkle, karmaSatirlar, karmaKurSaf, karmaTahmin })", ctx);
+const { ReRidge, REY, rerHazirla, karmaOznitelik, karmaSutunGrup, karmaEkle, karmaSatirlar, karmaKurSaf, karmaTahmin, karmaKesitler } =
+  vm.runInContext("({ ReRidge, REY, rerHazirla, karmaOznitelik, karmaSutunGrup, karmaEkle, karmaSatirlar, karmaKurSaf, karmaTahmin, karmaKesitler })", ctx);
 
 let tohum = 11; const rnd = () => ((tohum = (tohum * 16807) % 2147483647) / 2147483647);
 const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.PI * rnd());
@@ -112,4 +112,7 @@ const med = (A) => { const s = [...A].sort((a, b) => a - b), k = s.length >> 1; 
   await assert.rejects(karmaKurSaf(depo.kareler.slice(0, 5)), /yetersiz kare/);
   console.log(`4) eksik grup: ${atla} kare atlandı; ${S.kare} kare → ${S.F.length} satır (tekrar dahil); üst sınır 30 → ${S2.F.length} satır; uçtan uca tahmin tamam`);
 }
+// 5) göz kesiti aralıkları (parlaklık normalleştirmesi, 27.11): bizim 7 + yama 120 + RE nokta/katsayı 52 → kesitler 179 ve 979
+assert.deepEqual(JSON.parse(JSON.stringify(karmaKesitler(karmaSutunGrup(7, 120)))), [[179, 800], [979, 800]]);
+assert.equal(karmaKesitler(null), null);
 console.log("TAMAM");

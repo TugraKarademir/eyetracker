@@ -10,8 +10,8 @@ const kod = fs.readFileSync(new URL("../static/gaze.js", import.meta.url), "utf8
 const gz = kod.slice(kod.indexOf("const GZ = {"), kod.indexOf("};", kod.indexOf("const GZ = {")) + 2);
 const fn = kod.slice(kod.indexOf("function gzKaymaGuncelle"), kod.indexOf("function gzSecimOz"));
 const ctx = vm.createContext({ Math, Number });
-vm.runInContext(gz + "\n" + fn + "\nthis.G = GZ; this.guncelle = gzKaymaGuncelle; this.bos = gzKaymaBos;", ctx);
-const { G, guncelle, bos } = ctx;
+vm.runInContext(gz + "\n" + fn + "\nthis.G = GZ; this.guncelle = gzKaymaGuncelle; this.bos = gzKaymaBos; this.karar = gzKontrolKarar;", ctx);
+const { G, guncelle, bos, karar } = ctx;
 
 // 1)
 let k = guncelle(bos(), 90, -60);
@@ -35,4 +35,18 @@ assert.equal(n.n, G.KAYMA_NOKTA_AGIRLIK); assert.equal(n.x, 170); assert.equal(n
 n = guncelle(n, 180, 300);   // eskiden 300 px sınırına takılırdı; şimdi düzeltilmiş tahmine yakın
 assert.equal(n.n, G.KAYMA_NOKTA_AGIRLIK + 1);
 assert.equal(guncelle(bos(), 900, 0, true).x, G.KAYMA_MAX);
+// 5) güvenlik ağı (gzKontrolKarar), 27.11 deneme değerleriyle
+const satir = (sec, ana, gos, n = 12) => ({ secim: { dogruluk: sec, n }, ana: { dogruluk: ana, n }, gosterilen: { dogruluk: gos, n } });
+let r = karar(satir(757, 204, 757), bos());                       // karmaH 757, ana 204 → ana modele dön
+assert.equal(r.birak, true); assert.match(r.neden, /757.*204/);
+assert.equal(karar(satir(727, 1010, 738), bos()).birak, false);   // ana daha da kötü: bırakılmaz
+assert.equal(karar(satir(233, 191, 485), bos()).birak, false);    // seçilen 300 px altında: bırakılmaz
+assert.equal(karar(satir(350, 200, 350), bos()).birak, false);    // 2 kattan az kötü: bırakılmaz
+assert.equal(karar(satir(900, 100, 900, 4), bos()).birak, false); // 5 kareden az: karar yok
+const kay = { x: 280, y: 600, n: 3, son: [] };
+r = karar(satir(233, 191, 485), kay);                              // kayma hatayı 233 → 485 büyüttü: sıfırla
+assert.equal(r.kaymaSifirla, true); assert.equal(r.birak, false);
+assert.equal(karar(satir(233, 191, 120), kay).kaymaSifirla, false);   // kayma işe yaradı: kalsın
+assert.equal(karar(satir(233, 191, 485), bos()).kaymaSifirla, false); // kayma yokken sıfırlanacak bir şey yok
+assert.equal(karar({}, kay).birak, false); assert.equal(karar(null, kay).kaymaSifirla, false);
 console.log("kayma: tamam");

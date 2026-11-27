@@ -320,7 +320,7 @@ async function reKur(neden) {
   for (const k of K) for (const f of k.art) { F.push(f); Yr.push(k.y); G.push(k.g); }
   const msg = $("#camMsg"); msg.innerHTML = GOMULU ? "<div>Hazırlanıyor…</div>" : "<div>RealEye Light modeli kuruluyor…</div>"; msg.style.display = "flex";
   const t0 = performance.now();
-  try { RE.model = await new ReRidge().fitSec(F, Yr, G, undefined, () => sleep(16)); }
+  try { RE.model = await new ReRidge().fitSec(F, Yr, G, undefined, () => sleep(16), null, REY_KESITLER); }   // göz kesiti parlaklıktan arındırılır
   catch (e) { tlog(`RealEye Light modeli kurulamadı (${neden}): ${e.message}`); return; }
   finally { msg.style.display = "none"; }
   const sc = RE.model.secim;

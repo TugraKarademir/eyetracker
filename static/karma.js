@@ -31,6 +31,12 @@ function karmaSutunGrup(nBiz, nYama) {
   for (let j = 0; j < p; j++) g[j] = j < nBiz ? 0 : j < re0 ? 1 : j < re0 + REY_KESIT0 ? 2 : j < bas0 ? 3 : 4;
   return g;
 }
+// Göz kesiti sütunları (grup 3: iki 40×20 kesit art arda) → rerKesitNorm aralıkları; model parlaklıktan arındırılmış kesitle çalışır
+function karmaKesitler(sutunGrup) {
+  if (!sutunGrup) return null;
+  const o = sutunGrup.indexOf(3); if (o < 0) return null;
+  return [[o, REY_KESIT_N], [o + REY_KESIT_N, REY_KESIT_N]];
+}
 // Pencere karelerini depoya ekler. g: λ CV grubu (bir bakarak noktası / bir düzeltme tıklaması / bir baş turu noktası).
 // w: satır tekrarı (bizW'nin düzeltme tıklaması ağırlığı "tekrar" ile aynı). Döner: atlanan kare sayısı (eksik grup).
 function karmaEkle(depo, win, sx, sy, g, w, bizOz) {
@@ -59,7 +65,7 @@ function karmaSatirlar(kareler, enCokSatir) {
 async function karmaKurSaf(kareler, { enCokSatir = 600, minKare = 10, bekle = null } = {}) {
   const S = karmaSatirlar(kareler, enCokSatir);
   if (S.kare < minKare) throw new Error(`yetersiz kare: ${S.kare} (en az ${minKare})`);
-  const model = await new ReRidge().fitSec(S.F, S.Y, S.G, undefined, bekle, S.sutunGrup);
+  const model = await new ReRidge().fitSec(S.F, S.Y, S.G, undefined, bekle, S.sutunGrup, karmaKesitler(S.sutunGrup));
   return { model, S };
 }
 // Tahmin: kare karma özniteliği yoksa ya da boyu modelinkinden farklıysa null

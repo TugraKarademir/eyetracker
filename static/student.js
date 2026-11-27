@@ -266,18 +266,20 @@ const DERS_YEDEK = [];
 
 // ================================================================ ders sırasında kare kare veri ve olay günlüğü (kullanıcı kararı 25.11.2026)
 // Her MediaPipe karesi (kare_kayit.js biçimi) + o karenin bakış tahmini; olaylar (olay_gunlugu.js). ~10 sn'de bir /api/ders-veri ile
-// gönderilir; sunucu test_kayitlari/ders_kare/ ve ders_olay/ altına yazar. Göz kesiti (re, kare başına ~1600 sayı) yalnız ?kare=tam ile.
+// gönderilir; sunucu test_kayitlari/ders_kare/ ve ders_olay/ altına yazar. Göz kesiti (re, kare başına ~1600 sayı) VARSAYILAN olarak
+// her karede kaydedilir (kullanıcı kararı 27.11: "her şeyi alalım", ek parametre gerekmez); ?kare=hafif göz kesitini çıkarır,
 // ?kare=0 kare kaydını kapatır (olaylar yine gider). Yerel yedeğe girmez (bellek). Gönderilemeyen kare en çok DERS_KARE.EN_COK tutulur.
 const DERS_YAZILIM = { sayfa: "student", mediapipe: typeof MP_BASE !== "undefined" ? MP_BASE : null, model: typeof MP_MODEL !== "undefined" ? MP_MODEL : null, kareSurum: 2 };
 // Beden verisi (el noktaları ve gövde duruşu, ~3-5/sn): ayrı tampon, aynı gönderim turunda /api/ders-veri "beden" alanıyla → ders_beden/
 const DERS_BEDEN = { satirlar: [], EN_COK: 20000, tasma: 0 };
 function bedenEkle(r) { if (paused || kalCerceve || bitiyor) return; if (DERS_BEDEN.satirlar.length >= DERS_BEDEN.EN_COK) { DERS_BEDEN.satirlar.shift(); DERS_BEDEN.tasma++; } DERS_BEDEN.satirlar.push(r); }
-const DERS_KARE = { acik: params.get("kare") !== "0", tam: params.get("kare") === "tam", kareler: [], bsAd: null, tasma: 0, gonderilen: 0, hata: 0, suruyor: null };
+const DERS_KARE = { acik: params.get("kare") !== "0", tam: params.get("kare") !== "hafif", kareler: [], bsAd: null, tasma: 0, gonderilen: 0, hata: 0, suruyor: null };
 // Bellekte bekleyen en çok kare (gönderilemezse en eskisi atılır, tasma sayılır) ve tek istekteki en çok kare (sunucu sınırı 8 MB):
 // hafif satır ~1,4 KB, göz kesitli (tam) ~10 KB
 DERS_KARE.EN_COK = DERS_KARE.tam ? 3000 : 12000; DERS_KARE.PARTI = DERS_KARE.tam ? 300 : 1500;
 function dersKareBagla() {
   if (!gaze || !DERS_KARE.acik || !window.KareKayit) return;
+  gaze.reKayit = DERS_KARE.tam;   // göz kesiti seçilen model kullanmasa da her karede hesaplanır (kayıt için)
   gaze.onKare = (l, tah) => {
     // ders bitince kayıt durur; yalnız ders sonu kontrolü sürerken (hedefi bilinen kareler) devam eder
     if (paused || kalCerceve || (bitiyor && !gaze.olcumHedef)) return;
@@ -406,9 +408,15 @@ setInterval(async () => {
     const N = BO.O.NOKTA, q = N[olcumSira++ % N.length];
     const L = await BO.kontrol(gaze, [q], "ders_ici", () => "👀 Kısa bakış kontrolü: bu noktaya bakın");
     // Kullanıcı kararı 25.11: ölçüm (düzeltmeden ÖNCE alındı) aynı zamanda kaymayı düzeltir: hedef − seçilen modelin düzeltmesiz ortalaması
+    // Güvenlik ağı (gaze.js gzKontrolKarar; 27.11): seçilen model çok saptıysa ana modele dönülür; öğrenilmiş kayma bu noktada
+    // hatayı büyüttüyse atılır. Karar ve nedeni ölçüm satırına yazılır (secimBirakildi / kaymaSifirlandi).
     for (const m of L) {
       const sec = m.secim;
-      if (sec?.ort && sec.n >= 5) m.kaymaSonra = gaze.kaymaNoktadan(m.hedef[0] - sec.ort[0], m.hedef[1] - sec.ort[1]);
+      if (!(sec?.ort && sec.n >= 5) || !gaze.secim) continue;
+      const k = gzKontrolKarar(m, gaze.kayma);
+      if (k.birak) { m.secimBirakildi = { kod: gaze.secimBirak(k.neden), neden: k.neden }; continue; }
+      if (k.kaymaSifirla) { m.kaymaSifirlandi = { onceki: gaze.kaymaBilgi(), neden: k.neden }; gaze.kaymaSifirla(); }
+      m.kaymaSonra = gaze.kaymaNoktadan(m.hedef[0] - sec.ort[0], m.hedef[1] - sec.ort[1]);
     }
     olcumGonder(L);
   } catch (e) { console.warn("ders içi kontrol", e); }

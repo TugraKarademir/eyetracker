@@ -22,7 +22,10 @@ const GZ = {
   EYE_L: { a: 362, b: 263, top: 386, bot: 374, iris: [473, 474, 475, 476, 477] },
   SETTLE: 0.7, COLLECT: 1.0, SMOOTH: 3, BLINK: 0.15, BLINK_BS: 0.5, BLINK_DOWN: 0.3,
   CLICK_WINDOW: [0.35, 0.05], CLICK_WEIGHT: 3, CLICK_MAX: 600, CLICK_RADIUS: 300,
-  KAYMA_N: 8, KAYMA_TAM: 3, KAYMA_MAX: 600, KAYMA_NOKTA_AGIRLIK: 3,   // seçilen model için ders tıklaması kayma düzeltmesi (gzKaymaGuncelle)
+  KAYMA_N: 8, KAYMA_TAM: 3, KAYMA_MAX: 600, KAYMA_NOKTA_AGIRLIK: 3,
+  // Güvenlik ağı (gzKontrolKarar): ders içi kontrol noktasında seçilen model (düzeltmesiz) hem SECIM_BIRAK_PX'ten hem ana modelin
+  // SECIM_BIRAK_KAT katından kötüyse seçilen model bırakılır, ders ana modelle sürer (27.11: karmaH 757 px, ana 204 px)
+  SECIM_BIRAK_PX: 300, SECIM_BIRAK_KAT: 2,   // seçilen model için ders tıklaması kayma düzeltmesi (gzKaymaGuncelle)
   SNAP: 60, HOLD: 4,
   // Pencere ekranın en az bu oranını kaplamalı (genişlik ve yükseklik ayrı). Bakış hatası ~250 px iken
   // dar bir pencerede bölgeler hatadan küçük kalır; ölçüm anlamsızlaşır, bu yüzden bakış hiç gönderilmez.
@@ -145,6 +148,19 @@ function gzKaymaGuncelle(kay, ex, ey, guvenilir = false) {
   return { x: sin(med(son.map((e) => e[0])) * w), y: sin(med(son.map((e) => e[1])) * w), n: son.length, son };
 }
 const gzKaymaBos = () => ({ x: 0, y: 0, n: 0, son: [] });
+// Ders içi kontrol noktası sonucuna göre güvenlik ağı kararı (saf işlev). m: bakis_olcum.js kontrol satırı (secim/ana/gosterilen:
+// { dogruluk, n, ort }), kay: o anki kayma. Döner { birak, kaymaSifirla, neden }:
+//  birak: seçilen model düzeltmesiz bile hem SECIM_BIRAK_PX'ten hem ana modelin SECIM_BIRAK_KAT katından kötü → ana modele dön
+//  kaymaSifirla: öğrenilmiş kayma bu noktada gösterilen tahmini düzeltmesizden KÖTÜ yaptıysa (hata her yerde aynı yönde değil;
+//    27.11: kayma +600 px'e çıkıp hatayı 677 → 776 px'e büyüttü) eski kayma atılır, yalnız bu noktadan yeniden başlanır
+function gzKontrolKarar(m, kay) {
+  const sec = m?.secim?.dogruluk, ana = m?.ana?.dogruluk, gos = m?.gosterilen?.dogruluk, ok = Number.isFinite;
+  if (!ok(sec) || !(m.secim.n >= 5)) return { birak: false, kaymaSifirla: false, neden: null };
+  if (ok(ana) && sec > GZ.SECIM_BIRAK_PX && sec > GZ.SECIM_BIRAK_KAT * ana)
+    return { birak: true, kaymaSifirla: false, neden: `seçilen model ${sec} px, ana model ${ana} px` };
+  const sifirla = !!(kay && kay.n > 0 && ok(gos) && gos > sec);
+  return { birak: false, kaymaSifirla: sifirla, neden: sifirla ? `kayma hatayı büyüttü: ${sec} → ${gos} px` : null };
+}
 function gzSecimOz(S, l) {
   if (!l?.raw) return null;
   switch (S.kod) {
@@ -494,8 +510,10 @@ class GazeTracker {
       if (typeof wgYama === "function") { try { wgp = wgYama(this.kareKaynak, p); } catch { wgp = null; } }
       this.latest.wgp = wgp;
       try { this.latest.kure = gzKure(lm, w, h); } catch { this.latest.kure = null; }
-      // Seçilen model göz kesiti istiyorsa (reL, karma): yalnız takip sırasında, aynı karenin pikselinden
-      if (this.secim?.re && this.tracking && !blink) { try { this.latest.re = reOznitelik(this.kareKaynak, p, bsAll); } catch { this.latest.re = null; } }
+      // Göz kesiti (aynı karenin pikselinden): seçilen model istiyorsa (reL, karma; takip sırasında, kırpışmada değil) ya da
+      // kare kaydı istiyorsa (reKayit: ders sayfası varsayılanı, her yüzlü kare; ~0,5 ms/kare)
+      if (((this.secim?.re && this.tracking && !blink) || this.reKayit) && typeof reOznitelik === "function") {
+        try { this.latest.re = reOznitelik(this.kareKaynak, p, bsAll); } catch { this.latest.re = null; } }
       // İsteğe bağlı kanca (bakış testi: yakın göz). Aynı karenin landmark pikselleriyle çağrılır.
       if (this.onLandmarks) { try { this.latest.yakin = this.onLandmarks(p, lm); } catch (e) { this.latest.yakinHata = String(e?.message || e); } }
       // Yüz konumu (normalize 0-1): el kaldırma algılayıcısı başa göre karar verir
@@ -704,6 +722,16 @@ class GazeTracker {
   // Ham kayıt için: { x, y, n } (px, ekran) — düzeltme yoksa n 0
   // Ders içi kontrol noktası: hedef − seçilen modelin düzeltmesiz ortalaması (ekran px) kaymaya güvenilir örnek olarak girer
   kaymaNoktadan(ex, ey) { if (this.secim) this.kayma = gzKaymaGuncelle(this.kayma, ex, ey, true); return this.kaymaBilgi(); }
+  kaymaSifirla() { this.kayma = gzKaymaBos(); }
+  // Güvenlik ağı: seçilen model bırakılır, ders ana modelle sürer (sayfa yenilenirse kayıtlı seçim yeniden yüklenir ve kural yeniden işler)
+  secimBirak(neden) {
+    if (!this.secim) return null;
+    const kod = this.secim.kod;
+    this.secim = null; this.secimSon = []; this.kayma = gzKaymaBos();
+    this.secimBirakildi = { kod, neden, t: Date.now() };
+    this._klog?.(`aktarılan model bırakıldı (${kod}): ${neden} → ana model kullanılıyor`);
+    return kod;
+  }
   tikAl() { const L = this.tikHatalar; this.tikHatalar = []; return L; }
   kaymaBilgi() { return this.secim ? { x: Math.round(this.kayma.x), y: Math.round(this.kayma.y), n: this.kayma.n } : null; }
   learnClick(e) {

@@ -72,6 +72,23 @@ function reyBas(p, bs) {
   return v;
 }
 const REY_KESIT0 = REY.LM.length * 2 + REY.BS.length, REY_KESIT_N = REY.W * REY.H;
+// Göz kesiti parlaklık normalleştirmesi (yalnız MODEL İÇİNDE; reOznitelik/reArtir ham 0-1 griyi verir, kayıtlar ham kalır).
+// 27.11 denemesi: test sayfası koyu, ders sayfası açık arka planlı; ekran ışığı yüzü aydınlattı (yüz parlaklığı +8 / +15),
+// ham kesit pikseline dayanan karmaH derste 500-900 px saptı, parlaklık değişmeyen kişide sapmadı. Her kesit (40×20) kendi
+// ortalaması ve standart sapmasıyla ölçeklenir: düzgün aydınlanma (toplama) ve kazanç (çarpma) değişimi kesiti değiştirmez.
+// kesitler: [[başlangıç, uzunluk], …] — reL vektöründe REY_KESITLER, karma vektöründe karmaKesitler(sutunGrup).
+const REY_KESITLER = [[REY_KESIT0, REY_KESIT_N], [REY_KESIT0 + REY_KESIT_N, REY_KESIT_N]];
+function rerKesitNorm(f, kesitler) {
+  if (!kesitler || !kesitler.length) return f;
+  const v = Float32Array.from(f);
+  for (const [o, n] of kesitler) {
+    let s = 0, s2 = 0;
+    for (let j = o; j < o + n; j++) { s += v[j]; s2 += v[j] * v[j]; }
+    const m = s / n, sd = Math.sqrt(Math.max(0, s2 / n - m * m));
+    for (let j = o; j < o + n; j++) v[j] = sd > 1e-6 ? (v[j] - m) / sd : 0;   // düz kesit (tek renk): bilgi yok, 0
+  }
+  return v;
+}
 // Ortak hazırlık: nokta/katsayı kısmı, iki kutu, okunan bölge (biri yoksa null)
 function reyHazirla(src, p, bs) {
   const v = reyBas(p, bs); if (!v) return null;
@@ -186,24 +203,28 @@ function rerGrupLOO(K, n, Yc, gruplar, lam) {
   return { a, artik };
 }
 class ReRidge {
-  _bitir(H, my, a, lam) {   // β = Xᵀ α
+  _bitir(H, my, a, lam, kn = null) {   // β = Xᵀ α
     const { n, p, X } = H;
+    this.kn = kn && kn.length ? kn.map((k) => [k[0], k[1]]) : null;   // göz kesiti normalleştirmesi (predict aynısını uygular)
     this.b = a.map((z) => { const b = new Float64Array(p); for (let i = 0; i < n; i++) { const v = z[i], oi = i * p; for (let j = 0; j < p; j++) b[j] += X[oi + j] * v; } return b; });
     Object.assign(this, { mu: H.mu, sd: H.sd, my, n, p, lam, peff: H.peff, iz: H.iz });
     return this;
   }
-  fit(F, Y, lam = 1, sutunGrup = null) {
+  // kesitler: rerKesitNorm aralıkları (verilirse eğitim ve tahmin satırları parlaklıktan arındırılır); yoksa eski davranış
+  fit(F, Y, lam = 1, sutunGrup = null, kesitler = null) {
+    if (kesitler) F = F.map((f) => rerKesitNorm(f, kesitler));
     const H = rerHazirla(F, sutunGrup), K = rerCekirdek(H.X, H.n, H.p);
     const my = [0, 1].map((c) => Y.reduce((s, y) => s + y[c], 0) / H.n);
     for (let i = 0; i < H.n; i++) K[i * H.n + i] += lam;
     rerCholesky(K, H.n);
-    return this._bitir(H, my, [0, 1].map((c) => rerCoz(K, H.n, Y.map((y) => y[c] - my[c]))), lam);
+    return this._bitir(H, my, [0, 1].map((c) => rerCoz(K, H.n, Y.map((y) => y[c] - my[c]))), lam, kesitler);
   }
   // grup: her satırın grup anahtarı. Hata = grubun ortalama dışarıda-bırakma tahmininin hedefe uzaklığı (px);
   // seçim: gruplar üzerinden medyanı en küçük λ. tablo: her λ için medyan/ortalama.
   // bekle: her λ arasında çağrılır (sayfa donmasın; kurulum 900×1652'de Node'da ~4 sn, λ başına ~0,65 sn)
   // sutunGrup: rerHazirla'daki grup ağırlığı (karma); verilmezse RealEye Light'ın ağırlıksız hâli
-  async fitSec(F, Y, grup, carpanlar = RER_CARPAN, bekle = null, sutunGrup = null) {
+  async fitSec(F, Y, grup, carpanlar = RER_CARPAN, bekle = null, sutunGrup = null, kesitler = null) {
+    if (kesitler) F = F.map((f) => rerKesitNorm(f, kesitler));
     const H = rerHazirla(F, sutunGrup), n = H.n, K = rerCekirdek(H.X, n, H.p);
     { const s = RER_SABIT * H.iz; for (let i = 0; i < n * n; i++) K[i] += s; }
     const my = [0, 1].map((c) => Y.reduce((s, y) => s + y[c], 0) / n), Yc = Y.map((y) => [y[0] - my[0], y[1] - my[1]]);
@@ -221,14 +242,16 @@ class ReRidge {
       if (Number.isFinite(sat.medyan) && (!en || sat.medyan < en.sat.medyan)) en = { sat, a };
     }
     if (!en) throw new Error("λ seçilemedi (hata hesaplanamadı)");
-    this._bitir(H, my, en.a, en.sat.lam);
+    this._bitir(H, my, en.a, en.sat.lam, kesitler);
     this.secim = { tablo, grup: gruplar.length, peff: H.peff, iz: H.iz, grupBoy: H.grupBoy ? Object.fromEntries(H.grupBoy) : null };
     return this;
   }
   // Tahmin için yalnız standartlaştırma ve birincil ağırlıklar (β = Xᵀα) gerekir; eğitim satırları saklanmaz (ders sayfasına aktarım)
-  toJSON() { return { mu: Array.from(this.mu), sd: Array.from(this.sd), b: this.b.map((z) => Array.from(z)), my: this.my, p: this.p, lam: this.lam }; }
+  // kn yoksa (27.11 öncesi kayıtlı model) ham kesitle eğitilmiştir ve ham kesitle tahmin eder: eski kalibrasyon da tutarlı kalır
+  toJSON() { return { mu: Array.from(this.mu), sd: Array.from(this.sd), b: this.b.map((z) => Array.from(z)), my: this.my, p: this.p, lam: this.lam, kn: this.kn || null }; }
   static from(o) { return Object.assign(new ReRidge(), o); }
   predict(f) {
+    if (this.kn) f = rerKesitNorm(f, this.kn);
     let x = this.my[0], y = this.my[1];
     const { mu, sd, b } = this;
     for (let j = 0; j < this.p; j++) { if (sd[j] <= 1e-6) continue; const z = (f[j] - mu[j]) / sd[j]; x += z * b[0][j]; y += z * b[1][j]; }
